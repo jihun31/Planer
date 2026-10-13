@@ -34,7 +34,8 @@ jobs:
             throw 'The GOOGLE_OAUTH_JSON repository secret is required.'
           }
           $path = Join-Path $PWD 'electron/google-oauth.json'
-          [System.IO.File]::WriteAllText($path, $env:GOOGLE_OAUTH_JSON, [System.Text.UTF8Encoding]::new($false))
+          $bytes = [System.Convert]::FromBase64String($env:GOOGLE_OAUTH_JSON)
+          [System.IO.File]::WriteAllBytes($path, $bytes)
 
       - name: Set installer version
         shell: pwsh
