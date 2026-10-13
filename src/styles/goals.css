@@ -1,0 +1,591 @@
+/* ===== 목표 탭 2컬럼 레이아웃 ===== */
+.goals-page {
+  display: grid;
+  grid-template-columns: 1fr 256px;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .goals-page { grid-template-columns: 1fr; }
+  .goals-sidebar { position: static !important; }
+}
+
+.goals-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ===== 오른쪽 사이드바 ===== */
+.goals-sidebar {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  padding: 18px;
+  position: sticky;
+  top: 116px; /* header(62) + tab-nav(54) */
+}
+
+.sidebar-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 14px;
+}
+
+.sidebar-empty {
+  font-size: 0.8rem;
+  color: var(--text-light);
+  text-align: center;
+  padding: 20px 0;
+  line-height: 1.7;
+}
+
+.sidebar-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* 사이드바 목표 색상 점 */
+.sidebar-goal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
+.sidebar-item-body { min-width: 0; flex: 1; }
+
+.sidebar-sub-title {
+  font-size: 0.83rem;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-meta {
+  font-size: 0.71rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* D-badge */
+.d-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 6px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.d-overdue { background: #fee2e2; color: #b91c1c; }
+.d-today   { background: #fef3c7; color: #92400e; }
+.d-urgent  { background: #fed7aa; color: #c2410c; }
+.d-soon    { background: #fef9c3; color: #854d0e; }
+.d-future  { background: #dbeafe; color: #1d4ed8; }
+
+/* ===== 장기 목표 추가 폼 (상단 바) ===== */
+.add-goal-form {
+  display: flex;
+  gap: 10px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ===== 빈 상태 ===== */
+.goals-empty-state {
+  text-align: center;
+  padding: 64px 0 48px;
+}
+
+.empty-big-icon {
+  font-size: 3.4rem;
+  display: block;
+  margin-bottom: 14px;
+}
+
+.empty-main {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.empty-sub {
+  font-size: 0.83rem;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.loading-text {
+  text-align: center;
+  color: var(--text-light);
+  padding: 60px 0;
+  font-size: 0.9rem;
+}
+
+/* ===== 장기 목표 카드 목록 ===== */
+.goal-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ===== 장기 목표 카드 ===== */
+.goal-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  position: relative;
+}
+
+/* 목표 색상 왼쪽 세로 바 */
+.goal-color-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.goal-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.goal-card-icon { font-size: 1.1rem; }
+
+.goal-card-title {
+  flex: 1;
+  font-size: 0.97rem;
+  font-weight: 700;
+}
+
+/* 더블클릭 제목 수정 인풋 */
+.goal-title-input {
+  flex: 1;
+  font-size: 0.97rem;
+  font-weight: 700;
+  border: none;
+  border-bottom: 2px solid;
+  background: transparent;
+  outline: none;
+  padding: 0 2px;
+  min-width: 0;
+}
+
+/* 색상 변경 토글 버튼 (동그라미) */
+.goal-color-toggle {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.6);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.goal-color-toggle:hover { transform: scale(1.2); }
+
+.goal-card-delete {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.goal-card-delete:hover { background: #fee2e2; color: var(--red); border-color: #fca5a5; }
+
+/* 컬러 피커 팔레트 */
+.goal-color-picker {
+  display: flex;
+  gap: 6px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-wrap: wrap;
+}
+
+/* 목표 추가 폼의 색상 팔레트 */
+.goal-add-colors {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+/* 공통 색상 점 버튼 */
+.goal-color-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: transform 0.12s;
+}
+.goal-color-dot:hover { transform: scale(1.2); }
+.gcd-active { transform: scale(1.25); }
+
+/* ===== 세부 목표 목록 ===== */
+.subgoal-list {
+  list-style: none;
+  padding: 10px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.subgoal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.subgoal-item:hover {
+  border-color: #a5b4fc;
+  background: var(--primary-light);
+}
+
+.subgoal-done {
+  opacity: 0.5;
+}
+
+.subgoal-done .subgoal-title {
+  text-decoration: line-through;
+  color: var(--text-light);
+}
+
+.subgoal-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+
+/* 월 / 주 배지 */
+.subgoal-type-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  letter-spacing: 0.03em;
+}
+
+.badge-month { background: #dbeafe; color: #1d4ed8; }
+.badge-week  { background: #d1fae5; color: #065f46; }
+
+.subgoal-period {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 86px;
+}
+
+.subgoal-title {
+  flex: 1;
+  font-size: 0.87rem;
+  color: var(--text);
+  min-width: 0;
+}
+
+.subgoal-delete {
+  background: none;
+  border: none;
+  color: var(--text-light);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: all 0.12s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.subgoal-delete:hover { color: var(--red); background: #fee2e2; }
+
+/* 빈 상태 문구 */
+.subgoal-empty {
+  padding: 10px 20px 2px;
+  color: var(--text-light);
+  font-size: 0.8rem;
+}
+
+/* ===== 세부 목표 추가 폼 (인라인) ===== */
+.subgoal-form {
+  margin: 4px 20px 14px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  border: 1.5px dashed #c7d2fe;
+  padding: 12px;
+}
+
+.subgoal-form-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.subgoal-form-row:last-child { margin-bottom: 0; }
+
+.form-select-sm {
+  padding: 7px 9px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.83rem;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.form-select-sm:focus { border-color: var(--primary); }
+
+.form-input-sm {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.form-input-sm:focus { border-color: var(--primary); }
+
+.btn-subgoal-add {
+  padding: 7px 14px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.btn-subgoal-add:hover { background: var(--primary-dark); }
+.btn-subgoal-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-subgoal-cancel {
+  padding: 7px 12px;
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+}
+
+.btn-subgoal-cancel:hover { background: var(--bg); border-color: #9ca3af; }
+
+/* + 세부 목표 추가 버튼 (카드 하단) */
+.btn-add-subgoal {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 4px 20px 14px;
+  padding: 8px;
+  background: none;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.btn-add-subgoal:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* ===== 완료된 목표 섹션 ===== */
+.completed-section { margin-top: 8px; }
+
+.completed-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s;
+}
+
+.completed-toggle:hover { background: var(--bg); color: var(--text); }
+
+.completed-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--green);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
+
+.toggle-arrow { font-size: 0.72rem; color: var(--text-light); }
+
+.completed-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.completed-group {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.completed-goal-label {
+  padding: 10px 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: #fafafa;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.completed-goal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ===== 목표 등록 탭 ===== */
+.goal-tab-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.goal-tab-forms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.goal-tab-form-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.goal-tab-form-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.form-section-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 2px;
+}
+
+.goal-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .goal-tab-forms    { grid-template-columns: 1fr; }
+  .goal-cards-grid   { grid-template-columns: 1fr; }
+}
+
+/* 공통 form-input (add-goal-form 에서 사용) */
+.form-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.93rem;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.form-input:focus { border-color: var(--primary); background: #fff; }

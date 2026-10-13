@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>⏱ 타이머</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif;
+      background: #ffffff;
+      border: 2px solid #6366f1;
+      border-radius: 10px;
+      overflow: hidden;
+      user-select: none;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 8px 10px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      -webkit-app-region: drag;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #6366f1;
+      flex-shrink: 0;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .name {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #1e293b;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .close-btn {
+      -webkit-app-region: no-drag;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      padding: 0 2px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .close-btn:hover { color: #ef4444; }
+
+    .time {
+      font-size: 1.55rem;
+      font-weight: 800;
+      text-align: center;
+      letter-spacing: 0.03em;
+      line-height: 1.1;
+      color: #6366f1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .start-label {
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-align: center;
+      color: #6366f1;
+    }
+
+    .stop-btn {
+      padding: 5px 0;
+      width: 100%;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      background: none;
+      border: 1.5px solid #6366f1;
+      color: #6366f1;
+      transition: opacity 0.15s;
+      -webkit-app-region: no-drag;
+      font-family: inherit;
+    }
+    .stop-btn:hover { opacity: 0.75; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.3; transform: scale(0.6); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="dot" id="dot"></span>
+    <span class="name" id="name">타이머</span>
+    <button class="close-btn" id="close-btn" title="닫기">✕</button>
+  </div>
+  <div class="time" id="time">00:00</div>
+  <div class="start-label" id="start-label"></div>
+  <button class="stop-btn" id="stop-btn">■ 정지 & 기록</button>
+
+  <script>
+    let startTs = null;
+    let intervalId = null;
+
+    function fmtElapsed(s) {
+      const h   = Math.floor(s / 3600);
+      const m   = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      if (h > 0) return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+      return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+    }
+
+    function applyColor(c) {
+      document.body.style.borderColor = c;
+      document.getElementById('dot').style.background = c;
+      document.getElementById('time').style.color = c;
+      document.getElementById('start-label').style.color = c;
+      document.getElementById('stop-btn').style.color = c;
+      document.getElementById('stop-btn').style.borderColor = c;
+    }
+
+    function startTick() {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = setInterval(() => {
+        if (startTs !== null) {
+          document.getElementById('time').textContent =
+            fmtElapsed(Math.floor((Date.now() - startTs) / 1000));
+        }
+      }, 1000);
+    }
+
+    window.electronAPI.onTimerData((data) => {
+      document.getElementById('name').textContent = data.actName;
+      document.getElementById('start-label').textContent =
+        data.startLabel ? data.startLabel + ' 시작' : '';
+      applyColor(data.color);
+      startTs = data.startTs;
+      startTick();
+    });
+
+    document.getElementById('stop-btn').addEventListener('click', () => {
+      clearInterval(intervalId);
+      window.electronAPI.stopTimerFromPopup();
+    });
+
+    document.getElementById('close-btn').addEventListener('click', () => {
+      clearInterval(intervalId);
+      window.electronAPI.stopTimerFromPopup();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+name: Windows installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run application tests
+        run: npm test
+
+      - name: Restore desktop Google login settings
+        shell: pwsh
+        env:
+          GOOGLE_OAUTH_JSON: ${{ secrets.GOOGLE_OAUTH_JSON }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GOOGLE_OAUTH_JSON)) {
+            throw 'The GOOGLE_OAUTH_JSON repository secret is required.'
+          }
+          $path = Join-Path $PWD 'electron/google-oauth.json'
+          [System.IO.File]::WriteAllText($path, $env:GOOGLE_OAUTH_JSON, [System.Text.UTF8Encoding]::new($false))
+
+      - name: Set installer version
+        shell: pwsh
+        run: npm version "1.0.$env:GITHUB_RUN_NUMBER" --no-git-tag-version
+
+      - name: Build Windows installer
+        run: npm run electron:build
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "1.0.$env:GITHUB_RUN_NUMBER"
+          $tag = "v$version"
+          $installer = Join-Path 'release' "Planer Setup $version.exe"
+          if (-not (Test-Path -LiteralPath $installer)) {
+            throw "Installer not found: $installer"
+          }
+          gh release create $tag $installer --target $env:GITHUB_SHA --title "Planer $version" --generate-notes
