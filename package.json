@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && node electron/run-dev.cjs\"",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "npm run build && electron-builder --publish never",
     "test": "node --test tests/planner-reads.test.mjs tests/google-auth.test.cjs tests/account-isolation.test.mjs tests/activity-history.test.mjs tests/schedule-time.test.mjs tests/control-time.test.mjs tests/control-colors.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project demo-planer-security \"node --test tests/firestore.rules.test.mjs\""
   },
