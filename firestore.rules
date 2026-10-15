@@ -21,6 +21,13 @@ service cloud.firestore {
         && resource.data.uid == request.auth.uid
         && request.resource.data.uid == request.auth.uid;
     }
+    match /priorityNotes/{userId} {
+      allow read: if signedIn() && userId == request.auth.uid;
+      allow create, update: if signedIn() && userId == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'items', 'updatedAt'])
+        && request.resource.data.items is list;
+    }
     // Settings are append-only so earlier days retain their original range.
     match /plannerSettings/{settingId} {
       allow read: if signedIn() && resource.data.uid == request.auth.uid;

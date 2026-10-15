@@ -261,6 +261,31 @@ body {
 .schedule-settings::backdrop { background: #0f172a66; }
 .schedule-settings h2 { font-size: 1.15rem; margin-bottom: 16px; }
 .schedule-settings p { font-size: .85rem; color: var(--text-muted); margin: 12px 0; }
+.schedule-settings-layout { padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.schedule-settings-layout h3,
+.schedule-settings-calendar-title { font-size: .9rem; color: var(--text); }
+.schedule-settings-calendar-title { margin-top: 18px; }
+.today-layout-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.today-layout-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.today-layout-option.selected { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 16%, transparent); }
+.today-layout-option input { align-self: flex-end; margin: 0; accent-color: var(--primary); }
+.today-layout-preview { display: grid; gap: 4px; height: 32px; }
+.today-layout-preview.balanced { grid-template-columns: 4fr 3fr 3fr; }
+.today-layout-preview.equal { grid-template-columns: repeat(3, 1fr); }
+.today-layout-preview i { border-radius: 4px; background: var(--border); }
+.today-layout-preview i:first-child { background: var(--primary); opacity: .7; }
+.today-layout-option-name { font-size: .86rem; font-weight: 700; }
+.today-layout-option small { color: var(--text-muted); font-size: .72rem; }
 .schedule-settings-hours { display: flex; flex-wrap: wrap; gap: 20px; margin: 20px 0; }
 .schedule-settings-hours select { padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
 .schedule-settings-display { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 18px; }

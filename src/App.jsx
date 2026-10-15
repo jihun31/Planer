@@ -6,6 +6,7 @@ import { useAuth } from "./features/auth/useAuth";
 import { useGoals } from "./features/goals/useGoals";
 import { useTasks } from "./features/tasks/useTasks";
 import { useTodos } from "./features/todos/useTodos";
+import { usePriorityNotes } from "./features/priorities/usePriorityNotes";
 import { useLegacyBlockMigration } from './features/planner/useLegacyBlockMigration';
 import { loginWithGoogle, logout, cancelLogin, loginErrorMessage } from "./features/auth/authService";
 import TodayTab from "./components/tabs/TasksTab";
@@ -19,6 +20,13 @@ const TABS = [
   { id: "planner", label: "🕐 시간 관리" },
   { id: "control", label: "🧭 통제" },
 ];
+
+const layoutKey = uid => `planer:today-layout:${uid}`;
+const readTodayLayout = uid => {
+  if (!uid) return 'balanced';
+  try { return window.localStorage.getItem(layoutKey(uid)) === 'equal' ? 'equal' : 'balanced'; }
+  catch { return 'balanced'; }
+};
 
 function BlockMigrationNotice({ error, retry }) {
   if (error) return <div role="alert">
@@ -34,15 +42,24 @@ function App() {
   const goalsData   = useGoals(user?.uid);
   const tasksData   = useTasks(user?.uid);
   const todosData   = useTodos(user?.uid);
+  const priorityData = usePriorityNotes(user?.uid);
   const blockMigration = useLegacyBlockMigration(user?.uid);
   const [settingsUser, setSettingsUser] = useState(null);
+  const [layoutChoice, setLayoutChoice] = useState(null);
+  const todayLayout = layoutChoice && layoutChoice.uid === user?.uid
+    ? layoutChoice.value : readTodayLayout(user?.uid);
+  const changeTodayLayout = value => {
+    if (!user?.uid || !['balanced', 'equal'].includes(value)) return;
+    try { window.localStorage.setItem(layoutKey(user.uid), value); } catch { /* Current session still updates. */ }
+    setLayoutChoice({ uid: user.uid, value });
+  };
   const [scheduleHistory, settingsReady, settingsError] = useCollection(user?.uid, subscribeScheduleSettings);
   const [plannerOpened, setPlannerOpened] = useState(false);
   const [controlOpened, setControlOpened] = useState(false);
 
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const dataError = goalsData.error || tasksData.error || todosData.error;
+  const dataError = goalsData.error || tasksData.error || todosData.error || priorityData.error;
   const handleLogin = async () => {
     if (loginBusy) return;
     setLoginBusy(true);
@@ -113,7 +130,8 @@ function App() {
       </header>
 
       {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
-        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} />}
+        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)}
+        todayLayout={todayLayout} onTodayLayoutChange={changeTodayLayout} />}
       <nav className="tab-nav">
         {TABS.map((tab) => (
           <button
@@ -135,7 +153,8 @@ function App() {
           데이터를 불러오지 못했습니다. 인터넷 연결과 계정 접근 권한을 확인해 주세요.
         </p>}
         <div hidden={activeTab !== "today"}>
-          <TodayTab key={user.uid} tasks={tasksData} todos={todosData} goalsData={goalsData} />
+          <TodayTab key={user.uid} tasks={tasksData} todos={todosData} goalsData={goalsData}
+            priorityData={priorityData} todayLayout={todayLayout} />
         </div>
         <div hidden={activeTab !== "planner"}>
           {plannerOpened && (blockMigration.ready

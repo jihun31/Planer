@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import GoalCard, { periodLabel } from "../GoalCard";
 import { GOAL_COLORS } from "../../features/goals/goalService";
 import { todayStr } from "../../features/habits/habitService";
@@ -226,32 +226,43 @@ function DeadlineGoalsBlock({ goals, subGoals, onManage }) {
       return a.daysLeft - b.daysLeft;
     })
     .slice(0, 8);
+  const groups = [
+    { label: '월간', items: sorted.filter(sub => sub.type === 'month') },
+    { label: '주간', items: sorted.filter(sub => sub.type !== 'month') },
+  ].filter(group => group.items.length > 0);
 
   return (
     <div className="today-block">
       <div className="today-block-hdr">
-        <span className="today-block-title">⏰ 마감 순 목표</span>
+        <span className="today-block-title">⏰ 월별 목표</span>
         <button className="block-manage-btn" onClick={onManage}>관리</button>
       </div>
       {sorted.length === 0 ? (
         <p className="today-block-empty">세부 목표가 없습니다</p>
       ) : (
-        <ul className="sidebar-list" style={{ marginTop: 8 }}>
-          {sorted.map(sub => {
-            const goal = goalMap[sub.goalId];
-            const color = goal?.color || GOAL_COLORS[0];
-            return (
-              <li key={sub.id} className="sidebar-item">
-                <span className="sidebar-goal-dot" style={{ background: color }} />
-                <DBadge days={sub.daysLeft} />
-                <div className="sidebar-item-body">
-                  <p className="sidebar-sub-title">{sub.title}</p>
-                  <p className="sidebar-meta" style={{ color }}>{goal?.title ?? "—"} · {periodLabel(sub)}</p>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="goal-period-groups">
+          {groups.map(group => (
+            <section key={group.label} className="goal-period-group">
+              <h3 className="goal-period-label">{group.label} <span>{group.items.length}</span></h3>
+              <ul className="sidebar-list">
+                {group.items.map(sub => {
+                  const goal = goalMap[sub.goalId];
+                  const color = goal?.color || GOAL_COLORS[0];
+                  return (
+                    <li key={sub.id} className="sidebar-item">
+                      <span className="sidebar-goal-dot" style={{ background: color }} />
+                      <DBadge days={sub.daysLeft} />
+                      <div className="sidebar-item-body">
+                        <p className="sidebar-sub-title">{sub.title}</p>
+                        <p className="sidebar-meta" style={{ color }}>{goal?.title ?? "—"} · {periodLabel(sub)}</p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -296,62 +307,114 @@ function AllTasksBlock({ tasks, onToggle, onDelete, onManage }) {
   );
 }
 
-function TaskCalendar({ tasks, selectedDate, onSelect }) {
-  const today = todayStr();
-  const [year,  setYear]  = useState(() => Number(today.slice(0, 4)));
-  const [month, setMonth] = useState(() => Number(today.slice(5, 7)) - 1);
+function PriorityNotesBlock({ data }) {
+  const { notes, loading, error, addNote, updateNote, deleteNote, moveNote } = data;
+  const [text, setText] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editingText, setEditingText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [openMenuId, setOpenMenuId] = useState(null);
 
-  const DAY_LABELS  = ['일', '월', '화', '수', '목', '금', '토'];
-  const firstDay    = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  useEffect(() => {
+    if (!openMenuId) return;
+    const closeOutside = event => {
+      if (!event.target.closest('.priority-menu-wrap')) setOpenMenuId(null);
+    };
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') setOpenMenuId(null);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [openMenuId]);
 
-  const taskDateMap = useMemo(() => {
-    const map = {};
-    for (const t of tasks) {
-      if (!t.dueDate) continue;
-      if (!map[t.dueDate]) map[t.dueDate] = { total: 0, done: 0 };
-      map[t.dueDate].total++;
-      if (t.completed) map[t.dueDate].done++;
+  const perform = async action => {
+    if (busy) return false;
+    setBusy(true);
+    setActionError('');
+    try {
+      await action();
+      return true;
+    } catch {
+      setActionError('우선순위를 저장하지 못했습니다. 연결 상태와 Firebase 규칙을 확인해 주세요.');
+      return false;
+    } finally {
+      setBusy(false);
     }
-    return map;
-  }, [tasks]);
-
-  const handleMonthChange = (delta) => {
-    const d = new Date(year, month + delta, 1);
-    setYear(d.getFullYear());
-    setMonth(d.getMonth());
   };
 
-  const cells = [];
-  for (let i = 0; i < firstDay; i++) cells.push(null);
-  for (let dd = 1; dd <= daysInMonth; dd++) cells.push(dd);
+  const handleAdd = async event => {
+    event.preventDefault();
+    const value = text.trim();
+    if (value && await perform(() => addNote(value))) setText('');
+  };
+
+  const handleEdit = async event => {
+    event.preventDefault();
+    const value = editingText.trim();
+    if (value && await perform(() => updateNote(editingId, value))) setEditingId(null);
+  };
 
   return (
-    <div className="planner-cal">
-      <div className="cal-header">
-        <button className="cal-nav" onClick={() => handleMonthChange(-1)}>‹</button>
-        <span className="cal-title">{year}년 {month + 1}월</span>
-        <button className="cal-nav" onClick={() => handleMonthChange(1)}>›</button>
+    <section className="today-block priority-block" aria-label="우선순위">
+      <div className="today-block-hdr">
+        <span className="today-block-title">📝 우선순위</span>
       </div>
-      <div className="cal-grid">
-        {DAY_LABELS.map(dl => <div key={dl} className="cal-day-label">{dl}</div>)}
-        {cells.map((day, i) => {
-          if (!day) return <div key={`_${i}`} />;
-          const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const info = taskDateMap[ds];
-          const allDone = info && info.done === info.total;
-          return (
-            <button key={day}
-              className={`cal-day ${ds === selectedDate ? 'cal-sel' : ''} ${ds === today ? 'cal-today' : ''}`}
-              onClick={() => onSelect(ds)}
-            >
-              {day}
-              {info && <span className={`cal-dot ${allDone ? 'cal-dot-done' : ''}`} />}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+      <form className="priority-add-form" onSubmit={handleAdd}>
+        <input className="today-add-input" value={text} onChange={event => setText(event.target.value)}
+          placeholder="우선순위 메모 추가" aria-label="우선순위 메모" />
+        <button className="today-add-btn" type="submit" disabled={busy || !text.trim()}>추가</button>
+      </form>
+      {(error || actionError) && <p className="priority-error" role="alert">
+        {actionError || '우선순위를 불러오지 못했습니다. Firebase 규칙을 확인해 주세요.'}
+      </p>}
+      {loading ? (
+        <p className="today-block-empty">우선순위를 불러오는 중…</p>
+      ) : notes.length === 0 ? (
+        <p className="today-block-empty">첫 번째 우선순위를 적어보세요</p>
+      ) : (
+        <ol className="priority-list">
+          {notes.map((note, index) => (
+            <li key={note.id} className="priority-item">
+              <span className="priority-rank">{index + 1}순위</span>
+              {editingId === note.id ? (
+                <form className="priority-edit-form" onSubmit={handleEdit}>
+                  <input className="priority-edit-input" value={editingText}
+                    onChange={event => setEditingText(event.target.value)}
+                    onKeyDown={event => { if (event.key === 'Escape') setEditingId(null); }}
+                    aria-label={`${index + 1}순위 내용 수정`} autoFocus />
+                  <button type="submit" className="priority-action" disabled={busy || !editingText.trim()} aria-label="수정 저장">✓</button>
+                  <button type="button" className="priority-action" onClick={() => setEditingId(null)} aria-label="수정 취소">✕</button>
+                </form>
+              ) : (
+                <>
+                  <span className="priority-text">{note.text}</span>
+                  <div className="priority-menu-wrap">
+                    <button type="button" className="priority-menu-trigger" disabled={busy}
+                      aria-label={`${index + 1}순위 작업`} aria-expanded={openMenuId === note.id}
+                      onClick={() => setOpenMenuId(openMenuId === note.id ? null : note.id)}>⋯</button>
+                    {openMenuId === note.id && <div className="priority-menu" role="group" aria-label={`${index + 1}순위 작업`}>
+                      <button type="button" disabled={busy || index === 0}
+                        onClick={() => { setOpenMenuId(null); perform(() => moveNote(note.id, -1)); }}>↑ 위로 이동</button>
+                      <button type="button" disabled={busy || index === notes.length - 1}
+                        onClick={() => { setOpenMenuId(null); perform(() => moveNote(note.id, 1)); }}>↓ 아래로 이동</button>
+                      <button type="button" disabled={busy}
+                        onClick={() => { setOpenMenuId(null); setEditingId(note.id); setEditingText(note.text); }}>수정</button>
+                      <button type="button" className="priority-menu-delete" disabled={busy}
+                        onClick={() => { setOpenMenuId(null); perform(() => deleteNote(note.id)); }}>삭제</button>
+                    </div>}
+                  </div>
+                </>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -388,12 +451,16 @@ function TodayMain({ tasks, selectedDate, onAdd, onToggle, onDelete, onDateChang
     setBusy(false);
   };
 
-  const [, m, d] = selectedDate.split('-');
-  const dateLabel = `${Number(m)}월 ${Number(d)}일`;
+  const [year, month, day] = selectedDate.split('-').map(Number);
+  const weekday = ['일', '월', '화', '수', '목', '금', '토'][new Date(year, month - 1, day).getDay()];
+  const dateLabel = `${month}월 ${day}일 (${weekday})`;
   const isToday = selectedDate === todayStr();
 
   return (
     <div className="today-main">
+      <div className="today-block-hdr today-main-hdr">
+        <span className="today-block-title">📅 날짜별 할 일</span>
+      </div>
       <div className="today-date-row">
         <div className="today-date-left">
           <h2 className="today-date-title">
@@ -438,7 +505,7 @@ function TodayMain({ tasks, selectedDate, onAdd, onToggle, onDelete, onDateChang
         <div className="today-empty">
           <span>📝</span>
           <p>이 날의 할 일이 없습니다</p>
-          <p className="today-empty-hint">위 입력창에서 추가하거나<br />달력에서 날짜를 선택하세요.</p>
+          <p className="today-empty-hint">위 입력창에서 추가하거나<br />날짜 화살표로 이동하세요.</p>
         </div>
       ) : (
         <div className="today-grouped-list">
@@ -468,7 +535,7 @@ function TodayMain({ tasks, selectedDate, onAdd, onToggle, onDelete, onDateChang
 }
 
 /* ── 탭 루트 ── */
-function TodayTab({ tasks: tasksData, todos: todosData, goalsData }) {
+function TodayTab({ tasks: tasksData, todos: todosData, goalsData, priorityData, todayLayout = 'balanced' }) {
   const { tasks, addTask, toggleTask, deleteTask } = tasksData;
   const { todos, addTodo, toggleTodo, deleteTodo } = todosData;
   const { goals = [], subGoals = [], addGoal, deleteGoal, updateGoalColor, updateGoalTitle, addSubGoal, deleteSubGoal, toggleSubGoal } = goalsData;
@@ -478,17 +545,20 @@ function TodayTab({ tasks: tasksData, todos: todosData, goalsData }) {
   const [taskPopup,    setTaskPopup]    = useState(false);
 
   return (
-    <div className="today-layout">
+    <div className={`today-layout today-layout-${todayLayout}`}>
       <TodayMain
         tasks={tasks} selectedDate={selectedDate}
         onAdd={addTask} onToggle={toggleTask} onDelete={deleteTask}
         onDateChange={setSelectedDate}
       />
 
-      <div className="today-right">
-        <DeadlineGoalsBlock goals={goals} subGoals={subGoals} onManage={() => setGoalPopup(true)} />
+      <div className="today-middle">
         <AllTasksBlock tasks={todos} onToggle={toggleTodo} onDelete={deleteTodo} onManage={() => setTaskPopup(true)} />
-        <TaskCalendar tasks={tasks} selectedDate={selectedDate} onSelect={setSelectedDate} />
+      </div>
+
+      <div className="today-right">
+        <PriorityNotesBlock data={priorityData} />
+        <DeadlineGoalsBlock goals={goals} subGoals={subGoals} onManage={() => setGoalPopup(true)} />
       </div>
 
       {goalPopup && (

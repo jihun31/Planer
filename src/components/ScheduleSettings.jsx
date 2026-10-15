@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { saveScheduleSettings } from '../features/planner/scheduleSettings';
 import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs';
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
-export default function ScheduleSettings({ uid, history, ready, error, onClose }) {
+export default function ScheduleSettings({ uid, history, ready, error, onClose, todayLayout, onTodayLayoutChange }) {
   const current = rangeForDate(history, plannerDate());
   const display = oppositeDisplayFromHistory(history);
   const [startHour, setStartHour] = useState(current.startHour);
@@ -24,8 +24,28 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose }
   const options = Array.from({length:24}, (_,h) => <option key={h} value={h}>{String(h).padStart(2,'0')}:00</option>);
   const displayOptions = <><option value="all">모두 표시</option><option value="faded">흐릿하게</option><option value="blind">블라인드</option><option value="hidden">투명화</option></>;
   return <dialog ref={dialog} className="schedule-settings" onCancel={e => { if(saving) e.preventDefault(); else onClose(); }}>
+    <h2>설정</h2>
+    <section className="schedule-settings-layout" aria-label="오늘 할 일 화면 배치">
+      <h3>오늘 할 일 화면 배치</h3>
+      <div className="today-layout-options">
+        {[
+          { value: 'balanced', label: '균형형', ratio: '40 : 30 : 30' },
+          { value: 'equal', label: '균등형', ratio: '1 : 1 : 1' },
+        ].map(option => (
+          <label key={option.value} className={`today-layout-option ${todayLayout === option.value ? 'selected' : ''}`}>
+            <input type="radio" name="today-layout" value={option.value}
+              checked={todayLayout === option.value}
+              onChange={() => onTodayLayoutChange(option.value)} />
+            <span className={`today-layout-preview ${option.value}`} aria-hidden="true"><i /><i /><i /></span>
+            <span className="today-layout-option-name">{option.label}</span>
+            <small>{option.ratio}</small>
+          </label>
+        ))}
+      </div>
+      <p>선택 즉시 적용되며, 이 컴퓨터에서 계정별로 기억됩니다.</p>
+    </section>
     <form onSubmit={save}>
-      <h2>캘린더 설정</h2>
+      <h3 className="schedule-settings-calendar-title">시간 관리·통제 캘린더</h3>
       <p>달력에 표시할 하루의 시간 범위</p>
       <div className="schedule-settings-hours">
         <label>시작 <select value={startHour} onChange={e => setStartHour(Number(e.target.value))} disabled={saving}>{options}</select></label>
@@ -45,8 +65,8 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose }
       </div>
       {(!ready || error || failure) && <p role="alert">{failure || (error ? '설정을 불러오지 못했습니다. Firebase 규칙에 plannerSettings 접근 허용이 필요합니다.' : '설정을 불러오는 중…')}</p>}
       <div className="schedule-settings-actions">
-        <button type="button" className="btn-signout" onClick={onClose} disabled={saving}>취소</button>
-        <button type="submit" className="btn btn-login" disabled={saving || !ready || !!error}>{saving ? '저장 중…' : '저장'}</button>
+        <button type="button" className="btn-signout" onClick={onClose} disabled={saving}>닫기</button>
+        <button type="submit" className="btn btn-login" disabled={saving || !ready || !!error}>{saving ? '저장 중…' : '캘린더 설정 저장'}</button>
       </div>
     </form>
   </dialog>;
