@@ -8,7 +8,12 @@ function listen(channel, cb) {
 contextBridge.exposeInMainWorld('electronAPI', {
   loginWithGoogle: () => ipcRenderer.invoke('auth:google'),
   cancelGoogleLogin: () => ipcRenderer.send('auth:cancel'),
+  getYouTubeTitle: id => ipcRenderer.invoke('notes:youtube-title',id),
+  readUiText: () => ipcRenderer.invoke('ui-text:read'),
+  saveUiText: (section,items) => ipcRenderer.invoke('ui-text:save',section,items),
+  showUiTextFile: () => ipcRenderer.invoke('ui-text:show-file'),
   openTimerPopup: (data) => ipcRenderer.send('timer:open', data),
+  startTimerPopup: (data) => ipcRenderer.invoke('timer:start', data),
   closeTimerPopup: () => ipcRenderer.send('timer:close'),
   stopTimerFromPopup: () => ipcRenderer.send('timer:stop-from-popup'),
   onTimerStopped: (cb) => listen('timer:stopped', cb),

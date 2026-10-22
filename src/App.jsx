@@ -1,7 +1,7 @@
 import ScheduleSettings from './components/ScheduleSettings';
 import { useCollection } from './lib/useCollection';
 import { subscribeScheduleSettings } from './features/planner/scheduleSettings';
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "./features/auth/useAuth";
 import { useGoals } from "./features/goals/useGoals";
 import { useTasks } from "./features/tasks/useTasks";
@@ -11,6 +11,14 @@ import { useLegacyBlockMigration } from './features/planner/useLegacyBlockMigrat
 import { loginWithGoogle, logout, cancelLogin, loginErrorMessage } from "./features/auth/authService";
 import TodayTab from "./components/tabs/TasksTab";
 import PlannerTab from "./components/tabs/PlannerTab";
+import LearningTab, { LearningSummary } from './components/tabs/LearningTab';
+import HelpDialog from './components/HelpDialog';
+import NotesTab from './components/tabs/NotesTab';
+import CalendarTab from './components/tabs/CalendarTab';
+import { useLearning } from './features/learning/useLearning';
+import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
+import { useTabVisibility } from './features/navigation/useTabVisibility';
+import { visibleAppTabs } from './features/navigation/tabVisibility.mjs';
 import "./styles/app.css";
 import "./styles/goals.css";
 import "./styles/tasks.css";
@@ -19,14 +27,10 @@ const TABS = [
   { id: "today",   label: "📋 오늘 할 일" },
   { id: "planner", label: "🕐 시간 관리" },
   { id: "control", label: "🧭 통제" },
+  { id: "learning", label: "🌱 학습 기록" },
+  { id: "notes", label: "📝 메모" },
+  { id: "calendar", label: "📅 캘린더" },
 ];
-
-const layoutKey = uid => `planer:today-layout:${uid}`;
-const readTodayLayout = uid => {
-  if (!uid) return 'balanced';
-  try { return window.localStorage.getItem(layoutKey(uid)) === 'equal' ? 'equal' : 'balanced'; }
-  catch { return 'balanced'; }
-};
 
 function BlockMigrationNotice({ error, retry }) {
   if (error) return <div role="alert">
@@ -39,23 +43,50 @@ function BlockMigrationNotice({ error, retry }) {
 function App() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState("today");
+  const [{control:controlVisible,calendar:calendarVisible,notes:notesVisible}] = useTabVisibility(user?.uid);
+  const visibleTabs = useMemo(() => visibleAppTabs(TABS,{control:controlVisible,calendar:calendarVisible,notes:notesVisible}),[controlVisible,calendarVisible,notesVisible]);
+  const currentTab = visibleTabs.some(tab => tab.id === activeTab) ? activeTab : 'today';
+  useEffect(() => {if (activeTab !== currentTab) setActiveTab(currentTab);},[activeTab,currentTab]);
   const goalsData   = useGoals(user?.uid);
   const tasksData   = useTasks(user?.uid);
   const todosData   = useTodos(user?.uid);
   const priorityData = usePriorityNotes(user?.uid);
   const blockMigration = useLegacyBlockMigration(user?.uid);
   const [settingsUser, setSettingsUser] = useState(null);
-  const [layoutChoice, setLayoutChoice] = useState(null);
-  const todayLayout = layoutChoice && layoutChoice.uid === user?.uid
-    ? layoutChoice.value : readTodayLayout(user?.uid);
-  const changeTodayLayout = value => {
-    if (!user?.uid || !['balanced', 'equal'].includes(value)) return;
-    try { window.localStorage.setItem(layoutKey(user.uid), value); } catch { /* Current session still updates. */ }
-    setLayoutChoice({ uid: user.uid, value });
-  };
+  const [helpOpen, setHelpOpen] = useState(false);
   const [scheduleHistory, settingsReady, settingsError] = useCollection(user?.uid, subscribeScheduleSettings);
   const [plannerOpened, setPlannerOpened] = useState(false);
   const [controlOpened, setControlOpened] = useState(false);
+  const [learningOpened, setLearningOpened] = useState(false);
+  const [notesOpened, setNotesOpened] = useState(false);
+  const [calendarOpened, setCalendarOpened] = useState(false);
+  const learning = useLearning(plannerOpened || learningOpened ? user?.uid : null);
+  const activateTab = useCallback(tabId => {
+    setActiveTab(tabId);
+    if (tabId === 'planner') setPlannerOpened(true);
+    if (tabId === 'control') setControlOpened(true);
+    if (tabId === 'learning') setLearningOpened(true);
+    if (tabId === 'notes') setNotesOpened(true);
+    if (tabId === 'calendar') setCalendarOpened(true);
+  }, []);
+  const openLearning = () => activateTab('learning');
+
+  useEffect(() => {
+    if (loading || !user || settingsUser === user.uid) return;
+    const onKeyDown = event => {
+      if (event.key !== 'Tab' || event.repeat || event.defaultPrevented || event.isComposing
+        || event.altKey || event.ctrlKey || event.metaKey
+        || isEditingTarget(event.target) || hasVisibleModal()) return;
+      const currentIndex = visibleTabs.findIndex(tab => tab.id === currentTab);
+      const nextIndex = (currentIndex + (event.shiftKey ? -1 : 1) + visibleTabs.length) % visibleTabs.length;
+      const nextTab = visibleTabs[nextIndex];
+      event.preventDefault();
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      activateTab(nextTab.id);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [currentTab, visibleTabs, activateTab, loading, settingsUser, user]);
 
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -124,24 +155,22 @@ function App() {
             <img src={user.photoURL} alt="프로필" className="avatar" />
           )}
           <span className="user-name">{user.displayName}</span>
+          <button type="button" className="header-help" aria-label="사용법 보기" title="사용법"
+            onClick={() => setHelpOpen(true)}>?</button>
           <button className="btn-signout" onClick={() => setSettingsUser(user.uid)} disabled={!settingsReady}>⚙ 설정</button>
           <button className="btn-signout" onClick={logout}>로그아웃</button>
         </div>
       </header>
 
       {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
-        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)}
-        todayLayout={todayLayout} onTodayLayoutChange={changeTodayLayout} />}
+        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} />}
+      {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
       <nav className="tab-nav">
-        {TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
-            className={`tab-btn ${activeTab === tab.id ? "tab-active" : ""}`}
-            onClick={() => {
-              setActiveTab(tab.id);
-              if (tab.id === "planner") setPlannerOpened(true);
-              if (tab.id === "control") setControlOpened(true);
-            }}
+            className={`tab-btn ${currentTab === tab.id ? "tab-active" : ""}`}
+            onClick={() => activateTab(tab.id)}
           >
             {tab.label}
           </button>
@@ -152,19 +181,29 @@ function App() {
         {dataError && <p role="alert">
           데이터를 불러오지 못했습니다. 인터넷 연결과 계정 접근 권한을 확인해 주세요.
         </p>}
-        <div hidden={activeTab !== "today"}>
+        <div hidden={currentTab !== "today"}>
           <TodayTab key={user.uid} tasks={tasksData} todos={todosData} goalsData={goalsData}
-            priorityData={priorityData} todayLayout={todayLayout} />
+            priorityData={priorityData} />
         </div>
-        <div hidden={activeTab !== "planner"}>
+        <div hidden={currentTab !== "planner"}>
+          {plannerOpened && <LearningSummary learning={learning} onOpen={openLearning} />}
           {plannerOpened && (blockMigration.ready
-            ? <PlannerTab key={user.uid} uid={user.uid} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
+            ? <PlannerTab key={user.uid} uid={user.uid} active={currentTab === 'planner'} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
             : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />)}
         </div>
-        <div hidden={activeTab !== "control"}>
+        <div hidden={currentTab !== "control"}>
           {controlOpened && (blockMigration.ready
-            ? <PlannerTab key={`${user.uid}-control`} uid={user.uid} control scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
+            ? <PlannerTab key={`${user.uid}-control`} uid={user.uid} control active={currentTab === 'control'} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
             : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />)}
+        </div>
+        <div hidden={currentTab !== "learning"}>
+          {learningOpened && <LearningTab key={user.uid} learning={learning} active={currentTab === 'learning'} />}
+        </div>
+        <div hidden={currentTab !== 'calendar'}>
+          {calendarOpened && <CalendarTab key={user.uid} uid={user.uid} active={currentTab === 'calendar'} />}
+        </div>
+        <div hidden={currentTab !== 'notes'}>
+          {notesOpened && <NotesTab key={user.uid} uid={user.uid} />}
         </div>
       </main>
     </div>

@@ -30,4 +30,5 @@ release/
 release-*/
 .builder-cache/
 .firebase/
+local-data/
 *-debug.log

@@ -57,10 +57,12 @@ test('collection hook clears previous account immediately and ignores late callb
 test('preload subscriptions return cleanup and never pass raw Electron events', () => {
   const listeners = new Map();
   let api;
+  let started;
   vm.runInNewContext(fs.readFileSync('electron/preload.cjs','utf8'), {
     require: () => ({
       contextBridge: { exposeInMainWorld: (_key, value) => { api = value; } },
       ipcRenderer: {
+        invoke: (name, data) => { started = { name, data }; return Promise.resolve({ ok: true }); },
         on: (name, callback) => listeners.set(name, callback),
         removeListener: (name, callback) => { if (listeners.get(name) === callback) listeners.delete(name); },
       },
@@ -71,10 +73,15 @@ test('preload subscriptions return cleanup and never pass raw Electron events', 
   listeners.get('timer:stopped')({ sender: 'privileged' }, 'safe');
   assert.equal(received, 'safe');
   remove(); assert.equal(listeners.size, 0);
+  return api.startTimerPopup({ actName: 'Study' }).then(result => {
+    assert.deepEqual(started, { name: 'timer:start', data: { actName: 'Study' } });
+    assert.equal(result.ok, true);
+  });
 });
 
 test('Electron IPC rejects other windows and child frames; stop is delivered once from timer window', async () => {
   const handlers = new Map(), invokes = new Map(), windows = [];
+  const titleRequests = [];
   class FakeWindow {
     constructor() {
       this.events = new Map(); this.dead = false; this.sent = [];
@@ -89,7 +96,7 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
     loadURL(url) { this.webContents.mainFrame.url = url; }
     isDestroyed() { return this.dead; }
     close() { this.events.get('close')?.(); this.dead = true; this.events.get('closed')?.(); }
-    focus() {} restore() {} minimize() {} setPosition() {}
+    focus() {} restore() {} minimize() { this.minimized = true; } setPosition() {}
   }
   const pathModule = await import('node:path');
   const urlModule = await import('node:url');
@@ -109,20 +116,34 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
       if (name === './google-auth.cjs') return {};
       throw Error('Unexpected require ' + name);
     },
-    URL, process: { platform: 'win32' },
+    URL, AbortSignal, encodeURIComponent, process: { platform: 'win32' },
+    fetch:async (url,options) => {titleRequests.push({url,options});return {ok:true,json:async () => ({title:'공개 영상 제목',author_name:'영상 채널'})};},
   };
   vm.runInNewContext(fs.readFileSync('electron/main.js','utf8'), context);
   const main = windows[0];
   const eventFor = win => ({ sender: win.webContents, senderFrame: win.webContents.mainFrame });
   const maliciousFrame = { sender: main.webContents, senderFrame: { url: main.webContents.mainFrame.url } };
   assert.equal((await invokes.get('auth:google')(maliciousFrame)).code, 'desktop/forbidden');
+  assert.equal((await invokes.get('notes:youtube-title')(maliciousFrame,'jNQXAC9IVRw')).code,'desktop/forbidden');
+  assert.equal((await invokes.get('notes:youtube-title')(eventFor(main),'https://evil.example')).ok,false);
+  assert.equal(titleRequests.length,0);
+  assert.equal((await invokes.get('notes:youtube-title')(eventFor(main),'jNQXAC9IVRw')).title,'공개 영상 제목');
+  assert.equal((await invokes.get('notes:youtube-title')(eventFor(main),'jNQXAC9IVRw')).author,'영상 채널');
+  assert.equal(new URL(titleRequests[0].url).origin,'https://www.youtube.com');
+  assert.equal(titleRequests[0].options.redirect,'error');
   assert.equal((await invokes.get('auth:google')(eventFor(main))).code, 'desktop/config-missing');
   const data = { actName: 'Study', color: '#6366f1', startTs: 100, startLabel: '08:00' };
   handlers.get('timer:open')(maliciousFrame, data);
   assert.equal(windows.length, 1);
-  handlers.get('timer:open')(eventFor(main), data);
+  main.webContents.mainFrame.url += '?vite=refresh';
+  assert.equal((await invokes.get('timer:start')(eventFor(main), data)).ok, true);
   assert.equal(windows.length, 2);
+  assert.equal(main.minimized, true);
+  main.webContents.mainFrame.url = 'http://localhost:5173/other';
+  assert.equal((await invokes.get('timer:start')(eventFor(main), data)).code, 'desktop/forbidden');
+  main.webContents.mainFrame.url = 'http://localhost:5173/';
   const timer = windows[1];
+  assert.equal((await invokes.get('notes:youtube-title')(eventFor(timer),'jNQXAC9IVRw')).code,'desktop/forbidden');
   assert.equal((await invokes.get('auth:google')(eventFor(timer))).code, 'desktop/forbidden');
   handlers.get('timer:stop-from-popup')(eventFor(main));
   assert.ok(!timer.dead);

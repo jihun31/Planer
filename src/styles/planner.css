@@ -141,6 +141,8 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
+.act-chip-start { padding:0; border:0; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.act-chip-start:disabled { cursor:default; }
 
 .act-chip-del {
   background: none;
@@ -296,6 +298,20 @@
 .timer-btn-stop:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ===== 캘린더 ===== */
+.study-gap-dialog { margin:auto; width:min(440px,calc(100vw - 32px)); max-height:calc(100vh - 40px); overflow:auto; border:1px solid var(--border); border-radius:14px; padding:24px; color:var(--text); box-shadow:var(--shadow-lg); }
+.study-gap-dialog::backdrop { background:#0f172a66; }
+.study-gap-dialog h2 { font-size:1.1rem; margin-bottom:10px; }
+.study-gap-dialog p { margin:10px 0; color:var(--text-muted); font-size:.82rem; line-height:1.6; }
+.study-gap-dialog label { display:grid; gap:7px; font-size:.85rem; margin-top:14px; }
+.study-gap-dialog select,.study-gap-dialog input { width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font:inherit; background:white; color:var(--text); }
+.study-gap-ranges { display:flex; flex-wrap:wrap; gap:8px 14px; margin:18px 0; padding:14px; background:var(--bg); border-radius:8px; font-size:.88rem; font-variant-numeric:tabular-nums; }
+.study-gap-ranges strong { margin-left:auto; }
+.study-gap-custom { display:grid; grid-template-columns:minmax(0,1fr) 110px; gap:12px; }
+.study-gap-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:22px; }
+.study-gap-actions button { padding:9px 12px; border:1px solid var(--border); border-radius:8px; background:white; color:var(--text); font:inherit; font-size:.82rem; cursor:pointer; }
+.study-gap-actions .study-gap-primary { background:var(--primary); border-color:var(--primary); color:white; }
+.study-gap-actions button:disabled { opacity:.5; cursor:default; }
+.study-gap-dialog [role="alert"] { color:#b91c1c; }
 .planner-cal {
   background: var(--surface);
   border-radius: var(--radius);
@@ -920,3 +936,5 @@
   .ds-scroll { max-height: 480px; }
 }
 
+.learning-custom-checkbox { display:inline-flex; align-items:center; gap:6px; color:var(--text-muted); font-size:12px; white-space:nowrap; cursor:pointer; }
+.learning-custom-checkbox input { width:15px; height:15px; margin:0; accent-color:#36745e; }

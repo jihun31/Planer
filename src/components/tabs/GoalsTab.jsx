@@ -1,6 +1,7 @@
 import { useState } from "react";
-import GoalCard, { periodLabel } from "../GoalCard";
+import GoalCard from "../GoalCard";
 import { GOAL_COLORS } from "../../features/goals/goalService";
+import { periodLabel } from "../../features/goals/periodLabel";
 import { todayStr } from "../../features/habits/habitService";
 
 function AddGoalForm({ onAdd, goalsCount }) {

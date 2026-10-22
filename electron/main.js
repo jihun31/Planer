@@ -11,12 +11,41 @@ let mainWindow = null, timerWindow = null, loginSession = null;
 let timerStopPending = false;
 
 function fromWindow(event, win, expectedUrl) {
+  let samePage = false;
+  try {
+    const actual = new URL(event.senderFrame.url);
+    const expected = new URL(expectedUrl);
+    samePage = actual.protocol === expected.protocol && actual.host === expected.host
+      && actual.pathname === expected.pathname;
+  } catch { /* Reject malformed sender URLs. */ }
   return !!win && !win.isDestroyed() && event.sender === win.webContents
     && event.senderFrame === win.webContents.mainFrame
-    && event.senderFrame.url === expectedUrl;
+    && samePage;
 }
 const fromMain = event => fromWindow(event, mainWindow, mainUrl);
 const fromTimer = event => fromWindow(event, timerWindow, timerUrl);
+
+let uiTextStore;
+const uiTextPath = () => isDev ? path.join(__dirname,'../local-data/ui-text-edits.json')
+  : path.join(app.getPath('userData'),'ui-text-edits.json');
+function getUiTextStore() {
+  return uiTextStore ||= require('./ui-text-store.cjs').createUiTextStore(uiTextPath());
+}
+ipcMain.handle('ui-text:read',async event => {
+  if (!fromMain(event)) return {ok:false,code:'desktop/forbidden'};
+  try {return {ok:true,data:await getUiTextStore().read(),path:uiTextPath()};}
+  catch {return {ok:false,code:'text/read-failed'};}
+});
+ipcMain.handle('ui-text:save',async (event,section,items) => {
+  if (!fromMain(event)) return {ok:false,code:'desktop/forbidden'};
+  try {return {ok:true,data:await getUiTextStore().save(section,items),path:uiTextPath()};}
+  catch {return {ok:false,code:'text/save-failed'};}
+});
+ipcMain.handle('ui-text:show-file',async event => {
+  if (!fromMain(event)) return {ok:false,code:'desktop/forbidden'};
+  try {await fs.promises.access(uiTextPath());shell.showItemInFolder(uiTextPath());return {ok:true};}
+  catch {return {ok:false,code:'text/file-not-found'};}
+});
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -51,7 +80,7 @@ function createMainWindow() {
 function createTimerWindow(data) {
   if (!data || typeof data.actName !== 'string' || data.actName.length > 500 ||
       !Number.isFinite(data.startTs) || typeof data.color !== 'string' ||
-      !/^#[0-9a-f]{6}$/i.test(data.color)) return;
+      !/^#[0-9a-f]{6}$/i.test(data.color)) return false;
   const safeData = {
     actName: data.actName, startTs: data.startTs, color: data.color,
     startLabel: typeof data.startLabel === 'string' ? data.startLabel.slice(0, 30) : '',
@@ -59,7 +88,7 @@ function createTimerWindow(data) {
   if (timerWindow && !timerWindow.isDestroyed()) {
     timerWindow.focus();
     timerWindow.webContents.send('timer:data', safeData);
-    return;
+    return true;
   }
   const win = new BrowserWindow({
     width: 200, height: 128, resizable: false,
@@ -87,6 +116,7 @@ function createTimerWindow(data) {
   win.on('closed', () => { if (timerWindow === win) timerWindow = null; });
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
   win.setPosition(x + width - 216, y + height - 144);
+  return true;
 }
 
 ipcMain.handle('auth:google', async event => {
@@ -109,8 +139,26 @@ ipcMain.handle('auth:google', async event => {
   } finally { if (loginSession === session) loginSession = null; }
 });
 ipcMain.on('auth:cancel', event => { if (fromMain(event)) loginSession?.cancel(); });
+ipcMain.handle('notes:youtube-title', async (event,id) => {
+  if (!fromMain(event)) return {ok:false,code:'desktop/forbidden'};
+  if (typeof id !== 'string' || !/^[\w-]{11}$/.test(id)) return {ok:false};
+  try {
+    const response = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`,
+      {credentials:'omit',redirect:'error',signal:AbortSignal.timeout(10000)});
+    if (!response.ok || !fromMain(event)) return {ok:false};
+    const {title,author_name:author} = await response.json();
+    return typeof title === 'string' && title.trim() && title.length <= 500
+      ? {ok:true,title:title.trim(),author:typeof author === 'string' ? author.slice(0,200) : ''} : {ok:false};
+  } catch { return {ok:false}; }
+});
 ipcMain.on('window:minimize-main', event => { if (fromMain(event)) mainWindow.minimize(); });
 ipcMain.on('timer:open', (event, data) => { if (fromMain(event)) createTimerWindow(data); });
+ipcMain.handle('timer:start', (event, data) => {
+  if (!fromMain(event)) return { ok: false, code: 'desktop/forbidden' };
+  if (!createTimerWindow(data)) return { ok: false, code: 'desktop/invalid-timer' };
+  mainWindow.minimize();
+  return { ok: true };
+});
 ipcMain.on('timer:close', event => {
   if (!fromMain(event)) return;
   timerStopPending = false;

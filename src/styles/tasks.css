@@ -538,8 +538,6 @@
   align-items: start;
 }
 
-.today-layout-equal { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-
 .today-main {
   display: flex;
   flex-direction: column;
@@ -791,6 +789,12 @@
   border-radius: var(--radius);
   padding: 14px 16px;
   box-shadow: var(--shadow-sm);
+}
+
+@media (min-width: 1101px) {
+  .today-layout { align-items: stretch; }
+  .today-middle > .today-block { flex: 1; }
+  .today-right > .today-block:last-child { margin-top: auto; }
 }
 
 .today-block-hdr {

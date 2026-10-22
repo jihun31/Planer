@@ -1,5 +1,5 @@
 import { useCollection } from "../../lib/useCollection";
-import { subscribeTodos, addTodo, deleteTodo, toggleTodo } from "./todoService";
+import { subscribeTodos, addTodo, deleteTodo } from "./todoService";
 
 export const useTodos = (uid) => {
   const [todos, ready, error] = useCollection(uid, subscribeTodos);
@@ -9,6 +9,5 @@ export const useTodos = (uid) => {
     loading: !ready,
     addTodo: (data) => addTodo(uid, data),
     deleteTodo,
-    toggleTodo,
   };
 };

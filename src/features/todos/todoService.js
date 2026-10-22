@@ -1,6 +1,6 @@
 import {
   collection, addDoc, deleteDoc, doc,
-  query, where, onSnapshot, serverTimestamp, updateDoc,
+  query, where, onSnapshot, serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../../firebase/config";
 
@@ -21,5 +21,3 @@ export const addTodo = (uid, data) =>
 
 export const deleteTodo = (id) => deleteDoc(doc(db, "todos", id));
 
-export const toggleTodo = (id, completed) =>
-  updateDoc(doc(db, "todos", id), { completed: !completed });

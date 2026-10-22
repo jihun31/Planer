@@ -1,15 +1,11 @@
 import { useState } from "react";
 import { GOAL_COLORS } from "../features/goals/goalService";
+import { periodLabel } from "../features/goals/periodLabel";
 
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: 4 }, (_, i) => currentYear - 1 + i);
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 const WEEKS_OF_MONTH = [1, 2, 3, 4, 5];
-
-export function periodLabel(sub) {
-  if (sub.type === "month") return `${sub.year}년 ${sub.month}월`;
-  return `${sub.year}년 ${sub.month}월 ${sub.weekOfMonth}주`;
-}
 
 function SubGoalForm({ onAdd, onCancel }) {
   const [type, setType] = useState("month");

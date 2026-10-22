@@ -8,6 +8,10 @@ export function plannerDate(value = new Date()) {
 function localDate(d) {
   return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-');
 }
+export function shiftPlannerDate(date, days) {
+  const [year, month, day] = date.split('-').map(Number);
+  return localDate(new Date(year, month-1, day+days, 12));
+}
 export function validRange(range) {
   return Number.isInteger(range.startHour) && Number.isInteger(range.endHour)
     && range.startHour >= 0 && range.startHour < 24 && range.endHour >= 0 && range.endHour < 24;

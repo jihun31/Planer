@@ -5,6 +5,173 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { doc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, collection, query, where, writeBatch } from 'firebase/firestore';
 
 const collections = ['goals', 'subGoals', 'tasks', 'todos', 'plannerActivities', 'scheduleBlocks', 'controlActivities', 'controlBlocks', 'habits', 'habitLogs', 'progressItems', 'progressLogs'];
+
+test('calendar events are private, validated and support atomic optional task registration', async () => {
+  const alice = env.authenticatedContext('calendar-alice').firestore();
+  const bob = env.authenticatedContext('calendar-bob').firestore();
+  const guest = env.unauthenticatedContext().firestore();
+  const { serverTimestamp } = await import('firebase/firestore');
+  const data = { uid: 'calendar-alice', title: '병원 방문', date: '2026-10-22', note: '', color: '#6366f1', taskId: null,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+  const ref = doc(alice, 'calendarEvents', 'private-event');
+  await assertSucceeds(setDoc(ref, data));
+  await assertSucceeds(getDoc(ref));
+  await assertSucceeds(getDocs(query(collection(alice, 'calendarEvents'), where('uid', '==', 'calendar-alice'), where('date', 'in', ['2026-10-22']))));
+  await assertFails(getDocs(collection(alice, 'calendarEvents')));
+  await assertFails(getDocs(query(collection(bob, 'calendarEvents'), where('uid', '==', 'calendar-alice'))));
+  await assertFails(getDoc(doc(bob, 'calendarEvents', 'private-event')));
+  await assertFails(getDoc(doc(guest, 'calendarEvents', 'private-event')));
+  await assertFails(setDoc(doc(bob, 'calendarEvents', 'forged'), data));
+  await assertFails(setDoc(doc(guest, 'calendarEvents', 'guest'), data));
+  await assertFails(updateDoc(doc(bob, 'calendarEvents', 'private-event'), { title: '침입' }));
+  await assertFails(deleteDoc(doc(bob, 'calendarEvents', 'private-event')));
+  for (const invalid of [{ title: '' }, { title: 'x'.repeat(121) }, { note: 'x'.repeat(5001) }, { date: 'invalid' }, { color: 'red' }, { taskId: '' }, { extra: true }]) {
+    await assertFails(setDoc(doc(alice, 'calendarEvents', 'invalid-event'), { ...data, ...invalid }));
+  }
+  await assertFails(updateDoc(ref, { uid: 'calendar-bob', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { taskId: 'other', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(ref, { title: '수정', date: '2026-11-01', updatedAt: serverTimestamp() }));
+
+  const batch = writeBatch(alice);
+  batch.set(doc(alice, 'calendarEvents', 'with-task'), { ...data, taskId: 'calendar-task' });
+  batch.set(doc(alice, 'todos', 'calendar-task'), { uid: 'calendar-alice', title: data.title, dueDate: data.date,
+    completed: false, calendarEventId: 'with-task', createdAt: serverTimestamp() });
+  await assertSucceeds(batch.commit());
+  assert.equal((await getDoc(doc(alice, 'todos', 'calendar-task'))).data().dueDate, data.date);
+  await assertSucceeds(deleteDoc(doc(alice, 'calendarEvents', 'with-task')));
+  assert.equal((await getDoc(doc(alice, 'todos', 'calendar-task'))).exists(), true);
+
+  const forbidden = writeBatch(alice);
+  forbidden.set(doc(alice, 'calendarEvents', 'atomic-failure'), { ...data, taskId: 'forbidden-task' });
+  forbidden.set(doc(alice, 'todos', 'forbidden-task'), { uid: 'calendar-bob', title: 'forged' });
+  await assertFails(forbidden.commit());
+  await env.withSecurityRulesDisabled(async context => {
+    assert.equal((await getDoc(doc(context.firestore(), 'calendarEvents', 'atomic-failure'))).exists(), false);
+  });
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test('notepads are private, revision-checked, bounded and readable before first save', async () => {
+  const alice = env.authenticatedContext('alice').firestore();
+  const bob = env.authenticatedContext('bob').firestore();
+  const guest = env.unauthenticatedContext().firestore();
+  const { serverTimestamp } = await import('firebase/firestore');
+  const ref = doc(alice,'notepads','alice');
+  const data = {uid:'alice',text:'메모\n두 번째 줄',revision:1,updatedAt:serverTimestamp()};
+  await assertSucceeds(getDoc(ref));
+  await assertSucceeds(setDoc(ref,data));
+  await assertSucceeds(setDoc(ref,{...data,text:'수정한 메모',revision:2}));
+  await assertFails(setDoc(ref,{...data,text:'오래된 수정',revision:2}));
+  await assertSucceeds(setDoc(ref,{...data,text:'',revision:3}));
+  await assertFails(setDoc(ref,{...data,text:'x'.repeat(50001),revision:4}));
+  await assertFails(setDoc(ref,{...data,revision:4,extra:'forbidden'}));
+  await assertFails(setDoc(ref,{...data,revision:4,uid:'bob'}));
+  await assertFails(setDoc(ref,{...data,revision:4,updatedAt:0}));
+  await assertFails(getDoc(doc(bob,'notepads','alice')));
+  await assertFails(setDoc(doc(bob,'notepads','alice'),{...data,uid:'bob',revision:4}));
+  await assertFails(getDoc(doc(guest,'notepads','alice')));
+  await assertFails(deleteDoc(ref));
+});
+test('learning goals are private, bounded and append-only', async () => {
+  const alice = env.authenticatedContext('alice').firestore();
+  const bob = env.authenticatedContext('bob').firestore();
+  const { serverTimestamp } = await import('firebase/firestore');
+  const data = {uid:'alice',minutes:60,effectiveDate:'2026-10-18',changedAt:1,createdAt:serverTimestamp()};
+  const ref = doc(alice,'learningGoals','first');
+  await assertSucceeds(setDoc(ref,data));
+  await assertSucceeds(setDoc(doc(alice,'learningGoals','activities'),{
+    ...data, includedActivityIds:['math','english'], activityTargets:{math:45},
+  }));
+  const savedSelection = await assertSucceeds(getDoc(doc(alice,'learningGoals','activities')));
+  assert.deepEqual(savedSelection.data().includedActivityIds,['math','english']);
+  assert.deepEqual(savedSelection.data().activityTargets,{math:45});
+  await assertFails(setDoc(doc(alice,'learningGoals','partial'),{
+    ...data, includedActivityIds:['math'],
+  }));
+  await assertFails(setDoc(doc(alice,'learningGoals','unselected-target'),{
+    ...data, includedActivityIds:['math'], activityTargets:{english:30},
+  }));
+  await assertSucceeds(getDocs(query(collection(alice,'learningGoals'),where('uid','==','alice'))));
+  await assertFails(getDoc(doc(bob,'learningGoals','first')));
+  await assertFails(setDoc(doc(bob,'learningGoals','forged'),data));
+  await assertFails(updateDoc(ref,{minutes:30}));
+  await assertFails(deleteDoc(ref));
+  for (const minutes of [0,4,1441,5.5,'60']) {
+    await assertFails(setDoc(doc(alice,'learningGoals','invalid'),{...data,minutes}));
+  }
+  await assertFails(setDoc(doc(alice,'learningGoals','invalid-date'),{...data,effectiveDate:'invalid'}));
+});
+
+test('multiple notes support metadata moves and permanent deletion but require revisions for body changes', async () => {
+  const alice = env.authenticatedContext('alice').firestore();
+  const bob = env.authenticatedContext('bob').firestore();
+  const guest = env.unauthenticatedContext().firestore();
+  const { serverTimestamp } = await import('firebase/firestore');
+  const ref = doc(alice,'notepads','alice','notes','multiple');
+  const data = {uid:'alice',title:'첫 메모',text:'본문',revision:0,folderId:null,archived:false,
+    createdAt:serverTimestamp(),updatedAt:serverTimestamp()};
+  await assertSucceeds(setDoc(ref,data));
+  await assertSucceeds(updateDoc(ref,{title:'새 제목',folderId:'study',updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{text:'덮어쓰기',updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(ref,{text:'정상 수정',revision:1,updatedAt:serverTimestamp()}));
+  assert.equal((await getDoc(ref)).data().title,'새 제목');
+  await assertSucceeds(updateDoc(ref,{archived:true,updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(ref,{archived:false,updatedAt:serverTimestamp()}));
+  await assertSucceeds(getDocs(collection(alice,'notepads','alice','notes')));
+  await assertFails(getDocs(collection(bob,'notepads','alice','notes')));
+  await assertFails(getDoc(doc(guest,'notepads','alice','notes','multiple')));
+  await assertFails(updateDoc(doc(bob,'notepads','alice','notes','multiple'),{title:'침입',updatedAt:serverTimestamp()}));
+  await assertFails(setDoc(doc(alice,'notepads','alice','notes','forged'),{...data,uid:'bob'}));
+  await assertFails(updateDoc(ref,{text:'x'.repeat(50001),revision:2,updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{title:'',updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{createdAt:serverTimestamp(),updatedAt:serverTimestamp()}));
+  await assertFails(deleteDoc(doc(bob,'notepads','alice','notes','multiple')));
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test('legacy deletion erases the original body and blocks stale client recreation while new notes remain available', async () => {
+  const alice = env.authenticatedContext('legacy-delete-owner').firestore();
+  const bob = env.authenticatedContext('bob').firestore();
+  const {serverTimestamp} = await import('firebase/firestore');
+  const parent = doc(alice,'notepads','legacy-delete-owner');
+  const legacy = doc(alice,'notepads','legacy-delete-owner','notes','legacy');
+  const note = {uid:'legacy-delete-owner',title:'기존 메모',text:'',revision:0,folderId:null,archived:false,
+    createdAt:serverTimestamp(),updatedAt:serverTimestamp()};
+  await assertSucceeds(setDoc(parent,{uid:'legacy-delete-owner',text:'이전 원문',revision:1,updatedAt:serverTimestamp()}));
+  await assertSucceeds(setDoc(legacy,note));
+  const deletion = writeBatch(alice);
+  deletion.set(parent,{uid:'legacy-delete-owner',text:'',revision:2,deleted:true,updatedAt:serverTimestamp()});
+  deletion.delete(legacy);
+  await assertSucceeds(deletion.commit());
+  assert.equal((await getDoc(parent)).data().text,'');
+  assert.equal((await getDoc(legacy)).exists(),false);
+  await assertFails(setDoc(parent,{uid:'legacy-delete-owner',text:'복원 시도',revision:3,updatedAt:serverTimestamp()}));
+  await assertFails(setDoc(legacy,note));
+  await assertFails(deleteDoc(doc(bob,'notepads','legacy-delete-owner','notes','legacy')));
+  await assertSucceeds(setDoc(doc(alice,'notepads','legacy-delete-owner','notes','fresh'),note));
+});
+
+test('note folders are owner-scoped and allow rename and deletion without broadening access', async () => {
+  const alice = env.authenticatedContext('alice').firestore();
+  const bob = env.authenticatedContext('bob').firestore();
+  const { serverTimestamp } = await import('firebase/firestore');
+  const ref = doc(alice,'notepads','alice','folders','study');
+  const data = {uid:'alice',name:'공부',createdAt:serverTimestamp(),updatedAt:serverTimestamp()};
+  await assertSucceeds(setDoc(ref,data));
+  await assertSucceeds(updateDoc(ref,{name:'학습',updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(ref,{sortOrder:0,updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{sortOrder:-1,updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{sortOrder:1.5,updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{sortOrder:'1',updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(doc(bob,'notepads','alice','folders','study'),{sortOrder:1,updatedAt:serverTimestamp()}));
+  await assertSucceeds(getDocs(collection(alice,'notepads','alice','folders')));
+  await assertFails(getDoc(doc(bob,'notepads','alice','folders','study')));
+  await assertFails(setDoc(doc(bob,'notepads','alice','folders','forged'),{...data,uid:'bob'}));
+  await assertFails(updateDoc(ref,{name:'x'.repeat(81),updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{extra:true,updatedAt:serverTimestamp()}));
+  await assertFails(deleteDoc(doc(bob,'notepads','alice','folders','study')));
+  await assertSucceeds(deleteDoc(ref));
+});
 let env;
 before(async () => {
   // Explicit demo project and local emulator: never touches the live project.

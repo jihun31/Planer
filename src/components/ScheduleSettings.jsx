@@ -2,7 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import { saveScheduleSettings } from '../features/planner/scheduleSettings';
 import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs';
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
-export default function ScheduleSettings({ uid, history, ready, error, onClose, todayLayout, onTodayLayoutChange }) {
+import { useTimerPopupPreference, useStudyGapPreference } from '../features/planner/timerPreferences';
+import { useTabVisibility } from '../features/navigation/useTabVisibility';
+import { useEditableCopy } from '../features/copy/useEditableCopy';
+export default function ScheduleSettings({ uid, history, ready, error, onClose }) {
+  const copy = useEditableCopy('settings');
+  const close = () => {if (!saving && copy.canClose()) onClose();};
+  const [timerPopupEnabled, setTimerPopupEnabled] = useTimerPopupPreference(uid);
+  const [studyGapEnabled, setStudyGapEnabled] = useStudyGapPreference(uid);
+  const [timerFailure, setTimerFailure] = useState('');
+  const [tabVisibility,setTabVisible] = useTabVisibility(uid);
+  const [tabFailure,setTabFailure] = useState('');
   const current = rangeForDate(history, plannerDate());
   const display = oppositeDisplayFromHistory(history);
   const [startHour, setStartHour] = useState(current.startHour);
@@ -15,58 +25,65 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
   useEffect(() => { dialog.current.showModal(); }, []);
   const save = async e => {
     e.preventDefault();
-    if (saving || !ready || error) return;
+    if (saving || copy.editing || !ready || error) return;
     setSaving(true); setFailure('');
     try { await saveScheduleSettings(uid, { startHour, endHour, plannerOppositeDisplay, controlOppositeDisplay }); onClose(); }
     catch { setFailure('설정을 저장하지 못했습니다. 연결 상태와 Firebase 접근 규칙을 확인해 주세요.'); }
     finally { setSaving(false); }
   };
   const options = Array.from({length:24}, (_,h) => <option key={h} value={h}>{String(h).padStart(2,'0')}:00</option>);
-  const displayOptions = <><option value="all">모두 표시</option><option value="faded">흐릿하게</option><option value="blind">블라인드</option><option value="hidden">투명화</option></>;
-  return <dialog ref={dialog} className="schedule-settings" onCancel={e => { if(saving) e.preventDefault(); else onClose(); }}>
-    <h2>설정</h2>
-    <section className="schedule-settings-layout" aria-label="오늘 할 일 화면 배치">
-      <h3>오늘 할 일 화면 배치</h3>
-      <div className="today-layout-options">
-        {[
-          { value: 'balanced', label: '균형형', ratio: '40 : 30 : 30' },
-          { value: 'equal', label: '균등형', ratio: '1 : 1 : 1' },
-        ].map(option => (
-          <label key={option.value} className={`today-layout-option ${todayLayout === option.value ? 'selected' : ''}`}>
-            <input type="radio" name="today-layout" value={option.value}
-              checked={todayLayout === option.value}
-              onChange={() => onTodayLayoutChange(option.value)} />
-            <span className={`today-layout-preview ${option.value}`} aria-hidden="true"><i /><i /><i /></span>
-            <span className="today-layout-option-name">{option.label}</span>
-            <small>{option.ratio}</small>
-          </label>
-        ))}
-      </div>
-      <p>선택 즉시 적용되며, 이 컴퓨터에서 계정별로 기억됩니다.</p>
+  const displayOptions = <><option value="all">{copy.value('displayAll')}</option><option value="faded">{copy.value('displayFaded')}</option><option value="hidden">{copy.value('displayHidden')}</option><option value="blind">{copy.value('displayBlind')}</option></>;
+  return <dialog ref={dialog} className="schedule-settings" onCancel={e => {e.preventDefault();close();}}>
+    <div className="settings-dialog-heading"><h2>{copy.field('title')}</h2><div inert={saving ? true : undefined}>{copy.actions}</div></div>
+    {copy.status}
+    <section className="schedule-settings-timer">
+      <h3>{copy.field('timerHeading')}</h3>
+      <label>{copy.field('timerPopup')}<input type="checkbox" disabled={copy.editing} checked={timerPopupEnabled} onChange={e => {
+        try { setTimerPopupEnabled(e.target.checked); setTimerFailure(''); }
+        catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
+      }} /></label>
+      <label>{copy.field('studyGap')}<input type="checkbox" disabled={copy.editing} checked={studyGapEnabled} onChange={e => {
+        try { setStudyGapEnabled(e.target.checked); setTimerFailure(''); }
+        catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
+      }} /></label>
+      <p>{copy.field('studyGapNote')}</p>
+      {timerFailure && <p role="alert">{timerFailure}</p>}
+    </section>
+    <section className="schedule-settings-timer">
+      <h3>{copy.field('tabsHeading')}</h3>
+      {['control','notes','calendar'].map(tab => <label key={tab}>{copy.field(`${tab}Tab`)}
+        <input type="checkbox" disabled={copy.editing} checked={tabVisibility[tab]} onChange={event => {
+          try {setTabVisible(tab,event.target.checked);setTabFailure('');}
+          catch {setTabFailure('탭 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
+        }} />
+      </label>)}
+      {tabFailure && <p role="alert">{tabFailure}</p>}
     </section>
     <form onSubmit={save}>
-      <h3 className="schedule-settings-calendar-title">시간 관리·통제 캘린더</h3>
-      <p>달력에 표시할 하루의 시간 범위</p>
+      <h3 className="schedule-settings-calendar-title">{copy.field('calendarHeading')}</h3>
+      <p>{copy.field('rangeNote')}</p>
       <div className="schedule-settings-hours">
-        <label>시작 <select value={startHour} onChange={e => setStartHour(Number(e.target.value))} disabled={saving}>{options}</select></label>
-        <label>종료 {endHour <= startHour && '(다음 날)'} <select value={endHour} onChange={e => setEndHour(Number(e.target.value))} disabled={saving}>{options}</select></label>
+        <label>{copy.field('start')} <select value={startHour} onChange={e => setStartHour(Number(e.target.value))} disabled={saving || copy.editing}>{options}</select></label>
+        <label>{copy.field('end')} <select value={endHour} onChange={e => setEndHour(Number(e.target.value))} disabled={saving || copy.editing}>{options}</select></label>
       </div>
-      <p>시간 범위 변경은 오늘부터 적용됩니다. 이전 날짜의 시간 범위와 모든 기록은 유지됩니다. 새 범위 밖에 기록이 있으면 해당 시간도 표시합니다.</p>
-      <p>새벽 5시 전은 전날로 표시·기록하는 기존 기준을 유지합니다. 시작과 종료가 같으면 24시간을 표시합니다.</p>
+      <p>{copy.field('rangeHistory')}</p>
+      {(copy.editing || copy.value('dayBoundary')) && <p>{copy.field('dayBoundary')}</p>}
       <div className="schedule-settings-display">
-        <h3>반대편 탭의 블록 표시</h3>
-        <label>시간 관리 탭에서 통제 블록
-          <select value={plannerOppositeDisplay} onChange={e => setPlannerOppositeDisplay(e.target.value)} disabled={saving}>{displayOptions}</select>
+        <h3>{copy.field('oppositeHeading')}</h3>
+        <label>{copy.field('plannerOpposite')}
+          <select value={plannerOppositeDisplay} onChange={e => setPlannerOppositeDisplay(e.target.value)} disabled={saving || copy.editing}>{displayOptions}</select>
         </label>
-        <label>통제 탭에서 공부 블록
-          <select value={controlOppositeDisplay} onChange={e => setControlOppositeDisplay(e.target.value)} disabled={saving}>{displayOptions}</select>
+        <label>{copy.field('controlOpposite')}
+          <select value={controlOppositeDisplay} onChange={e => setControlOppositeDisplay(e.target.value)} disabled={saving || copy.editing}>{displayOptions}</select>
         </label>
-        <p>모두 표시는 원래 색과 이름을, 흐릿하게는 색과 이름을 옅게, 블라인드는 연한 회색으로 표시합니다. 투명화는 반대편 블록을 보이지 않게 합니다. 저장 즉시 모든 날짜에 적용됩니다.</p>
       </div>
+      {copy.editing && <div className="copy-option-editor"><p>선택 항목·버튼 문구</p>
+        {['displayAll','displayFaded','displayHidden','displayBlind','close','save','saving'].map(key => <div key={key}>{copy.field(key)}</div>)}
+      </div>}
       {(!ready || error || failure) && <p role="alert">{failure || (error ? '설정을 불러오지 못했습니다. Firebase 규칙에 plannerSettings 접근 허용이 필요합니다.' : '설정을 불러오는 중…')}</p>}
       <div className="schedule-settings-actions">
-        <button type="button" className="btn-signout" onClick={onClose} disabled={saving}>닫기</button>
-        <button type="submit" className="btn btn-login" disabled={saving || !ready || !!error}>{saving ? '저장 중…' : '캘린더 설정 저장'}</button>
+        <button type="button" className="btn-signout" onClick={close} disabled={saving || copy.busy}>{copy.value('close')}</button>
+        <button type="submit" className="btn btn-login" disabled={saving || copy.editing || !ready || !!error}>{copy.value(saving ? 'saving' : 'save')}</button>
       </div>
     </form>
   </dialog>;
