@@ -115,7 +115,7 @@ function createTimerWindow(data) {
   });
   win.on('closed', () => { if (timerWindow === win) timerWindow = null; });
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
-  win.setPosition(x + width - 216, y + height - 144);
+  win.setPosition(data.position === 'left' ? x + 16 : x + width - 216, y + height - 144);
   return true;
 }
 
@@ -139,6 +139,14 @@ ipcMain.handle('auth:google', async event => {
   } finally { if (loginSession === session) loginSession = null; }
 });
 ipcMain.on('auth:cancel', event => { if (fromMain(event)) loginSession?.cancel(); });
+ipcMain.handle('notes:link-preview',async (event,url) => {
+  if (!fromMain(event)) return {ok:false,code:'desktop/forbidden'};
+  if (typeof url !== 'string' || url.length > 4096) return {ok:false};
+  try {
+    const data = await require('./link-preview.cjs').loadLinkPreview(url);
+    return fromMain(event) ? {ok:true,...data} : {ok:false};
+  } catch {return {ok:false};}
+});
 ipcMain.handle('notes:youtube-title', async (event,id) => {
   if (!fromMain(event)) return {ok:false,code:'desktop/forbidden'};
   if (typeof id !== 'string' || !/^[\w-]{11}$/.test(id)) return {ok:false};

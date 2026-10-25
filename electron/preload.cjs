@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loginWithGoogle: () => ipcRenderer.invoke('auth:google'),
   cancelGoogleLogin: () => ipcRenderer.send('auth:cancel'),
   getYouTubeTitle: id => ipcRenderer.invoke('notes:youtube-title',id),
+  getLinkPreview: url => ipcRenderer.invoke('notes:link-preview',url),
   readUiText: () => ipcRenderer.invoke('ui-text:read'),
   saveUiText: (section,items) => ipcRenderer.invoke('ui-text:save',section,items),
   showUiTextFile: () => ipcRenderer.invoke('ui-text:show-file'),

@@ -2,9 +2,96 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, collection, query, where, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, collection, query, where, writeBatch, onSnapshot, orderBy, limit, startAfter, Timestamp } from 'firebase/firestore';
+import { createNoteSnapshotHub } from '../src/features/notes/noteSnapshotHub.mjs';
 
 const collections = ['goals', 'subGoals', 'tasks', 'todos', 'plannerActivities', 'scheduleBlocks', 'controlActivities', 'controlBlocks', 'habits', 'habitLogs', 'progressItems', 'progressLogs'];
+
+test('day plans isolate owners, preserve routine history and validate atomic revisions', async()=>{
+  const {serverTimestamp}=await import('firebase/firestore');
+  const uid='day-plan-alice',alice=env.authenticatedContext(uid).firestore(),bob=env.authenticatedContext('day-plan-bob').firestore(),guest=env.unauthenticatedContext().firestore();
+  const root=doc(alice,'dayPlans',uid),routine=revision=>({uid,routineId:'english',revision,title:'영어',startMinute:540,endMinute:600,weekdays:[1,3],effectiveDate:'2026-10-26',deleted:false,createdAt:serverTimestamp()});
+  const append=(revision,changes={})=>{const batch=writeBatch(alice);batch.set(root,{uid,revision,updatedAt:serverTimestamp()});batch.set(doc(alice,'dayPlans',uid,'routines',`v${revision}`),{...routine(revision),...changes});return batch;};
+  await assertSucceeds(append(1).commit());
+  await assertSucceeds(append(2,{title:'영어 수정'}).commit());
+  assert.equal((await getDocs(collection(alice,'dayPlans',uid,'routines'))).size,2);
+  for(const db of [bob,guest]){
+    await assertFails(getDoc(doc(db,'dayPlans',uid)));
+    await assertFails(getDocs(collection(db,'dayPlans',uid,'routines')));
+    await assertFails(getDocs(collection(db,'dayPlans',uid,'entries')));
+    await assertFails(setDoc(doc(db,'dayPlans',uid,'entries','attack'),{uid}));
+  }
+  await assertFails(updateDoc(doc(alice,'dayPlans',uid,'routines','v1'),{title:'과거 변경'}));
+  await assertFails(deleteDoc(doc(alice,'dayPlans',uid,'routines','v1')));
+  await assertFails(setDoc(doc(alice,'dayPlans',uid,'routines','unpaired'),routine(3)));
+  for(const changes of [{weekdays:[]},{weekdays:[1,1]},{weekdays:[7]},{endMinute:540},{startMinute:-1},{endMinute:2000},{title:''},{extra:true},{uid:'other'}])await assertFails(append(3,changes).commit());
+  assert.equal((await getDoc(root)).data().revision,2);
+  const entry={uid,title:'오늘 영어',date:'2026-10-26',routineId:null,startMinute:540,endMinute:600,skipped:false,createdAt:serverTimestamp(),updatedAt:serverTimestamp()};
+  const single=doc(alice,'dayPlans',uid,'entries','single');
+  await assertSucceeds(setDoc(single,entry));
+  await assertSucceeds(setDoc(doc(alice,'dayPlans',uid,'entries','next-day'),{...entry,startMinute:1560,endMinute:1590,activityId:'english',activityColor:'#22c55e'}));
+  for(const invalid of [{activityId:'../other'},{activityColor:'red'},{startMinute:2880,endMinute:2881},{startMinute:2870,endMinute:2890}])
+    await assertFails(setDoc(doc(alice,'dayPlans',uid,'entries','bad-linked'),{...entry,...invalid}));
+  await assertSucceeds(append(3,{activityId:'english',activityColor:'#22c55e',startMinute:1560,endMinute:1590}).commit());
+  // Use the next revision after the linked routine above.
+  const failed=append(4,{weekdays:[]});failed.delete(single);await assertFails(failed.commit());assert.equal((await getDoc(single)).exists(),true);
+  await assertFails(updateDoc(single,{date:'2026-10-27',updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(single,{skipped:true,updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(single,{title:'당일만 변경',updatedAt:serverTimestamp()}));
+  const override=doc(alice,'dayPlans',uid,'entries','2026-10-26_english');
+  await assertFails(setDoc(doc(alice,'dayPlans',uid,'entries','wrong-id'),{...entry,routineId:'english'}));
+  await assertSucceeds(setDoc(override,{...entry,routineId:'english',skipped:true}));
+  await assertSucceeds(getDocs(query(collection(alice,'dayPlans',uid,'entries'),where('date','in',['2026-10-25','2026-10-26','2026-10-27']))));
+  await assertFails(deleteDoc(doc(bob,'dayPlans',uid,'entries','2026-10-26_english')));
+  await assertSucceeds(deleteDoc(override));
+  const converted=append(4);converted.delete(single);await assertSucceeds(converted.commit());
+  assert.equal((await getDoc(single)).exists(),false);
+  await assertFails(append(5,{removed:'true',deleted:true}).commit());
+  await assertFails(append(5,{removed:true,deleted:false}).commit());
+  await assertSucceeds(append(5,{removed:true,deleted:true}).commit());
+  assert.equal((await getDoc(doc(alice,'dayPlans',uid,'routines','v1'))).exists(),true);
+});
+
+test('paginated notes use real Firestore cursors, complete title search and out-of-page live editors', {timeout:20000}, async()=>{
+  const uid='paged-notes-alice';
+  await env.withSecurityRulesDisabled(async context=>{
+    const db=context.firestore(),batch=writeBatch(db);
+    for(let index=0;index<45;index++) batch.set(doc(db,'notepads',uid,'notes',`n${index}`),{
+      uid,title:`메모 ${index}`,text:`본문 ${index}`,revision:0,archived:false,folderId:index < 10 ? 'study' : 'older',
+      createdAt:Timestamp.fromMillis(100000-index),updatedAt:Timestamp.fromMillis(100000-index),
+    });
+    await batch.commit();
+  });
+  const db=env.authenticatedContext(uid).firestore(),states=[],bodies=[],waiting=[];
+  const changed=()=>{for(const waiter of [...waiting]) if(waiter.predicate()) {waiting.splice(waiting.indexOf(waiter),1);waiter.resolve();}};
+  const until=predicate=>predicate() ? Promise.resolve() : new Promise(resolve=>waiting.push({predicate,resolve}));
+  const hub=createNoteSnapshotHub((owner,next,error,{folder,all,cursor,pageSize})=>{
+    const filters=[orderBy('updatedAt','desc')];
+    if(folder !== 'all')filters.push(where('folderId','==',folder));
+    if(!all)filters.push(limit(pageSize));if(cursor)filters.push(startAfter(cursor));
+    return onSnapshot(query(collection(db,'notepads',owner,'notes'),...filters),{includeMetadataChanges:true},next,error);
+  },{listenBody:(owner,id,next,error)=>onSnapshot(doc(db,'notepads',owner,'notes',id),{includeMetadataChanges:true},snapshot=>
+    next(snapshot.exists()?snapshot:null),error)});
+  const errors=[];
+  const stop=hub.subscribePage(uid,state=>{states.push(state);changed();},error=>errors.push(error));
+  let stopBody;
+  try {
+    await until(()=>states.at(-1)?.serverReady);
+    assert.equal(states.at(-1).notes.length,20);assert.equal(states.at(-1).notes[19].id,'n19');
+    hub.loadMore(uid);await until(()=>states.at(-1)?.serverReady && states.at(-1).notes.length===40);
+    hub.loadMore(uid);await until(()=>states.at(-1)?.notes.length===45);
+    assert.equal(states.at(-1).hasMore,false);
+    stopBody=hub.subscribeBody(uid,'n44',value=>{bodies.push(value);changed();});
+    hub.setView(uid,'study',false);await until(()=>states.at(-1)?.folder==='study' && states.at(-1).serverReady);
+    assert.equal(states.at(-1).notes.length,10);
+    await env.withSecurityRulesDisabled(context=>updateDoc(doc(context.firestore(),'notepads',uid,'notes','n44'),{text:'다른 창 수정',revision:1}));
+    await until(()=>bodies.at(-1)?.text==='다른 창 수정');
+    assert.equal(bodies.at(-1).deleted,false);
+    hub.setView(uid,'all',true);await until(()=>states.at(-1)?.all && states.at(-1).serverReady);
+    assert.equal(states.at(-1).notes.length,45);assert.ok(states.at(-1).notes.some(note=>note.title==='메모 44'));
+    assert.deepEqual(errors,[]);
+  } finally {stopBody?.();stop();}
+});
 
 test('calendar events are private, validated and support atomic optional task registration', async () => {
   const alice = env.authenticatedContext('calendar-alice').firestore();

@@ -38,3 +38,17 @@ export function useStudyGapPreference(uid) {
   };
   return [enabled,setEnabled];
 }
+
+export function useTimerPopupPosition(uid) {
+  const key = uid ? `planer:timer-popup-position:${uid}` : null;
+  const position = useSyncExternalStore(subscribe, () => {
+    try {return key && window.localStorage.getItem(key) === 'left' ? 'left' : 'right';}
+    catch {return 'right';}
+  }, () => 'right');
+  const setPosition = value => {
+    if (!key || !['left','right'].includes(value)) throw new Error('Invalid timer position');
+    window.localStorage.setItem(key,value);
+    window.dispatchEvent(new Event(changeEvent));
+  };
+  return [position,setPosition];
+}

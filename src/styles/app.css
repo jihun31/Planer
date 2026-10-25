@@ -330,7 +330,7 @@ body {
 .schedule-settings-display { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 18px; }
 .schedule-settings-display h3 { font-size: .9rem; margin-bottom: 12px; }
 .schedule-settings-display label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: .85rem; margin: 10px 0; }
-.schedule-settings-display select { min-width: 112px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.schedule-settings-display select,.schedule-settings-timer select { min-width: 112px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
 .schedule-settings-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 .settings-dialog-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
 .settings-dialog-heading h2 { margin-bottom:0; }

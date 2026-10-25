@@ -96,7 +96,7 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
     loadURL(url) { this.webContents.mainFrame.url = url; }
     isDestroyed() { return this.dead; }
     close() { this.events.get('close')?.(); this.dead = true; this.events.get('closed')?.(); }
-    focus() {} restore() {} minimize() { this.minimized = true; } setPosition() {}
+    focus() {} restore() {} minimize() { this.minimized = true; } setPosition(x,y) { this.position = [x,y]; }
   }
   const pathModule = await import('node:path');
   const urlModule = await import('node:url');
@@ -125,6 +125,7 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   const maliciousFrame = { sender: main.webContents, senderFrame: { url: main.webContents.mainFrame.url } };
   assert.equal((await invokes.get('auth:google')(maliciousFrame)).code, 'desktop/forbidden');
   assert.equal((await invokes.get('notes:youtube-title')(maliciousFrame,'jNQXAC9IVRw')).code,'desktop/forbidden');
+  assert.equal((await invokes.get('notes:link-preview')(maliciousFrame,'https://example.com')).code,'desktop/forbidden');
   assert.equal((await invokes.get('notes:youtube-title')(eventFor(main),'https://evil.example')).ok,false);
   assert.equal(titleRequests.length,0);
   assert.equal((await invokes.get('notes:youtube-title')(eventFor(main),'jNQXAC9IVRw')).title,'공개 영상 제목');
@@ -143,12 +144,17 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal((await invokes.get('timer:start')(eventFor(main), data)).code, 'desktop/forbidden');
   main.webContents.mainFrame.url = 'http://localhost:5173/';
   const timer = windows[1];
+  assert.deepEqual(timer.position,[784,656]);
   assert.equal((await invokes.get('notes:youtube-title')(eventFor(timer),'jNQXAC9IVRw')).code,'desktop/forbidden');
   assert.equal((await invokes.get('auth:google')(eventFor(timer))).code, 'desktop/forbidden');
+  assert.equal((await invokes.get('notes:link-preview')(eventFor(timer),'https://example.com')).code,'desktop/forbidden');
   handlers.get('timer:stop-from-popup')(eventFor(main));
   assert.ok(!timer.dead);
   const timerEvent = eventFor(timer);
   handlers.get('timer:stop-from-popup')(timerEvent);
   handlers.get('timer:stop-from-popup')(timerEvent);
   assert.equal(main.sent.filter(x => x.name === 'timer:stopped').length, 1);
+  assert.equal((await invokes.get('timer:start')(eventFor(main),{...data,position:'left'})).ok,true);
+  assert.deepEqual(windows[2].position,[16,656]);
+  handlers.get('timer:close')(eventFor(main));
 });

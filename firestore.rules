@@ -131,6 +131,56 @@ service cloud.firestore {
         allow update: if signedIn() && userId == request.auth.uid && validFolder() && request.resource.data.createdAt == resource.data.createdAt;
       }
     }
+    match /dayPlans/{userId} {
+      function owner() { return signedIn() && userId == request.auth.uid; }
+      function validTime(data) {
+        return data.title is string && data.title.size() > 0 && data.title.size() <= 120
+          && data.startMinute is int && data.startMinute >= 0 && data.startMinute < 2880
+          && data.endMinute is int && data.endMinute > data.startMinute && data.endMinute <= data.startMinute + 1440 && data.endMinute <= 2880
+          && (!('activityId' in data) || (data.activityId is string && data.activityId.matches('^[A-Za-z0-9_-]{1,128}$')))
+          && (!('activityColor' in data) || (data.activityColor is string && data.activityColor.matches('^#[0-9a-fA-F]{6}$')));
+      }
+      function validDate(date) { return date is string && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+      allow read: if owner();
+      allow create: if owner() && request.resource.data.keys().hasOnly(['uid','revision','updatedAt'])
+        && request.resource.data.uid == userId && request.resource.data.revision is int
+        && request.resource.data.revision == 1 && request.resource.data.updatedAt == request.time;
+      allow update: if owner() && request.resource.data.keys().hasOnly(['uid','revision','updatedAt'])
+        && request.resource.data.uid == userId && request.resource.data.revision is int
+        && request.resource.data.revision == resource.data.revision + 1 && request.resource.data.updatedAt == request.time;
+      match /routines/{versionId} {
+        allow read: if owner();
+        allow create: if owner()
+          && request.resource.data.keys().hasOnly(['uid','routineId','revision','title','startMinute','endMinute','weekdays','effectiveDate','deleted','createdAt','activityId','activityColor','removed'])
+          && request.resource.data.uid == userId && validTime(request.resource.data)
+          && request.resource.data.routineId is string && request.resource.data.routineId.matches('^[A-Za-z0-9_-]{1,128}$')
+          && request.resource.data.revision is int && request.resource.data.revision > 0
+          && request.resource.data.weekdays is list && request.resource.data.weekdays.size() > 0 && request.resource.data.weekdays.size() <= 7
+          && request.resource.data.weekdays.hasOnly([0,1,2,3,4,5,6])
+          && request.resource.data.weekdays.toSet().size() == request.resource.data.weekdays.size()
+          && validDate(request.resource.data.effectiveDate) && request.resource.data.deleted is bool
+          && (!('removed' in request.resource.data) || (request.resource.data.removed is bool && (!request.resource.data.removed || request.resource.data.deleted)))
+          && request.resource.data.createdAt == request.time
+          && getAfter(/databases/$(database)/documents/dayPlans/$(userId)).data.revision == request.resource.data.revision
+          && ((!exists(/databases/$(database)/documents/dayPlans/$(userId)) && request.resource.data.revision == 1)
+            || request.resource.data.revision == get(/databases/$(database)/documents/dayPlans/$(userId)).data.revision + 1);
+      }
+      match /entries/{entryId} {
+        function validEntry() {
+          return request.resource.data.keys().hasOnly(['uid','date','routineId','title','startMinute','endMinute','skipped','createdAt','updatedAt','activityId','activityColor'])
+            && request.resource.data.uid == userId && validTime(request.resource.data) && validDate(request.resource.data.date)
+            && request.resource.data.skipped is bool
+            && ((request.resource.data.routineId == null && !request.resource.data.skipped)
+              || (request.resource.data.routineId is string && request.resource.data.routineId.matches('^[A-Za-z0-9_-]{1,128}$')
+                && entryId == request.resource.data.date + '_' + request.resource.data.routineId))
+            && request.resource.data.createdAt is timestamp && request.resource.data.updatedAt == request.time;
+        }
+        allow read, delete: if owner();
+        allow create: if owner() && validEntry() && request.resource.data.createdAt == request.time;
+        allow update: if owner() && validEntry() && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.date == resource.data.date && request.resource.data.routineId == resource.data.routineId;
+      }
+    }
     // Unmatched paths (including nested collections) remain denied.
   }
 }

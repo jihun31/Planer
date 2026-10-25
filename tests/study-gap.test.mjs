@@ -39,12 +39,17 @@ test('gap preference defaults off, persists per account and does not change popu
     setItem:(key,value)=>storage.set(key,value)},dispatchEvent(){}},useSyncExternalStore:(_subscribe,read)=>read()});
   vm.runInContext(fs.readFileSync('src/features/planner/timerPreferences.js','utf8')
     .replace(/import[^;]+;/g,'').replace(/export function/g,'function')
-    + '\nglobalThis.gap = useStudyGapPreference; globalThis.popup = useTimerPopupPreference;',context);
+    + '\nglobalThis.gap = useStudyGapPreference; globalThis.popup = useTimerPopupPreference;globalThis.position = useTimerPopupPosition;',context);
   assert.equal(context.gap('alice')[0],false);
   context.gap('alice')[1](true);
   assert.equal(context.gap('alice')[0],true);
   assert.equal(context.gap('bob')[0],false);
   assert.equal(context.popup('alice')[0],true);
+  assert.equal(context.position('alice')[0],'right');
+  context.position('alice')[1]('left');
+  assert.equal(context.position('alice')[0],'left');
+  assert.equal(context.position('bob')[0],'right');
+  assert.throws(()=>context.position('alice')[1]('top'));
   context.gap('alice')[1](false);
   assert.equal(context.gap('alice')[0],false);
 });
@@ -56,7 +61,7 @@ function timerHarness(enabled,prepare,control = false) {
   let cursor = 0, now = ts(22,12);
   class Clock extends Date {static now(){return now;}}
   const context = vm.createContext({Date:Clock,clockLabel,timerSegments,controlColor,COLORS:['#6366f1'],CUSTOM_ID:'__custom__',activeTimerOwner:null,
-    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[enabled],prepareStudyGap:prepare,
+    useTimerPopupPreference:()=>[false],useTimerPopupPosition:()=>['right'],useStudyGapPreference:()=>[enabled],prepareStudyGap:prepare,
     useState(initial){const index = cursor++;if (!(index in slots)) slots[index] = initial;return [slots[index],value=>{slots[index]=typeof value==='function'?value(slots[index]):value;}];},
     useRef(initial){const index = cursor++;return slots[index] ??= {current:initial};},useMemo:fn=>fn(),useEffect:()=>{},
   });

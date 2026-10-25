@@ -81,7 +81,8 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
                 style={{ background: a.color + '20', borderColor: a.color + '80', color: a.color }}
               >
                 <span className="act-chip-dot" style={{ background: a.color }} />
-                <button type="button" className="act-chip-start" aria-label={`${a.name} 타이머 시작`}
+                <button type="button" className="act-chip-start" aria-label={`${a.name} 선택 시간 기록 또는 타이머 시작`}
+                  title="시간표에서 선택한 칸이 있으면 바로 기록하고, 없으면 타이머를 시작합니다."
                   disabled={!onStart || reordering || changingGroups || !!deleteBusyId || !!groupBusyId}
                   onClick={() => onStart(a.id)}>{a.name}</button>
                 {changingGroups && <button type="button" className="act-chip-change"

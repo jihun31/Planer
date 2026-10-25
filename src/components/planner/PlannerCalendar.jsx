@@ -34,7 +34,7 @@ function PlannerCalendar({ year, month, selectedDate, blocks, oppositeBlocks, op
       <div className="cal-grid">
         {DAY_LABELS.map(dl => <div key={dl} className="cal-day-label">{dl}</div>)}
         {cells.map((day, i) => {
-          if (!day) return <div key={`_${i}`} />;
+          if (!day) return <div key={`_${i}`} className="cal-empty" />;
           const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
           const oppositeBlock = oppositeByDate.get(ds);
           const showOpposite = oppositeBlock && oppositeMode !== 'hidden';

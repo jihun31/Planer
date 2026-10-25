@@ -1,14 +1,17 @@
 import { doc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { MAX_NOTE_LENGTH } from './notepadStore.mjs';
+import { subscribeNoteBody } from './noteSubscriptions';
 
 const refFor = (uid,noteId) => noteId === 'legacy' ? doc(db,'notepads',uid) : doc(db,'notepads',uid,'notes',noteId);
 const read = (snapshot,noteId = 'legacy') => ({text:snapshot.data()?.text ?? '',revision:snapshot.data()?.revision ?? 0,
   deleted:snapshot.data()?.deleted === true || (noteId !== 'legacy' && !snapshot.exists())});
 
-export const subscribeNotepad = (uid,onData,onError,noteId = 'legacy') => onSnapshot(refFor(uid,noteId),snapshot => {
-  if (!snapshot.metadata.hasPendingWrites) onData(read(snapshot,noteId));
-},onError);
+export const subscribeNotepad = (uid,onData,onError,noteId = 'legacy') => noteId === 'legacy'
+  ? onSnapshot(refFor(uid,noteId),snapshot => {
+    if (!snapshot.metadata.hasPendingWrites) onData(read(snapshot,noteId));
+  },onError)
+  : subscribeNoteBody(uid,noteId,onData,onError);
 
 export function saveNotepad(uid,text,revision,noteId = 'legacy') {
   if (!uid || typeof text !== 'string' || text.length > MAX_NOTE_LENGTH || !Number.isInteger(revision))

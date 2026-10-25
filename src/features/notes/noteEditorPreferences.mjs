@@ -7,6 +7,11 @@ export function recentNoteColor(storage) {
   catch {return NOTE_TEXT_COLORS[0].value;}
 }
 
+export function toggledNoteColor(current,storage) {
+  const base = NOTE_TEXT_COLORS[0].value;
+  return (noteColor(current) || base) === base ? recentNoteColor(storage) : base;
+}
+
 export function rememberNoteColor(color,storage) {
   const valid = noteColor(color);
   if (!valid) return;

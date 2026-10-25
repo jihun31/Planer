@@ -1,16 +1,18 @@
-import { collection, doc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getCountFromServer, getDocs, onSnapshot, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebase/config';
+import { getNoteLibrarySnapshot, subscribeNoteList } from './noteSubscriptions';
 
 const notesRef = uid => collection(db,'notepads',uid,'notes');
 const foldersRef = uid => collection(db,'notepads',uid,'folders');
 const subscribe = ref => (uid,onData,onError) => onSnapshot(ref(uid),snapshot =>
   onData(snapshot.docs.map(item => ({...item.data(),id:item.id}))),onError);
-export const subscribeNotes = subscribe(notesRef);
+export const subscribeNotes = (...args) => subscribeNoteList(...args);
 export const subscribeNoteFolders = subscribe(foldersRef);
 
 // The legacy editor keeps its original cloud document and local draft key.
 // Only its library entry is added, once, without copying or replacing its body.
-export function initializeNoteLibrary(uid,hasLegacyDraft) {
+export function initializeNoteLibrary(uid,hasLegacyDraft,notes) {
+  if (notes?.some(note => note.id === 'legacy')) return Promise.resolve();
   return runTransaction(db,async transaction => {
     const legacyRef = doc(notesRef(uid),'legacy');
     const entry = await transaction.get(legacyRef);
@@ -51,11 +53,30 @@ export function deleteNote(uid,id,archivedOnly = false) {
   });
 }
 
-export async function purgeArchivedNotes(uid) {
-  const snapshot = await getDocs(query(notesRef(uid),where('archived','==',true)));
+export async function purgeArchivedNotes(uid,notes) {
+  const archived = notes ? notes.filter(note => note.archived)
+    : (await getDocs(query(notesRef(uid),where('archived','==',true)))).docs;
   const removed = [];
-  for (const note of snapshot.docs) if (await deleteNote(uid,note.id,true)) removed.push(note.id);
+  for (const note of archived) if (await deleteNote(uid,note.id,true)) removed.push(note.id);
   return removed;
+}
+
+export async function prepareNoteLibrary(uid,hasLegacyDraft,options) {
+  const notes=await getNoteLibrarySnapshot(uid,options);
+  const status=await initializeNoteLibrary(uid,hasLegacyDraft,notes);
+  // A paginated inventory cannot establish that older archived records are absent.
+  const removed=await purgeArchivedNotes(uid);
+  return {legacyDeleted:status?.legacyDeleted === true,removed};
+}
+export async function getNoteCounts(uid,folderIds) {
+  const scopes=['all',...folderIds];
+  const results=await Promise.all(scopes.map(async id=>{
+    const filters=[where('archived','==',false)];
+    if (id !== 'all') filters.push(where('folderId','==',id));
+    const result=await getCountFromServer(query(notesRef(uid),...filters));
+    return [id,result.data().count];
+  }));
+  return Object.fromEntries(results);
 }
 export async function saveNoteFolder(uid,id,name) {
   const value = name.trim();
@@ -66,7 +87,8 @@ export async function saveNoteFolder(uid,id,name) {
   return ref.id;
 }
 export async function deleteNoteFolder(uid,id,notes) {
-  const children = notes.filter(note => note.folderId === id);
+  const children = notes ? notes.filter(note => note.folderId === id)
+    : (await getDocs(query(notesRef(uid),where('folderId','==',id)))).docs.map(item=>({id:item.id}));
   // Metadata-only moves preserve both the text and any pending editor save.
   for (let offset=0;offset<children.length;offset+=400) {
     const batch = writeBatch(db);

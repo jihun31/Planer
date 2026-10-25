@@ -1,10 +1,14 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { controlColor } from '../../features/planner/controlColors.mjs';
-import { blockActivity, summarizeBlocks } from '../../features/planner/activityHistory.mjs';
+import { summarizeBlocks } from '../../features/planner/activityHistory.mjs';
+import { scheduleRunCells } from '../../features/planner/scheduleRuns.mjs';
 import { visibleHours, blockMinutes as getBlockMins } from '../../features/planner/scheduleTime.mjs';
 import { COLORS, MINUTES_ARR, CUSTOM_ID, minToTime, fmtHour, fmtMins } from './plannerDisplay.mjs';
+import { planHintRuns, planOutlineColor } from '../../features/plans/plannerPlanHints.mjs';
 
-function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities, oppositeMode, activities, allActivities, onAddBlock, onDeleteBlock, control = false }) {
+const NO_PLANS=[];
+
+function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities, oppositeMode, activities, allActivities, onAddBlock, onDeleteBlock, recordActivityRef, control = false, plans=NO_PLANS, disabled=false }) {
   const [pending, setPending]         = useState(null);
   const [hovered, setHovered]         = useState(null);
   const [selMin, setSelMin]           = useState(null);
@@ -16,6 +20,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
   const [customLearning, setCustomLearning] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [submitting, setSubmitting]   = useState(false);
+  const savingRef = useRef(false);
   const [deletingBlockId, setDeletingBlockId] = useState(null);
   const isCustom = actId === CUSTOM_ID;
   useEffect(() => {
@@ -37,8 +42,15 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
   );
   const dayOppositeBlocks = useMemo(() => oppositeBlocks.filter(b => b.date === date), [oppositeBlocks, date]);
 
-  const hours = useMemo(() => visibleHours(range, oppositeMode === 'hidden'
-    ? dayBlocks : [...dayBlocks, ...dayOppositeBlocks]), [range, dayBlocks, dayOppositeBlocks, oppositeMode]);
+  const visiblePlans=control?NO_PLANS:plans;
+  const hours = useMemo(() => visibleHours(range,[...visiblePlans,...(oppositeMode === 'hidden'
+    ? dayBlocks : [...dayBlocks, ...dayOppositeBlocks])]), [range, dayBlocks, dayOppositeBlocks, oppositeMode,visiblePlans]);
+  const hintRuns=useMemo(()=>planHintRuns(visiblePlans,oppositeMode==='hidden'?dayBlocks:[...dayBlocks,...dayOppositeBlocks.map(block=>({...block,_opposite:true}))]),[visiblePlans,dayBlocks,dayOppositeBlocks,oppositeMode]);
+  const hintCells=useMemo(()=>{
+    const result=new Map();
+    for(const hint of hintRuns)for(let minute=hint.startMin;minute<hint.endMin;minute++)result.set(minute,hint);
+    return result;
+  },[hintRuns]);
   const daySummary = useMemo(() => summarizeBlocks(dayBlocks, actMap), [dayBlocks, actMap]);
   const controlDaySummary = useMemo(() => {
     if (!control) return [];
@@ -68,17 +80,19 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
     return m;
   }, [dayBlocks]);
   const minMap = useMemo(() => ({ ...oppositeMinMap, ...ownMinMap }), [oppositeMinMap, ownMinMap]);
+  const runCells = useMemo(() => scheduleRunCells(minMap, actMap, oppositeActMap), [minMap, actMap, oppositeActMap]);
   const blockedMinMap = control ? minMap : ownMinMap;
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') { setPending(null); setSelMin(null); setSelMax(null); }
+      if (e.key === 'Escape' && !savingRef.current) { setPending(null); setSelMin(null); setSelMax(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const handleCellClick = (min) => {
+    if (savingRef.current || disabled) return;
     if (blockedMinMap[min]) {
       if (oppositeMode === 'hidden' && oppositeMinMap[min] && control)
         setSaveError('공부 시간과 겹쳐 이 구간에는 기록할 수 없습니다.');
@@ -107,29 +121,52 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
     return 'empty';
   };
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    if (selMin === null || !actId) return;
-    if (isCustom && (!customName.trim() || (control && !customGroup))) return;
-    for (let m = selMin; m <= selMax; m++) {
-      if (blockedMinMap[m]) { alert('선택한 시간대에 이미 기록이 있습니다.'); return; }
+  const saveSelection = async (activityId, startMin = selMin, lastMin = selMax) => {
+    if (savingRef.current || disabled || startMin === null || lastMin === null || !activityId) return;
+    const custom = activityId === CUSTOM_ID;
+    if (custom && (!customName.trim() || (control && !customGroup))) return;
+    if (!custom && !activities.some(activity => activity.id === activityId)) return;
+    for (let m = startMin; m <= lastMin; m++) {
+      if (blockedMinMap[m]) { setSaveError('선택한 시간대에 이미 기록이 있습니다.'); return; }
     }
+    savingRef.current = true;
     setSubmitting(true);
-    const base = { date, startMin: selMin, endMin: selMax + 1 };
+    const base = { date, startMin, endMin: lastMin + 1 };
     setSaveError('');
     try {
-      await onAddBlock(isCustom
+      await onAddBlock(custom
         ? { ...base, activityId: null, customName: customName.trim(), customColor: control ? controlColor(customGroup) : customColor, ...(control ? { group: customGroup } : { learningIncluded: customLearning }) }
-        : { ...base, activityId: actId });
-      setSelMin(null); setSelMax(null);
-      if (isCustom) { setCustomName(''); setCustomLearning(false); }
+        : { ...base, activityId });
+      setPending(null); setSelMin(null); setSelMax(null);
+      if (custom) { setCustomName(''); setCustomLearning(false); }
     } catch {
       setSaveError('기록을 저장하지 못했습니다. 공부 시간과 겹치는지 확인하고 다시 시도해 주세요.');
-    } finally { setSubmitting(false); }
+    } finally { savingRef.current = false; setSubmitting(false); }
   };
 
+  const handleAdd = (e) => {
+    e.preventDefault();
+    return saveSelection(actId);
+  };
+
+  useEffect(() => {
+    if (!recordActivityRef) return;
+    const recordActivity = activityId => {
+      if (savingRef.current || disabled) return true;
+      if (selMin === null && pending === null) return false;
+      setActId(activityId);
+      setCustomLearning(false);
+      void saveSelection(activityId, selMin ?? pending, selMax ?? pending);
+      return true;
+    };
+    recordActivityRef.current = recordActivity;
+    return () => {
+      if (recordActivityRef.current === recordActivity) recordActivityRef.current = null;
+    };
+  });
+
   const handleDelete = async (blockId) => {
-    if (deletingBlockId) return;
+    if (deletingBlockId || disabled) return;
     setDeletingBlockId(blockId);
     setSaveError('');
     try { await onDeleteBlock(blockId); }
@@ -137,11 +174,14 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
     finally { setDeletingBlockId(null); }
   };
 
-  const clearAll = () => { setPending(null); setSelMin(null); setSelMax(null); };
+  const clearAll = () => {
+    if (savingRef.current) return;
+    setPending(null); setSelMin(null); setSelMax(null);
+  };
   const dp = date.split('-');
 
   return (
-    <div className="daily-schedule">
+    <div className="daily-schedule" aria-busy={disabled}>
       <div className={`ds-header${control ? ' ds-header-control' : ''}`}>
         <span className="ds-date">{dp[0]}년 {parseInt(dp[1])}월 {parseInt(dp[2])}일</span>
         <div className={`ds-header-right${control ? ' ds-header-groups' : ''}`}>
@@ -166,7 +206,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
             </span>
           ))}
           {(pending !== null || selMin !== null) && (
-            <button type="button" className="ds-clear-btn" onClick={clearAll}>선택 취소</button>
+            <button type="button" className="ds-clear-btn" disabled={disabled} onClick={clearAll}>선택 취소</button>
           )}
         </div>
       </div>
@@ -189,25 +229,28 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
               <div className="ds-td-time">{fmtHour(hour)}</div>
               {MINUTES_ARR.map(m => {
                 const min    = (hour - 8) * 60 + m;
+                const hint   = hintCells.get(min);
                 const blk    = minMap[min];
+                const run    = runCells.get(min);
                 const info   = blk && (!blk._opposite || !['blind', 'hidden'].includes(oppositeMode))
-                  ? blockActivity(blk, blk._opposite ? oppositeActMap : actMap) : null;
+                  ? run.info : null;
                 const color  = info?.color;
                 const name   = info?.name;
-                const { startMin: blkStart, endMin: blkEnd } = blk ? getBlockMins(blk) : {};
+                const { startMin: blkStart } = blk ? getBlockMins(blk) : {};
                 const isFirst  = blk && min === blkStart;
-                const blkMid   = blk ? Math.floor((blkStart + blkEnd) / 2) : null;
-                const showName = blk && min === blkMid && color && (blkEnd - blkStart) >= 5;
+                const runMid   = run ? Math.floor((run.startMin + run.endMin) / 2) : null;
+                const showName = run && min === runMid && color && (run.endMin - run.startMin) >= 5;
 
-                const nextBlk      = minMap[min + 1];
-                const sameRight    = !!blk && !!nextBlk && nextBlk.id === blk.id && nextBlk._opposite === blk._opposite
-                  && !(blk._opposite && oppositeMode === 'hidden');
+                const visuallyHidden = blk?._opposite && oppositeMode === 'hidden';
+                const actualVisible=blk&&!visuallyHidden;
+                const sameRight    = actualVisible ? runCells.get(min + 1) === run
+                  : hint && min+1<hint.endMin;
                 const isQuarterEnd = m === 14 || m === 29 || m === 44;
                 const isFiveEnd    = m % 5 === 4 && !isQuarterEnd;
 
-                const visuallyHidden = blk?._opposite && oppositeMode === 'hidden';
                 const state = blockedMinMap[min] && !visuallyHidden ? 'filled' : getCellState(min);
                 const cls   = ['ds-td'];
+                if (hint&&!actualVisible) cls.push('ds-td-plan');
                 if (state === 'filled')              cls.push('ds-td-filled');
                 if (blk?._opposite)                  cls.push('ds-td-opposite', `ds-td-opposite-${oppositeMode}`);
                 if (blk?._opposite && control && oppositeMode !== 'hidden') cls.push('ds-td-opposite-locked');
@@ -221,6 +264,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
                   <div
                     key={m}
                     className={cls.join(' ')}
+                    data-schedule-minute={min}
                     style={color ? { background: color + (blk?._opposite && oppositeMode === 'faded' ? '12' : '30') } : undefined}
                     onClick={() => handleCellClick(min)}
                     onMouseEnter={() => setHovered(min)}
@@ -233,7 +277,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
                         className="ds-del"
                         type="button"
                         aria-label={`${name || '기록'} 삭제`}
-                        disabled={deletingBlockId === blk.id}
+                        disabled={disabled || deletingBlockId === blk.id}
                         onClick={(e) => { e.stopPropagation(); handleDelete(blk.id); }}
                       >✕</button>
                     )}
@@ -242,24 +286,32 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
               })}
             </div>
           ))}
+          {hintRuns.map(hint=>{
+            const hour=Math.floor((hint.startMin+480)/60),row=hours.indexOf(hour)+2,column=(hint.startMin+480)%60+2;
+            return <span key={`${hint.startMin}-${hint.endMin}`} className="ds-plan-block" data-plan-start={hint.startMin} data-plan-end={hint.endMin}
+              style={{gridRow:`${row} / ${row+1}`,gridColumn:`${column} / ${column+hint.endMin-hint.startMin}`,'--plan-color':hint.color,'--plan-outline-color':planOutlineColor(hint.color)}}
+              title={`계획: ${hint.title}`}>
+              {hint.showLabel&&<span className="ds-plan-name">{hint.title}</span>}
+            </span>;
+          })}
         </div>
       </div>
 
       <form className="ds-form" onSubmit={handleAdd}>
-        <div className="ds-form-row">
+        <fieldset className="ds-form-fields" disabled={disabled}>
+        {(pending !== null || selMin !== null) && <div className="ds-form-row">
           {pending !== null ? (
             <span className="ds-sel-pending">
-              📍 {minToTime(pending)} 선택됨 — 끝 셀을 클릭하세요
+              📍 {minToTime(pending)} 선택됨 — 끝 셀 또는 위쪽 활동명을 클릭하세요
             </span>
           ) : selMin !== null ? (
             <span className="ds-sel-info">
               📌 {minToTime(selMin)} ~ {minToTime(selMax + 1)}
               <em> ({selMax - selMin + 1}분)</em>
+              <span> — 위쪽 활동명을 클릭하면 바로 기록됩니다</span>
             </span>
-          ) : (
-            <span className="ds-sel-hint">표에서 시작 셀을 클릭하세요</span>
-          )}
-        </div>
+          ) : null}
+        </div>}
         <div className="ds-form-row">
           <select
             className="form-select-sm"
@@ -308,6 +360,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
             <button type="button" className="btn-cancel-sel" onClick={clearAll}>취소</button>
           )}
         </div>
+        </fieldset>
       </form>
       {saveError && <p role="alert" className="ds-save-error">{saveError}</p>}
     </div>

@@ -5,7 +5,7 @@ import { notePlainText } from '../../features/notes/noteRichText.mjs';
 import { NotesHelp } from './NotesHelp.jsx';
 
 export function NotesWorkspace({ library, renderEditor }) {
-  const {notes,folders,loading,error} = library;
+  const {notes,folders,error,setView} = library;
   const [folder,setFolder] = useState(ALL_NOTES);
   const [selectedId,setSelectedId] = useState(null);
   const [opened,setOpened] = useState([]);
@@ -25,8 +25,13 @@ export function NotesWorkspace({ library, renderEditor }) {
   const currentFolder = folders.find(item => item.id === folder);
   const activeFolder = currentFolder ? folder : ALL_NOTES;
   const folderName = currentFolder?.name || '전체 메모';
-  const visible = visibleNotes(notes,activeFolder,search);
-  const selected = visible.find(note => note.id === selectedId) || visible[0];
+  const searching=!!search.trim();
+  const viewMatches=library.pageFolder === undefined || (library.pageFolder === activeFolder && library.searchAll === searching);
+  const loading=library.loading || !viewMatches;
+  const visible = visibleNotes(viewMatches ? (library.pageNotes || notes) : [],activeFolder,search);
+  useEffect(()=>{setView?.(activeFolder,searching);},[setView,activeFolder,searching]);
+  const retained=notes.find(note=>note.id === selectedId && visibleNotes([note],activeFolder,search).length);
+  const selected = visible.find(note => note.id === selectedId) || retained || visible[0];
   const resolvedId = selected?.id ?? null;
   useEffect(() => { if (selectedId !== resolvedId) setSelectedId(resolvedId); },[selectedId,resolvedId]);
   useEffect(() => {
@@ -121,7 +126,7 @@ export function NotesWorkspace({ library, renderEditor }) {
           <div><button type="submit" disabled={busy || !folderForm.name.trim()}>저장</button><button type="button" onClick={() => setFolderForm(null)}>취소</button></div>
         </form>}
         <div className="notes-folder-list">
-          {folderButton(ALL_NOTES,'전체 메모',notes.filter(note => !note.archived).length)}
+          {folderButton(ALL_NOTES,'전체 메모',library.counts?.all ?? '…')}
           {displayFolders.map(item => <div className={`notes-folder-entry${draggedId === item.id ? ' is-dragging' : ''}${dropTarget?.id === item.id ? dropTarget.after ? ' drop-after' : ' drop-before' : ''}`} key={item.id}
             onDragOver={event => {
               if (!draggedId || busy || draggedId === item.id) return;
@@ -131,18 +136,20 @@ export function NotesWorkspace({ library, renderEditor }) {
               setDropTarget(previous => previous?.id === item.id && previous.after === after ? previous : {id:item.id,after});
             }} onDragLeave={event => {if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null);}}
             onDrop={event => dropFolder(event,item)}>
-            {folderButton(item.id,item.name,notes.filter(note => !note.archived && note.folderId === item.id).length,item)}
+            {folderButton(item.id,item.name,library.counts?.[item.id] ?? '…',item)}
           </div>)}
         </div>
         <NotesHelp />
       </aside>
       <aside className="notes-list" aria-label="메모 목록">
-        <h2>{folderName}<small>{visible.length}</small></h2>
+        <h2>{folderName}<small>{searching ? visible.length : library.counts?.[activeFolder] ?? visible.length}</small></h2>
         <input className="notes-search" aria-label="메모 제목 검색" placeholder="제목 검색" value={search} onChange={event => {remember();setSearch(event.target.value);}} />
-        {loading ? <p className="notes-empty">불러오는 중…</p> : visible.length ? <ul>{visible.map(note => <li key={note.id}>
+        {loading ? <p className="notes-empty" role="status">{searching ? '전체 메모에서 검색하는 중…' : '불러오는 중…'}</p> : visible.length ? <ul>{visible.map(note => <li key={note.id}>
           <button type="button" className={`notes-list-item${selected?.id === note.id ? ' is-selected' : ''}`} onClick={() => selectNote(note.id)}>
             <strong>{note.title}</strong><span>{note.id === 'legacy' ? '이전에 작성한 메모' : notePlainText(note.text).trim().split('\n')[0] || '내용을 입력해 보세요.'}</span>
           </button></li>)}</ul> : <p className="notes-empty">{search ? '검색 결과가 없습니다.' : '아직 메모가 없습니다.'}</p>}
+        {!loading && !searching && library.hasMore && <button type="button" className="notes-load-more"
+          disabled={library.loadingMore || !!error} onClick={library.loadMore}>{library.loadingMore ? '불러오는 중…' : '더 보기'}</button>}
       </aside>
       <div className="notes-editor-pane">
         {editors.map(id => { const note = notes.find(item => item.id === id); return note &&

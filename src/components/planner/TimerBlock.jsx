@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { controlColor } from '../../features/planner/controlColors.mjs';
 import { clockLabel, timerSegments } from '../../features/planner/scheduleTime.mjs';
 import { COLORS, CUSTOM_ID, fmtElapsed } from './plannerDisplay.mjs';
-import { useTimerPopupPreference, useStudyGapPreference } from '../../features/planner/timerPreferences';
+import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition } from '../../features/planner/timerPreferences';
 import { prepareStudyGap } from '../../features/planner/studyGapService';
 import StudyGapDialog from './StudyGapDialog';
 
@@ -11,6 +11,7 @@ let activeTimerOwner = null;
 
 function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivityRef, control = false }) {
   const [popupEnabled] = useTimerPopupPreference(uid);
+  const [popupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled] = useStudyGapPreference(uid);
   const [starting,setStarting] = useState(false);
   const [gap,setGap] = useState(null);
@@ -100,7 +101,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
 
     if (popupEnabled && isElectron) {
       const actName = selectedIsCustom ? customName : (selectedActivity?.name ?? '');
-      const data = { actName, color: selectedColor, startTs: ts, startLabel: clockLabel(ts) };
+      const data = { actName, color: selectedColor, startTs: ts, startLabel: clockLabel(ts), position: popupPosition };
       const api = window.electronAPI;
       if (typeof api.startTimerPopup === 'function') {
         Promise.resolve().then(() => api.startTimerPopup(data)).then(result => {
@@ -171,6 +172,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
           color: timerColor,
           startTs,
           startLabel,
+          position: popupPosition,
         });
         setElectronPopupOpen(true);
       }
@@ -185,12 +187,14 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     }
     const sw = window.screen.availWidth;
     const sh = window.screen.availHeight;
+    const sx = window.screen.availLeft || 0;
+    const sy = window.screen.availTop || 0;
     const pw = 188, ph = 120;
     const popup = window.open(
       '',
       'timer-popup',
       `toolbar=no,menubar=no,location=no,status=no,scrollbars=no,resizable=no,` +
-      `width=${pw},height=${ph},left=${sw - pw - 24},top=${sh - ph - 60}`
+      `width=${pw},height=${ph},left=${sx + (popupPosition === 'left' ? 24 : sw - pw - 24)},top=${sy + sh - ph - 60}`
     );
     if (!popup) {
       alert('팝업이 차단됐습니다. 주소창 오른쪽의 팝업 허용 버튼을 클릭해주세요.');
@@ -329,7 +333,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
         onContinue={continueStart} onRetry={() => checkGap(startRequest.current)} />}
 
       {running && sessionPopupEnabled && !popupWin && !electronPopupOpen && createPortal(
-        <div className="float-timer" style={{ '--ft-color': timerColor }}>
+        <div className={`float-timer${popupPosition === 'left' ? ' float-timer-left' : ''}`} style={{ '--ft-color': timerColor }}>
           <div className="ft-header">
             <span className="ft-dot" style={{ background: timerColor }} />
             <span className="ft-name">{isCustom ? customName : (curAct?.name ?? '')}</span>

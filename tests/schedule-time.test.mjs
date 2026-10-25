@@ -4,7 +4,155 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { rangeForDate, visibleHours, blockMinutes, timerSegments, plannerDate, clockLabel, validRange, shiftPlannerDate } from '../src/features/planner/scheduleTime.mjs';
 import { oppositeDisplayFromHistory, validDisplayMode } from '../src/features/planner/oppositeDisplay.mjs';
+import { summarizeBlocks } from '../src/features/planner/activityHistory.mjs';
+import { planHintRuns } from '../src/features/plans/plannerPlanHints.mjs';
+import { scheduleRunCells } from '../src/features/planner/scheduleRuns.mjs';
 const ts = (d,h,m=0,s=0) => new Date(2026,9,d,h,m,s).getTime();
+
+function scheduleHarness(overrides = {}) {
+  const source = fs.readFileSync('src/components/planner/DailySchedule.jsx', 'utf8');
+  const body = source.slice(source.indexOf('function DailySchedule('), source.indexOf('\n  return ('));
+  const slots = [], effects = [], saved = [];
+  let cursor = 0;
+  const recordActivityRef = { current: null };
+  const props = {
+    date: '2026-10-23', range: { startHour: 8, endHour: 3 }, blocks: [], oppositeBlocks: [],
+    oppositeActivities: [], oppositeMode: 'hidden',
+    activities: [{ id: 'a', name: '독서', color: '#123456' }, { id: 'b', name: '운동', color: '#654321' }],
+    allActivities: [], recordActivityRef,
+    onAddBlock: async data => saved.push(JSON.parse(JSON.stringify(data))), ...overrides,
+  };
+  const context = vm.createContext({
+    visibleHours, getBlockMins: blockMinutes, summarizeBlocks, planHintRuns, scheduleRunCells, NO_PLANS:[], COLORS: ['#123456'], CUSTOM_ID: '__custom__',
+    window: { addEventListener() {}, removeEventListener() {} },
+    controlColor: () => '#abcdef',
+    useMemo: fn => fn(), useEffect: fn => effects.push(fn),
+    useState(initial) {
+      const i = cursor++;
+      if (!(i in slots)) slots[i] = initial;
+      return [slots[i], value => { slots[i] = value; }];
+    },
+    useRef(initial) { const i = cursor++; return slots[i] ??= { current: initial }; },
+  });
+  vm.runInContext(body + '\n return {handleCellClick, handleAdd, clearAll, setActId, setCustomName, setCustomGroup, setCustomLearning, selMin, selMax, pending, saveError};}\nglobalThis.render=DailySchedule;', context);
+  const render = () => {
+    cursor = 0; effects.length = 0;
+    const result = context.render(props);
+    effects.forEach(effect => effect());
+    return result;
+  };
+  const select = (start, end) => { render().handleCellClick(start); render().handleCellClick(end); render(); };
+  render();
+  return { render, select, props, saved, recordActivityRef };
+}
+
+const finishScheduleSave = () => new Promise(resolve => setImmediate(resolve));
+
+test('adjacent activity records share one display run without changing stored records',()=>{
+  const activities={stocks:{name:'주식',color:'#f97316'},other:{name:'주식',color:'#f97316'}};
+  const blocks=[{id:'first',activityId:'stocks',startMin:45,endMin:60},{id:'second',activityId:'stocks',startMin:60,endMin:75}];
+  const original=JSON.stringify(blocks),minutes={};
+  for(const block of blocks)for(let minute=block.startMin;minute<block.endMin;minute++)minutes[minute]=block;
+  const runs=scheduleRunCells(minutes,activities,{});
+  assert.equal(runs.get(45),runs.get(74));
+  assert.equal(runs.get(45).startMin,45);assert.equal(runs.get(45).endMin,75);
+  assert.equal(JSON.stringify(blocks),original);
+  delete minutes[60];
+  const gapped=scheduleRunCells(minutes,activities,{});
+  assert.notEqual(gapped.get(59),gapped.get(61));
+  minutes[60]={...blocks[1],activityId:'other'};
+  const separated=scheduleRunCells(minutes,activities,{});
+  assert.notEqual(separated.get(59),separated.get(60));
+  assert.notEqual(separated.get(60),separated.get(61));
+});
+
+test('custom activity runs respect color, control group and opposite-tab boundaries',()=>{
+  const first={customName:'휴식',customColor:'#123456',group:'controlled'};
+  for(const patch of [{},{customColor:'#654321'},{customName:'다른 활동'},{group:'foolish'},{_opposite:true}]){
+    const runs=scheduleRunCells({0:first,1:{...first,...patch}},{},{});
+    assert.equal(runs.get(0)===runs.get(1),Object.keys(patch).length===0);
+  }
+});
+
+test('display-only plans allow normal recording and stale loading disables writes without clearing selection',async()=>{
+  const h=scheduleHarness({plans:[{title:'계획',startMin:0,endMin:10}]});
+  h.select(0,9);h.props.disabled=true;h.render();
+  assert.equal(h.recordActivityRef.current('a'),true);
+  await finishScheduleSave();assert.equal(h.saved.length,0);assert.equal(h.render().selMin,0);
+  h.render().handleCellClick(20);assert.equal(h.render().selMin,0);
+  h.props.disabled=false;h.render();h.recordActivityRef.current('a');await finishScheduleSave();
+  assert.deepEqual(h.saved,[{date:'2026-10-23',startMin:0,endMin:10,activityId:'a'}]);
+});
+
+for (const control of [false, true]) {
+  test(`activity clicks save the selected range immediately in ${control ? 'control' : 'planner'}`, async () => {
+    const h = scheduleHarness({ control });
+    assert.equal(h.recordActivityRef.current('b'), false, 'no selection leaves the click available for the timer');
+    h.render().setActId('a');
+    h.select(1029, 1020);
+    assert.equal(h.recordActivityRef.current('b'), true);
+    await finishScheduleSave();
+    assert.deepEqual(h.saved, [{ date: '2026-10-23', startMin: 1020, endMin: 1030, activityId: 'b' }]);
+    assert.equal(h.render().selMin, null);
+    assert.equal(h.recordActivityRef.current('a'), false);
+    h.render().handleCellClick(0); h.render();
+    assert.equal(h.recordActivityRef.current('a'), true);
+    await finishScheduleSave();
+    assert.deepEqual(h.saved[1], { date: '2026-10-23', startMin: 0, endMin: 1, activityId: 'a' });
+  });
+}
+
+test('quick recording prevents duplicate writes and preserves the selection for retry after failure', async () => {
+  let rejectSave;
+  const calls = [];
+  const h = scheduleHarness({ onAddBlock: data => {
+    calls.push(JSON.parse(JSON.stringify(data)));
+    return new Promise((resolve, reject) => { rejectSave = reject; });
+  } });
+  h.select(0, 9);
+  h.recordActivityRef.current('a');
+  h.recordActivityRef.current('b');
+  h.render().handleCellClick(20);
+  h.render().clearAll();
+  assert.equal(calls.length, 1);
+  rejectSave(new Error('offline'));
+  await finishScheduleSave();
+  assert.ok(h.render().saveError);
+  assert.equal(h.render().selMin, 0);
+  assert.equal(h.render().selMax, 9);
+  h.props.onAddBlock = async data => calls.push(JSON.parse(JSON.stringify(data)));
+  h.render(); h.recordActivityRef.current('a');
+  await finishScheduleSave();
+  assert.deepEqual(calls[1], calls[0]);
+  assert.equal(h.render().saveError, '');
+  assert.equal(h.render().selMin, null);
+});
+
+test('quick recording keeps overlap restrictions for each tab, including hidden study blocks', async () => {
+  const block = { id: 'existing', date: '2026-10-23', startMin: 4, endMin: 6 };
+  for (const [control, ownBlock] of [[false, true], [true, false], [false, false]]) {
+    const h = scheduleHarness({ control, blocks: ownBlock ? [block] : [], oppositeBlocks: ownBlock ? [] : [block] });
+    h.select(0, 9); h.recordActivityRef.current('a');
+    await finishScheduleSave();
+    const allowed = !control && !ownBlock;
+    assert.equal(h.saved.length, allowed ? 1 : 0);
+    assert.equal(Boolean(h.render().saveError), !allowed);
+  }
+});
+
+test('the manual record form still saves custom activities and learning choices', async () => {
+  for (const control of [false, true]) {
+    const h = scheduleHarness({ control });
+    h.select(-60, -31);
+    h.render().setActId('__custom__'); h.render().setCustomName(' 휴식 ');
+    h.render().setCustomGroup('controlled'); h.render().setCustomLearning(true);
+    await h.render().handleAdd({ preventDefault() {} });
+    assert.deepEqual(h.saved[0], {
+      date: '2026-10-23', startMin: -60, endMin: -30, activityId: null, customName: '휴식',
+      customColor: control ? '#abcdef' : '#123456', ...(control ? { group: 'controlled' } : { learningIncluded: true }),
+    });
+  }
+});
 
 test('opposite tab display modes are independent and old settings keep defaults', () => {
   assert.deepEqual(oppositeDisplayFromHistory([]), {
@@ -65,6 +213,7 @@ test('real TimerBlock ignores past/future calendar selection, snapshots metadata
   const slots=[];let cursor=0, now=ts(5,12),fail=true;const calls=[];
   class Clock extends Date { static now(){ return now; } }
   const context=vm.createContext({Date:Clock,clockLabel,timerSegments,COLORS:['#123456'],CUSTOM_ID:'__custom__',activeTimerOwner:null,
+    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],
     useState(initial){const i=cursor++;if(!(i in slots))slots[i]=initial;return [slots[i],v=>slots[i]=v];},
     useRef(initial){const i=cursor++;return slots[i]??=( {current:initial} );},
     useMemo:fn=>fn(),useEffect:()=>{},
@@ -84,9 +233,10 @@ test('real TimerBlock ignores past/future calendar selection, snapshots metadata
 test('desktop timer waits for popup confirmation and reports connection failure', async () => {
   const source = fs.readFileSync('src/components/planner/TimerBlock.jsx', 'utf8');
   const body = source.slice(source.indexOf('function TimerBlock('), source.indexOf('\n  return (', source.indexOf('function TimerBlock(')));
-  const slots = []; let cursor = 0, reply;
-  const api = { startTimerPopup: () => reply, closeTimerPopup() {}, onTimerStopped: () => () => {} };
+  const slots = []; let cursor = 0, reply, popupData;
+  const api = { startTimerPopup: data => {popupData=data;return reply;}, closeTimerPopup() {}, onTimerStopped: () => () => {} };
   const context = vm.createContext({ Date, clockLabel, timerSegments, COLORS: ['#123456'], CUSTOM_ID: '__custom__', activeTimerOwner: null,
+    useTimerPopupPreference:()=>[true],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['left'],
     window: { electronAPI: api },
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], value => slots[i] = value]; },
     useRef(initial) { const i = cursor++; return slots[i] ??= { current: initial }; },
@@ -102,6 +252,7 @@ test('desktop timer waits for popup confirmation and reports connection failure'
   await reply;
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(render().electronPopupOpen, true);
+  assert.equal(popupData.position,'left');
   slots.length = 0;
   context.activeTimerOwner = null;
   render().setActId('a');
@@ -117,6 +268,7 @@ test('direct-entry timer stores the learning choice with its saved segments', as
   const body = source.slice(source.indexOf('function TimerBlock('),source.indexOf('\n  return (',source.indexOf('function TimerBlock(')));
   const slots = []; let cursor = 0, saved;
   const context = vm.createContext({Date,clockLabel,timerSegments,COLORS:['#123456'],CUSTOM_ID:'__custom__',activeTimerOwner:null,
+    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],
     useState(initial) { const i=cursor++; if (!(i in slots)) slots[i]=initial; return [slots[i],value=>slots[i]=value]; },
     useRef(initial) { const i=cursor++; return slots[i]??={current:initial}; },
     useMemo:fn=>fn(),useEffect:()=>{},

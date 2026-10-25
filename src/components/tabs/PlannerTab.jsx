@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDayPlans } from '../../features/plans/useDayPlans';
+import { projectPlannerPlans } from '../../features/plans/plannerPlanHints.mjs';
+import { useRetainedPlannerDay } from '../../features/planner/useRetainedPlannerDay';
 import { usePlanner } from '../../features/planner/usePlanner';
 import { useControl } from '../../features/planner/useControl';
 import { oppositeDisplayFromHistory } from '../../features/planner/oppositeDisplay.mjs';
@@ -25,6 +28,7 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
   const [calYear,  setCalYear]  = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
   const timerStart = useRef(null);
+  const recordSelection = useRef(null);
   const plannerData = usePlanner(control ? null : uid, calYear, calMonth, selectedDate);
   const controlData = useControl(control ? uid : null, calYear, calMonth, selectedDate);
   const { activities, allActivities, blocks, oppositeBlocks, oppositeActivities, loading, error, retryLoading, addActivity,
@@ -32,6 +36,10 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
     control ? controlData : plannerData;
   const displaySettings = oppositeDisplayFromHistory(scheduleHistory);
   const oppositeMode = control ? displaySettings.controlOppositeDisplay : displaySettings.plannerOppositeDisplay;
+  const retainedDay=useRetainedPlannerDay(uid,selectedDate,control?controlData:plannerData);
+  const planData=useDayPlans(control?null:uid,selectedDate);
+  const plans=useMemo(()=>control||planData.loading||planData.error?[]:projectPlannerPlans(planData.versions,planData.entries,selectedDate,allActivities),
+    [control,planData.loading,planData.error,planData.versions,planData.entries,selectedDate,allActivities]);
 
   useEffect(() => {
     if (!active) return;
@@ -67,28 +75,34 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
       {error ? <div role="alert">
         기록을 불러오지 못했습니다. 연결 상태와 접근 권한을 확인해 주세요.
         <button type="button" onClick={retryLoading}>다시 시도</button>
-      </div> : loading && <div role="status">기록을 불러오는 중...</div>}
+      </div> : loading && <div className="planner-updating" role="status">불러오는 중…</div>}
       <ActivityManager activities={activities} onAdd={addActivity} onDelete={deleteActivity} onUpdateOrder={updateActivityOrder}
-        onUpdateGroup={updateActivityGroup} onStart={id => timerStart.current?.(id)} control={control} />
+        onUpdateGroup={updateActivityGroup} onStart={id => {
+          if(loading||error||!settingsReady)return;
+          if (!recordSelection.current?.(id)) timerStart.current?.(id);
+        }} control={control} />
       <div className="planner-main">
         <div className="planner-left">
           <TimerBlock uid={uid} activities={activities} allActivities={allActivities} onSaveTimer={saveTimer} startActivityRef={timerStart} control={control} />
           <PlannerCalendar
             year={calYear} month={calMonth} selectedDate={selectedDate}
             blocks={blocks} oppositeBlocks={oppositeBlocks} oppositeActivities={oppositeActivities} oppositeMode={oppositeMode}
-            onSelectDate={setSelectedDate} onMonthChange={handleMonthChange} control={control}
+            onSelectDate={setSelectedDate} onMonthChange={handleMonthChange} control={control} minimumWeeks={6}
           />
-          {!loading && !error && <MonthlyStats year={calYear} month={calMonth} blocks={blocks} activities={allActivities} control={control} />}
+          <MonthlyStats year={calYear} month={calMonth} blocks={blocks} activities={allActivities} control={control} loading={loading} error={error} />
         </div>
         <div className="planner-right">
           {!settingsReady && <p role="status">시간 설정을 불러오는 중…</p>}
           {settingsError && <p role="alert">시간 설정을 불러오지 못해 기본 범위로 표시합니다. 기존 기록은 유지됩니다. 설정 버튼에서 안내를 확인해 주세요.</p>}
-          {!loading && !error && settingsReady && <DailySchedule
+          {!control&&planData.error&&<p role="alert" className="planner-plan-error">계획을 불러오지 못했습니다. 실제 기록은 계속 사용할 수 있습니다.
+            <button type="button" onClick={planData.retry}>다시 연결</button></p>}
+          <DailySchedule
             key={selectedDate + JSON.stringify(rangeForDate(scheduleHistory, selectedDate))} range={rangeForDate(scheduleHistory, selectedDate)}
-            date={selectedDate} blocks={blocks} oppositeBlocks={oppositeBlocks} oppositeActivities={oppositeActivities}
+            date={selectedDate} blocks={retainedDay.blocks} oppositeBlocks={retainedDay.oppositeBlocks} oppositeActivities={oppositeActivities}
             oppositeMode={oppositeMode} activities={activities} allActivities={allActivities}
-            onAddBlock={addBlock} onDeleteBlock={deleteBlock} control={control}
-          />}
+            onAddBlock={addBlock} onDeleteBlock={deleteBlock} recordActivityRef={recordSelection} control={control}
+            plans={plans} disabled={loading||!!error||!settingsReady}
+          />
         </div>
       </div>
     </div>

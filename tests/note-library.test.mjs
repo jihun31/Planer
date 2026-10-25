@@ -7,10 +7,10 @@ import { createNotepadStore } from '../src/features/notes/notepadStore.mjs';
 
 const strip = source => source.replace(/import[\s\S]*?from\s*['"][^'"]+['"];?/g,'').replace(/export\s+(?=(?:async )?(?:const|function))/g,'');
 function serviceFixture() {
-  const documents = new Map(), updates = [], writes = [], deletions = [];
+  const documents = new Map(), updates = [], writes = [], deletions = [], reads = [], queries = [];
   const db = {};
   const transaction = {
-    get:async ref => ({exists:() => documents.has(ref.path),data:() => documents.get(ref.path)}),
+    get:async ref => {reads.push(ref.path);return {exists:() => documents.has(ref.path),data:() => documents.get(ref.path)};},
     set:(ref,data) => {writes.push({path:ref.path,data});documents.set(ref.path,data);},
     update:(ref,data) => updates.push({path:ref.path,data}),
     delete:ref => {deletions.push(ref.path);documents.delete(ref.path);},
@@ -21,18 +21,72 @@ function serviceFixture() {
     serverTimestamp:() => 'timestamp',
     runTransaction:(_db,fn) => fn(transaction),
     query:(ref,...filters) => ({...ref,filters}),where:(field,op,value) => ({field,op,value}),
-    getDocs:async ref => ({docs:[...documents].filter(([path,data]) => path.startsWith(ref.path + '/') && (!ref.filters || ref.filters.every(f => data[f.field] === f.value)))
-      .map(([path]) => ({id:path.split('/').at(-1)}))}),
+    getDocs:async ref => {queries.push(ref);return {docs:[...documents].filter(([path,data]) => path.startsWith(ref.path + '/') && (!ref.filters || ref.filters.every(f => data[f.field] === f.value)))
+      .map(([path,data]) => ({id:path.split('/').at(-1),data:()=>data}))};},
+    getCountFromServer:async ref => {queries.push(ref);return {data:()=>({count:[...documents].filter(([path,data])=>
+      path.startsWith(ref.path + '/') && ref.filters.every(f=>data[f.field] === f.value)).length})};},
+    getNoteLibrarySnapshot:async uid => [...documents].filter(([path]) => path.startsWith(`notepads/${uid}/notes/`))
+      .map(([path,data]) => ({...data,id:path.split('/').at(-1)})),
     writeBatch:() => ({update:(ref,data) => updates.push({path:ref.path,data}),delete:ref => deletions.push(ref.path),commit:async () => {}}),
     setDoc:async (ref,data) => writes.push({path:ref.path,data}),
     updateDoc:async (ref,data) => updates.push({path:ref.path,data}),
   });
   vm.runInContext(strip(fs.readFileSync('src/features/notes/noteLibraryService.js','utf8')) +
-    '\nglobalThis.library = {initializeNoteLibrary,deleteNoteFolder,createNote,reorderNoteFolders,deleteNote,purgeArchivedNotes};',context);
+    '\nglobalThis.library = {initializeNoteLibrary,deleteNoteFolder,createNote,reorderNoteFolders,deleteNote,purgeArchivedNotes,prepareNoteLibrary,getNoteCounts};',context);
   vm.runInContext(strip(fs.readFileSync('src/features/notes/notepadService.js','utf8')) +
     '\nglobalThis.saveBody = saveNotepad;',context);
-  return {documents,updates,writes,deletions,library:context.library,saveBody:context.saveBody};
+  return {documents,updates,writes,deletions,reads,queries,library:context.library,saveBody:context.saveBody};
 }
+
+test('paginated startup reuses legacy metadata and checks archived records beyond the current page', async()=>{
+  const f=serviceFixture();
+  f.documents.set('notepads/alice/notes/legacy',{text:'',archived:false});
+  f.documents.set('notepads/alice/notes/a',{text:'원문',archived:false});
+  f.documents.set('notepads/bob/notes/other',{text:'다른 계정',archived:true});
+  const result=await f.library.prepareNoteLibrary('alice',false);
+  assert.equal(result.legacyDeleted,false);assert.deepEqual(Array.from(result.removed),[]);
+  assert.deepEqual(f.reads,[]);assert.equal(f.queries.length,1);assert.deepEqual(f.writes,[]);
+  assert.equal(f.queries[0].filters[0].field,'archived');assert.equal(f.queries[0].filters[0].value,true);
+  f.documents.set('notepads/alice/notes/trash',{text:'이전 휴지통',archived:true});
+  const cleaned=await f.library.prepareNoteLibrary('alice',false);
+  assert.deepEqual(Array.from(cleaned.removed),['trash']);
+  assert.deepEqual(f.reads,['notepads/alice/notes/trash']);
+  assert.equal(f.queries.length,2);
+  assert.ok(f.documents.has('notepads/alice/notes/a'));assert.ok(f.documents.has('notepads/bob/notes/other'));
+});
+
+test('folder deletion moves notes beyond loaded pages and counts remain global without downloading bodies', async()=>{
+  const f=serviceFixture();
+  for(let index=0;index<45;index++) f.documents.set(`notepads/alice/notes/${index}`,{folderId:'study',archived:false,text:'원문'});
+  f.documents.set('notepads/alice/notes/other',{folderId:null,archived:false});
+  f.documents.set('notepads/alice/notes/trash',{folderId:'study',archived:true});
+  f.documents.set('notepads/bob/notes/private',{folderId:'study',archived:false});
+  const counts=await f.library.getNoteCounts('alice',['study']);
+  assert.equal(counts.all,46);assert.equal(counts.study,45);
+  await f.library.deleteNoteFolder('alice','study');
+  assert.equal(f.updates.length,46);
+  assert.ok(f.updates.every(item=>item.path.startsWith('notepads/alice/notes/') && item.data.folderId === null));
+  assert.ok(f.updates.every(item=>!('text' in item.data)));
+});
+
+test('saving note text reuses counts; changed membership, explicit retry and a different account refresh them', async()=>{
+  const source=fs.readFileSync('src/features/notes/useNoteLibrary.js','utf8');
+  const effect=source.slice(source.indexOf('  useEffect(()=>{'),source.indexOf('  useEffect(() => {'));
+  const reads=[],states=[];let cleanup,scheduled;
+  const context=vm.createContext({uid:'alice',notesReady:true,foldersReady:true,page:{serverReady:true},
+    folderKey:'study',membershipKey:'a:study',listeners:{},countRequest:{current:null},
+    getNoteCounts:async(uid,ids)=>{reads.push({uid,ids});return {all:20,study:20};},
+    setCountState:value=>states.push(value),setTimeout:fn=>{scheduled=fn;return 1;},clearTimeout:()=>{scheduled=null;},
+    useEffect:fn=>{cleanup=fn();},
+  });
+  const render=async()=>{cleanup?.();vm.runInContext(effect,context);scheduled?.();await Promise.resolve();await Promise.resolve();};
+  await render();assert.equal(reads.length,1);
+  context.page={serverReady:false};await render();
+  context.page={serverReady:true};await render();assert.equal(reads.length,1,'A save acknowledgement must not repeat every folder count query');
+  context.membershipKey='a:study|b:study';await render();assert.equal(reads.length,2);
+  context.listeners={};await render();assert.equal(reads.length,3);
+  context.uid='bob';await render();assert.equal(reads.length,4);assert.equal(states.at(-1).uid,'bob');cleanup?.();
+});
 
 test('all notes include folderless and orphaned notes while archived records stay hidden until purged', () => {
   const notes = [

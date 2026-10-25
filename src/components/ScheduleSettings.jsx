@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { saveScheduleSettings } from '../features/planner/scheduleSettings';
 import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs';
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
-import { useTimerPopupPreference, useStudyGapPreference } from '../features/planner/timerPreferences';
+import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition } from '../features/planner/timerPreferences';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
 import { useEditableCopy } from '../features/copy/useEditableCopy';
 export default function ScheduleSettings({ uid, history, ready, error, onClose }) {
   const copy = useEditableCopy('settings');
   const close = () => {if (!saving && copy.canClose()) onClose();};
   const [timerPopupEnabled, setTimerPopupEnabled] = useTimerPopupPreference(uid);
+  const [timerPopupPosition, setTimerPopupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled, setStudyGapEnabled] = useStudyGapPreference(uid);
   const [timerFailure, setTimerFailure] = useState('');
   const [tabVisibility,setTabVisible] = useTabVisibility(uid);
@@ -42,6 +43,13 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose }
         try { setTimerPopupEnabled(e.target.checked); setTimerFailure(''); }
         catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
       }} /></label>
+      <label>{copy.field('timerPopupPosition')}<select value={timerPopupPosition} disabled={copy.editing} onChange={e => {
+        try {setTimerPopupPosition(e.target.value);setTimerFailure('');}
+        catch {setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
+      }}>
+        <option value="left">{copy.value('timerPopupLeft')}</option>
+        <option value="right">{copy.value('timerPopupRight')}</option>
+      </select></label>
       <label>{copy.field('studyGap')}<input type="checkbox" disabled={copy.editing} checked={studyGapEnabled} onChange={e => {
         try { setStudyGapEnabled(e.target.checked); setTimerFailure(''); }
         catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
@@ -78,7 +86,7 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose }
         </label>
       </div>
       {copy.editing && <div className="copy-option-editor"><p>선택 항목·버튼 문구</p>
-        {['displayAll','displayFaded','displayHidden','displayBlind','close','save','saving'].map(key => <div key={key}>{copy.field(key)}</div>)}
+        {['timerPopupLeft','timerPopupRight','displayAll','displayFaded','displayHidden','displayBlind','close','save','saving'].map(key => <div key={key}>{copy.field(key)}</div>)}
       </div>}
       {(!ready || error || failure) && <p role="alert">{failure || (error ? '설정을 불러오지 못했습니다. Firebase 규칙에 plannerSettings 접근 허용이 필요합니다.' : '설정을 불러오는 중…')}</p>}
       <div className="schedule-settings-actions">

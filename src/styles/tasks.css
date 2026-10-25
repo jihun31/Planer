@@ -794,7 +794,6 @@
 @media (min-width: 1101px) {
   .today-layout { align-items: stretch; }
   .today-middle > .today-block { flex: 1; }
-  .today-right > .today-block:last-child { margin-top: auto; }
 }
 
 .today-block-hdr {

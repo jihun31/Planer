@@ -4,7 +4,7 @@ import { summarizeBlocks } from '../../features/planner/activityHistory.mjs';
 import { blockMinutes as getBlockMins } from '../../features/planner/scheduleTime.mjs';
 import { fmtMins } from './plannerDisplay.mjs';
 
-function MonthlyStats({ year, month, blocks, activities, control = false }) {
+function MonthlyStats({ year, month, blocks, activities, control = false,loading=false,error=null }) {
   const actMap      = useMemo(() => Object.fromEntries(activities.map(a => [a.id, a])), [activities]);
   const prefix      = `${year}-${String(month + 1).padStart(2, '0')}`;
   const monthBlocks = blocks.filter(block => {
@@ -31,9 +31,9 @@ function MonthlyStats({ year, month, blocks, activities, control = false }) {
   const maxH = stats.length ? stats[0].hours : 1;
 
   return (
-    <div className="monthly-stats">
+    <div className="monthly-stats" aria-busy={loading}>
       <p className="stats-title">📊 {month + 1}월 통계</p>
-      {stats.length === 0 ? (
+      {loading||error?<p className="stats-empty">{loading?'통계를 불러오는 중…':'통계를 불러오지 못했습니다.'}</p>:stats.length === 0 ? (
         <p className="stats-empty">이번 달 기록이 없습니다.</p>
       ) : (
         <div className="stats-list">

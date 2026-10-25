@@ -1,7 +1,7 @@
 {
   "name": "planer",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "main": "./electron/main.js",
   "scripts": {
     "dev": "vite --port 5173",
@@ -10,8 +10,14 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && node electron/run-dev.cjs\"",
     "electron:build": "npm run build && electron-builder --publish never",
-    "test": "node --test tests/planner-reads.test.mjs tests/google-auth.test.cjs tests/account-isolation.test.mjs tests/activity-history.test.mjs tests/schedule-time.test.mjs tests/control-time.test.mjs tests/control-colors.test.mjs tests/learning.test.mjs tests/notepad.test.mjs tests/note-library.test.mjs tests/youtube-links.test.mjs tests/tab-visibility.test.mjs tests/note-rich-text.test.mjs tests/calendar.test.mjs tests/study-gap.test.mjs tests/ui-text.test.mjs",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-planer-security \"node --test tests/firestore.rules.test.mjs\""
+    "test": "node --test tests/planner-reads.test.mjs tests/google-auth.test.cjs tests/account-isolation.test.mjs tests/activity-history.test.mjs tests/schedule-time.test.mjs tests/control-time.test.mjs tests/control-colors.test.mjs tests/learning.test.mjs tests/notepad.test.mjs tests/note-library.test.mjs tests/note-subscriptions.test.mjs tests/youtube-links.test.mjs tests/site-links.test.mjs tests/tab-visibility.test.mjs tests/note-rich-text.test.mjs tests/calendar.test.mjs tests/day-plans.test.mjs tests/study-gap.test.mjs tests/ui-text.test.mjs",
+    "test:plans": "node --test tests/day-plans.test.mjs",
+    "test:plans:ui": "node tests/day-plans-dom.test.cjs",
+    "test:planner:ui": "node tests/planner-integration-dom.test.cjs",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-planer-security \"node --test tests/firestore.rules.test.mjs\"",
+    "test:notes:dom": "node tests/note-drag-dom.test.cjs",
+    "test:notes:checklist": "node tests/note-checklist-dom.test.cjs",
+    "test:notes:workspace": "node tests/note-workspace-dom.test.cjs"
   },
   "dependencies": {
     "firebase": "^12.15.0",

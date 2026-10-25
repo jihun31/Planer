@@ -182,8 +182,8 @@ function App() {
           데이터를 불러오지 못했습니다. 인터넷 연결과 계정 접근 권한을 확인해 주세요.
         </p>}
         <div hidden={currentTab !== "today"}>
-          <TodayTab key={user.uid} tasks={tasksData} todos={todosData} goalsData={goalsData}
-            priorityData={priorityData} />
+          <TodayTab key={user.uid} uid={user.uid} tasks={tasksData} todos={todosData} goalsData={goalsData}
+            priorityData={priorityData} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
         </div>
         <div hidden={currentTab !== "planner"}>
           {plannerOpened && <LearningSummary learning={learning} onOpen={openLearning} />}

@@ -1,10 +1,17 @@
 /* ===== 생활계획표 ===== */
 
 .planner-wrap {
+  position:relative;
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
+.planner-updating { position:absolute; top:-20px; right:0; color:var(--text-muted); font-size:.72rem; }
+.planner-plan-error { font-size:.78rem; color:var(--red); margin-bottom:8px; }
+.ds-td.ds-td-plan { background:var(--surface); border-top:0; border-bottom:1px solid transparent; border-right:0; }
+.ds-plan-block { position:absolute; inset:0; min-width:0; min-height:0; display:flex; align-items:center; justify-content:center; border:0; box-shadow:inset 0 0 0 3px var(--plan-outline-color); padding:3px; box-sizing:border-box; pointer-events:none; overflow:hidden; z-index:3; }
+.ds-plan-name { width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--plan-color); font-size:.68rem; font-weight:600; }
+.ds-form-fields { display:flex; flex-direction:column; gap:8px; margin:0; padding:0; border:0; min-width:0; }
 
 .control-quote {
   margin: 0;
@@ -351,6 +358,7 @@
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
 }
+.cal-empty { aspect-ratio:1; }
 
 .cal-day-label {
   text-align: center;
@@ -594,8 +602,9 @@
 
 /* CSS Grid: 시간열 + 60개 1분 격자 */
 .ds-table {
+  position:relative;
   display: grid;
-  grid-template-columns: 52px repeat(60, 1fr);
+  grid-template-columns: 52px repeat(60, minmax(0, 1fr));
   border-left: 1px solid var(--border);
   border-top: 1px solid var(--border);
 }
@@ -613,7 +622,7 @@
   user-select: none;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 4;
   white-space: nowrap;
 }
 
@@ -846,6 +855,8 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
   animation: ftSlideIn 0.2s ease;
 }
+
+.float-timer-left { left:16px; right:auto; }
 
 @keyframes ftSlideIn {
   from { opacity: 0; transform: translateY(8px); }
