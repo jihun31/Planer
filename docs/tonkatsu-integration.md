@@ -3,8 +3,6 @@
 돈까스봇(디스코드 봇)을 이 저장소로 합치고, 봇과 Planer 앱이 **같은 Firestore 데이터베이스**를 쓰도록 바꾸는 설계입니다.
 디스코드에서도, Planer 앱에서도 같은 계획을 인증할 수 있게 하는 것이 목표입니다.
 
-> 상태: **설계 초안**. 아래 보안 규칙은 1단계에서 에뮬레이터 테스트와 함께 확정합니다.
-
 ## 1. 결정 사항
 
 | 항목 | 결정 |
@@ -13,6 +11,10 @@
 | 앱 사용 | **선택 사항**. 디스코드만으로 모든 기능을 쓸 수 있고, 앱은 PC 사용자를 위한 추가 수단 |
 | 사진 인증 | **검수용**. 디스코드 인증 메시지에 첨부한 사진을 멤버들이 보고 확인. 사진 파일은 저장하지 않음 |
 | 저장소 | `Planer-eddited`에 합침 (공개 저장소). 봇은 `bot/` 폴더 |
+| 공개 범위 | 연동된 멤버끼리는 서로의 계획·인증·벌금을 볼 수 있음 (디스코드에서 보이는 범위와 같음) |
+| 앱 화면 | 디스코드와 연동하면 **앱 상단에 디스코드 서버 이름이 제목처럼 표시**됨. **멤버 탭**에서 각자의 진행도를 볼 수 있음 |
+
+> 상태: **1단계(보안 규칙) 완료.** 규칙은 `firestore.rules`, 테스트는 `tests/tonkatsu.rules.test.mjs`에 있습니다.
 
 ## 2. 역할 나누기
 
@@ -55,6 +57,7 @@
 | `offDays` | 아래 참고 | `ownerId`, `type`(`rest`/`exempt`), `date`, `createdAt` | 휴식: 봇·앱(본인). 면책: 봇 | 연동된 멤버 |
 | `fineEvents` | 아래 참고 | `discordId`, `amount`(+/-), `reason`, `date`, `kind`(`settlement`/`admin`), `createdAt` | 봇 | 연동된 멤버 |
 | `votes` | 디스코드 메시지 ID | 지금의 `active_votes.json` 항목 | 봇 | 연동된 멤버 |
+| `server` | `info` | `guildId`, `name`, `iconUrl` (앱 상단 제목용). 봇이 켜질 때와 서버 이름이 바뀔 때 갱신 | 봇 | 연동된 멤버 |
 | `botState` | `state` | 마지막 정산일, 마지막 백업일 | 봇 | 없음 |
 
 ### 계획 (`plans`)
@@ -106,100 +109,34 @@
   - 어제 인증까지 허용하므로, 규칙은 서버 시각이 `D 00:00(UTC) - 4시간` 이상, `+ 44시간` 미만인지 확인합니다.
 - 정산은 지금처럼 매일 12시(한국 시간)에 봇이 합니다.
 
-## 6. 보안 규칙 초안
+## 6. 보안 규칙 (1단계 완료)
 
-기존 `firestore.rules`의 규칙은 그대로 두고 아래를 추가합니다. 에뮬레이터 테스트(`tests/firestore.rules.test.mjs`)와 함께 1단계에서 확정합니다.
+규칙은 `firestore.rules`의 "돈까스봇 공용 데이터" 부분에 있고, 기존 개인 컬렉션(`goals`, `scheduleBlocks` 등)의 규칙은 바뀌지 않았습니다.
+테스트는 `tests/tonkatsu.rules.test.mjs`이며 `npm run test:rules`로 기존 규칙 테스트와 함께 실행됩니다.
 
-```
-function linked() {
-  return signedIn() && exists(/databases/$(database)/documents/links/$(request.auth.uid));
-}
-function myDiscordId() {
-  return get(/databases/$(database)/documents/links/$(request.auth.uid)).data.discordId;
-}
-function validDay(d) { return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
-// 한국 시간 5시 경계 기준 '오늘 또는 어제'
-function recentDay(d) {
-  let p = d.split('-');
-  let start = timestamp.date(int(p[0]), int(p[1]), int(p[2]));
-  return request.time >= start - duration.value(4, 'h')
-      && request.time < start + duration.value(44, 'h');
-}
-// 한국 시간 5시 경계 기준 '오늘'
-function todayDay(d) {
-  let p = d.split('-');
-  let start = timestamp.date(int(p[0]), int(p[1]), int(p[2]));
-  return request.time >= start - duration.value(4, 'h')
-      && request.time < start + duration.value(20, 'h');
-}
+**앱(Google 로그인 사용자)이 할 수 있는 것**
 
-match /links/{uid} {
-  allow read: if signedIn() && uid == request.auth.uid;
-}
-match /linkCodes/{code} {
-  allow create: if signedIn() && code.matches('^[A-HJ-NP-Z2-9]{8}$')
-    && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
-    && request.resource.data.uid == request.auth.uid
-    && request.resource.data.createdAt == request.time;
-  allow delete: if signedIn() && resource.data.uid == request.auth.uid;
-}
-match /members/{discordId} {
-  allow read: if linked();
-  allow update: if linked() && discordId == myDiscordId()
-    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['alertHour'])
-    && request.resource.data.alertHour is int
-    && request.resource.data.alertHour >= 0 && request.resource.data.alertHour <= 23;
-}
-match /plans/{planId} {
-  allow read: if linked();
-  allow create: if linked() && request.resource.data.ownerId == myDiscordId()
-    && validPlan(request.resource.data) && request.resource.data.status == 'active'
-    && request.resource.data.createdAt == request.time;
-  allow update: if linked() && resource.data.ownerId == myDiscordId()
-    && validPlan(request.resource.data)
-    && request.resource.data.diff(resource.data).affectedKeys()
-         .hasOnly(['content', 'photo', 'count', 'limit', 'days', 'interval', 'deadline', 'status', 'updatedAt'])
-    && request.resource.data.status in ['active', 'completed', 'deleted']
-    && request.resource.data.updatedAt == request.time;
-}
-match /checkIns/{checkInId} {
-  function plan() { return get(/databases/$(database)/documents/plans/$(request.resource.data.planId)).data; }
-  allow read: if linked();
-  allow create: if linked()
-    && request.resource.data.keys().hasOnly(['planId', 'ownerId', 'date', 'source', 'createdAt'])
-    && request.resource.data.ownerId == myDiscordId()
-    && plan().ownerId == myDiscordId() && plan().status == 'active' && plan().photo == false
-    && request.resource.data.source == 'app'
-    && validDay(request.resource.data.date) && recentDay(request.resource.data.date)
-    && (plan().category == 'Limit'
-        || checkInId == request.resource.data.planId + '_' + request.resource.data.date)
-    && request.resource.data.createdAt == request.time;
-  allow delete: if linked() && resource.data.ownerId == myDiscordId() && recentDay(resource.data.date);
-}
-match /offDays/{offDayId} {
-  allow read: if linked();
-  allow create: if linked()
-    && request.resource.data.keys().hasOnly(['ownerId', 'type', 'date', 'createdAt'])
-    && request.resource.data.ownerId == myDiscordId()
-    && request.resource.data.type == 'rest'
-    && validDay(request.resource.data.date) && todayDay(request.resource.data.date)
-    && offDayId == myDiscordId() + '_rest_'
-         + request.resource.data.date.split('-')[0] + '-' + request.resource.data.date.split('-')[1]
-    && request.resource.data.createdAt == request.time;
-  allow delete: if linked() && resource.data.ownerId == myDiscordId()
-    && resource.data.type == 'rest' && todayDay(resource.data.date);
-}
-match /fineEvents/{id} { allow read: if linked(); }
-match /votes/{id}      { allow read: if linked(); }
-// botState: 앱에서 접근 불가 (규칙 없음 = 거부)
-```
+| 컬렉션 | 읽기 | 쓰기 |
+|---|---|---|
+| `server`, `members`, `plans`, `checkIns`, `offDays`, `fineEvents`, `votes` | 연동된 멤버 | 아래 항목만 |
+| `members` | | 본인 `alertHour`(0~23)만 수정 |
+| `plans` | | 본인 계획 등록(등록일은 오늘만), 이름 변경, 삭제(`status: deleted`), 목표 달성·달성 취소. **횟수·제한·사진 같은 조건은 바꿀 수 없음** |
+| `checkIns` | | 본인의 사진 없는 활성 계획을 **오늘·어제 날짜로만** 인증. 제한 계획이 아니면 문서 ID `{planId}_{date}`로 하루 한 번. 등록일 이전 날짜 불가. 오늘·어제 기록만 취소 |
+| `offDays` | | 오늘 휴식권 사용·취소. 문서 ID `{디스코드ID}_rest_{YYYY-MM}`로 월 1회 |
+| `linkCodes` | 불가 (봇만 확인) | 본인 uid로 8자리 코드 생성·삭제. 덮어쓰기 불가 |
+| `links` | 본인 것만 | 불가 |
+| `botState` | 불가 | 불가 |
 
-`validPlan()`은 카테고리별 필수 필드와 범위를 검사합니다. 예를 들어 `content`는 1~80자, 주간 `count`는 1~7, `limit`은 0~50입니다. 1단계에서 작성합니다.
+**설계 초안에서 바뀐 점**
+- 계획 등록일(`startDate`)을 오늘로 고정했습니다. 미래 날짜로 등록해서 정산을 피하는 것을 막기 위해서입니다.
+- 계획 수정은 이름·삭제·목표 달성만 허용합니다. 주 중간에 횟수나 제한을 바꿔서 벌금을 피하는 것을 막기 위해서입니다. 조건을 바꾸려면 삭제 후 새로 등록합니다.
+- 목표 달성(`status: completed`)은 같은 요청에서 그날 인증 기록이 만들어질 때만, 달성 취소는 그 인증 기록을 지울 때만 가능합니다.
+- 삭제한 계획은 되살릴 수 없습니다.
 
-**확인할 점**
-- 위 규칙에 따르면 연동된 멤버는 다른 멤버의 계획, 인증, 벌금을 볼 수 있습니다. 지금 디스코드 채널에서 서로 보이는 것과 같은 범위입니다.
-- 연동되지 않은 Google 계정은 이 컬렉션을 전혀 읽을 수 없습니다. 연동은 디스코드 서버 멤버만 할 수 있습니다.
-- 기존 개인 컬렉션(`goals`, `scheduleBlocks` 등)의 규칙은 바뀌지 않습니다.
+**검증**
+- 연동 여부, 본인 여부, 날짜 범위, 카테고리별 형식, 하루 한 번, 휴식 월 1회, 봇 전용 데이터 쓰기 거부를 테스트 10개로 검사합니다.
+- 규칙을 하나씩 일부러 약하게 바꿨을 때(14가지) 모두 테스트가 실패하는 것을 확인했습니다.
+- 요일 계획의 요일 확인은 규칙에서 하지 않습니다. 봇 정산이 계획된 요일의 기록만 세므로, 다른 요일 인증은 무시됩니다. 앱 화면에서도 해당 요일에만 인증 버튼을 보여줍니다.
 
 ## 7. 저장소 구조
 
@@ -213,7 +150,7 @@ Planer-eddited/
 │  └─ tests/
 ├─ src/features/checkins/    ← 앱 인증 탭 (4단계)
 ├─ firestore.rules           ← 공용 컬렉션 규칙 추가
-├─ tests/firestore.rules.test.mjs
+├─ tests/tonkatsu.rules.test.mjs
 └─ docs/tonkatsu-integration.md
 ```
 
@@ -234,10 +171,10 @@ Planer-eddited/
 
 | 단계 | 작업 | 완료 기준 |
 |---|---|---|
-| **1. 규칙·구조** | 위 컬렉션 규칙 + `validPlan()` 작성, 에뮬레이터 테스트 (본인만 쓰기, 다른 멤버 쓰기 거부, 사진 계획 앱 인증 거부, 날짜 범위, 휴식 월 1회, 미연동 계정 거부) | `npm run test:rules` 통과 |
-| **2. 봇 이전** | 봇 코드를 `bot/`으로 가져오기, 저장소를 JSON → Firestore로 교체(`firebase_admin.firestore_async`), 하루 기준 6시 → 5시, 자동완성 값을 계획 ID로, 이전 스크립트 작성 | 디스코드 기능이 지금과 똑같이 동작, 이전 스크립트 재실행해도 결과 동일 |
+| **1. 규칙·구조** ✅ | 공용 컬렉션 규칙 + `validPlan()` 작성, 에뮬레이터 테스트 (본인만 쓰기, 다른 멤버 쓰기 거부, 사진 계획 앱 인증 거부, 날짜 범위, 휴식 월 1회, 미연동 계정 거부) | `npm run test:rules` 통과 (완료) |
+| **2. 봇 이전** | 봇 코드를 `bot/`으로 가져오기, 저장소를 JSON → Firestore로 교체(`firebase_admin.firestore_async`), 하루 기준 6시 → 5시, 자동완성 값을 계획 ID로, 서버 이름·아이콘을 `server/info`에 기록, 이전 스크립트 작성 | 디스코드 기능이 지금과 똑같이 동작, 이전 스크립트 재실행해도 결과 동일 |
 | **3. 연동** | `/연동` 명령어, 앱 설정의 연동 코드 화면 | 앱에서 코드 생성 → 디스코드 입력 → 앱에 연동 완료 표시 |
-| **4. 앱 인증 탭** | 오프라인 저장 켜기(`persistentLocalCache`), 내 계획 목록·등록·삭제, 인증·취소, 제한 계획 횟수, 휴식권, 내 벌금 내역 | 앱 인증이 디스코드 `/계획표`에 바로 보임, 반대도 마찬가지 |
+| **4. 앱 인증 탭** | 오프라인 저장 켜기(`persistentLocalCache`), 내 계획 목록·등록·삭제, 인증·취소, 제한 계획 횟수, 휴식권, 내 벌금 내역. **연동 시 앱 상단에 디스코드 서버 이름 표시**. **멤버 탭**: 멤버별 오늘·이번 주 진행도, 제한 계획 횟수, 이번 달 휴식·면책, 벌금 | 앱 인증이 디스코드 `/계획표`에 바로 보임, 반대도 마찬가지. 멤버 탭이 다른 멤버의 디스코드 인증을 실시간으로 반영 |
 | **5. 편의 기능** | 공부방 음성 시간을 연동된 멤버의 앱 공부 기록(`scheduleBlocks`)에 저장, 공부 시간 목표 계획의 자동 인증, 앱에서 벌금 순위·이번 달 현황 보기 | 공부방에 있던 시간이 앱 통계와 메달에 반영 |
 | **6. 운영** | 규칙 자동 배포, 봇의 일일 Firestore → JSON 백업, 서버 systemd 경로 변경, README 정리 | 서버에서 `git pull` + 재시작만으로 업데이트 |
 
