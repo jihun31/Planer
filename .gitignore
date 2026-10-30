@@ -33,3 +33,15 @@ release-*/
 .tmp/
 local-data/
 *-debug.log
+
+# Discord bot (bot/): secrets, data, local environments
+bot/.env
+bot/*.json
+bot/backups/
+bot/venv/
+bot/.venv/
+__pycache__/
+.pytest_cache/
+*-firebase-adminsdk-*.json
+serviceAccount*.json
+service-account*.json

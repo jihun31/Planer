@@ -14,7 +14,7 @@
 | 공개 범위 | 연동된 멤버끼리는 서로의 계획·인증·벌금을 볼 수 있음 (디스코드에서 보이는 범위와 같음) |
 | 앱 화면 | 디스코드와 연동하면 **앱 상단에 디스코드 서버 이름이 제목처럼 표시**됨. **멤버 탭**에서 각자의 진행도를 볼 수 있음 |
 
-> 상태: **1단계(보안 규칙) 완료.** 규칙은 `firestore.rules`, 테스트는 `tests/tonkatsu.rules.test.mjs`에 있습니다.
+> 상태: **1단계(보안 규칙), 2단계(봇 이전) 완료.** 봇 코드는 `bot/`, 봇 테스트는 `npm run test:bot`. 규칙은 `firestore.rules`, 테스트는 `tests/tonkatsu.rules.test.mjs`에 있습니다.
 
 ## 2. 역할 나누기
 
@@ -143,8 +143,10 @@
 ```
 Planer-eddited/
 ├─ bot/                      ← 돈까스봇 (TonkatsuBot 커밋 기록 그대로 가져옴)
-│  ├─ main.py
-│  ├─ requirements.txt       ← discord.py, python-dotenv, firebase-admin
+│  ├─ main.py               ← 디스코드 명령어
+│  ├─ core.py               ← 계산 규칙 (5시 기준, 정산, 알림)
+│  ├─ store.py              ← Firestore 읽기·쓰기, 실시간 복사
+│  ├─ requirements.txt       ← discord.py, python-dotenv, google-cloud-firestore
 │  ├─ .env.example
 │  ├─ tools/migrate_json_to_firestore.py
 │  └─ tests/
@@ -172,7 +174,7 @@ Planer-eddited/
 | 단계 | 작업 | 완료 기준 |
 |---|---|---|
 | **1. 규칙·구조** ✅ | 공용 컬렉션 규칙 + `validPlan()` 작성, 에뮬레이터 테스트 (본인만 쓰기, 다른 멤버 쓰기 거부, 사진 계획 앱 인증 거부, 날짜 범위, 휴식 월 1회, 미연동 계정 거부) | `npm run test:rules` 통과 (완료) |
-| **2. 봇 이전** | 봇 코드를 `bot/`으로 가져오기, 저장소를 JSON → Firestore로 교체(`firebase_admin.firestore_async`), 하루 기준 6시 → 5시, 자동완성 값을 계획 ID로, 서버 이름·아이콘을 `server/info`에 기록, 이전 스크립트 작성 | 디스코드 기능이 지금과 똑같이 동작, 이전 스크립트 재실행해도 결과 동일 |
+| **2. 봇 이전** ✅ | 봇 코드를 `bot/`으로 가져오기, 저장소를 JSON → Firestore로 교체(`google-cloud-firestore` 비동기 클라이언트 + 실시간 리스너), 하루 기준 6시 → 5시, 자동완성 값을 계획 ID로, 서버 이름·아이콘을 `server/info`에 기록, 이전 스크립트 작성 | 디스코드 기능이 지금과 똑같이 동작, 이전 스크립트 재실행해도 결과 동일 |
 | **3. 연동** | `/연동` 명령어, 앱 설정의 연동 코드 화면 | 앱에서 코드 생성 → 디스코드 입력 → 앱에 연동 완료 표시 |
 | **4. 앱 인증 탭** | 오프라인 저장 켜기(`persistentLocalCache`), 내 계획 목록·등록·삭제, 인증·취소, 제한 계획 횟수, 휴식권, 내 벌금 내역. **연동 시 앱 상단에 디스코드 서버 이름 표시**. **멤버 탭**: 멤버별 오늘·이번 주 진행도, 제한 계획 횟수, 이번 달 휴식·면책, 벌금 | 앱 인증이 디스코드 `/계획표`에 바로 보임, 반대도 마찬가지. 멤버 탭이 다른 멤버의 디스코드 인증을 실시간으로 반영 |
 | **5. 편의 기능** | 공부방 음성 시간을 연동된 멤버의 앱 공부 기록(`scheduleBlocks`)에 저장, 공부 시간 목표 계획의 자동 인증, 앱에서 벌금 순위·이번 달 현황 보기 | 공부방에 있던 시간이 앱 통계와 메달에 반영 |

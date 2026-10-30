@@ -14,6 +14,7 @@
     "test:plans": "node --test tests/day-plans.test.mjs",
     "test:plans:ui": "node tests/day-plans-dom.test.cjs",
     "test:planner:ui": "node tests/planner-integration-dom.test.cjs",
+    "test:bot": "firebase emulators:exec --only firestore --project demo-planer-security \"python -m pytest bot -q\"",
     "test:rules": "firebase emulators:exec --only firestore --project demo-planer-security \"node --test tests/firestore.rules.test.mjs tests/tonkatsu.rules.test.mjs\"",
     "test:notes:dom": "node tests/note-drag-dom.test.cjs",
     "test:notes:checklist": "node tests/note-checklist-dom.test.cjs",
