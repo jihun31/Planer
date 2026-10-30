@@ -81,7 +81,7 @@
 - **휴식·면책 날**에는 못 한 계획으로 벌금을 매기지 않습니다. 단, **제한 초과는 봐주지 않습니다**.
 - 휴식·면책을 쓴 날 수만큼 그 주·그 달의 **주간·월간 목표 횟수가 줄어듭니다**. 예: 주 3회 목표에 휴식 1일 → 주 2회
 - 새로 등록한 계획은 등록 전 기간은 검사하지 않습니다. 주·달 중간에 만든 주간·월간 계획은 첫 주·첫 달 검사에서 빠집니다.
-- **새벽 0~5시는 전날로 취급**합니다. 새벽 2시에 인증하면 전날 인증이 됩니다.
+- **새벽 0~4시는 전날로 취급**합니다 (하루 기준 새벽 5시, Planer 앱과 같음). 새벽 2시에 인증하면 전날 인증이 됩니다.
 - **N일 계획**은 알림만 보내고 벌금은 매기지 않습니다.
 - 봇이 12시에 꺼져 있었다면 같은 날 다시 켜진 뒤 첫 정각에 정산합니다. 같은 날 두 번 정산하지는 않습니다.
 
@@ -100,24 +100,25 @@
 
 ## 설치와 실행
 
+봇은 [Planer-eddited](https://github.com/un-comfortable/Planer-eddited) 저장소의 `bot/` 폴더에 있고, 데이터는 Planer 앱과 같은 **Firestore**(`planer-f8cb7`)에 저장합니다. 자세한 구조는 [`docs/tonkatsu-integration.md`](../docs/tonkatsu-integration.md)를 참고하세요.
+
 ### 1. 준비물
 
-- Python 3.9 이상
+- Python 3.10 이상
 - 디스코드 봇 토큰 ([Discord Developer Portal](https://discord.com/developers/applications)에서 봇 생성)
 - 개발자 포털 → Bot 탭에서 **Server Members Intent** 켜기 (꺼져 있으면 봇이 시작되지 않습니다)
+- Firebase **서비스 계정 키** (아래 4번)
 
 ### 2. 설치
 
 ```bash
-git clone https://github.com/un-comfortable/TonkatsuBot.git
-cd TonkatsuBot
+git clone https://github.com/un-comfortable/Planer-eddited.git
+cd Planer-eddited/bot
 python3 -m venv venv
-venv/bin/pip install discord.py python-dotenv
+venv/bin/pip install -r requirements.txt
 ```
 
 ### 3. `.env` 설정
-
-`.env.example`을 복사해서 `.env`를 만들고 값을 채웁니다.
 
 ```bash
 cp .env.example .env
@@ -130,20 +131,51 @@ cp .env.example .env
 | `ALERT_CHANNEL` | 정산 결과와 인증 알림을 올릴 채널 ID |
 | `TEST_CHANNEL` | 공부방 입장/퇴장, 공부 시간을 올릴 채널 ID |
 | `WELCOME_CHANNEL` | 새 멤버 환영 메시지를 올릴 채널 ID |
+| `FIREBASE_CREDENTIALS` | 서비스 계정 키 파일 경로 (예: `/home/ubuntu/secrets/planer-bot.json`) |
+| `FIREBASE_PROJECT_ID` | 비우면 `planer-f8cb7` |
 
-채널 ID는 디스코드 설정 → 고급 → **개발자 모드**를 켠 뒤, 채널을 우클릭 → "채널 ID 복사"로 얻을 수 있습니다. 채널 ID가 빠져 있거나 숫자가 아니면 봇이 어떤 항목이 문제인지 알려주고 시작하지 않습니다.
+채널 ID는 디스코드 설정 → 고급 → **개발자 모드**를 켠 뒤, 채널을 우클릭 → "채널 ID 복사"로 얻을 수 있습니다.
 
-### 4. 실행
+### 4. 서비스 계정 키
+
+1. [Google Cloud 콘솔](https://console.cloud.google.com/iam-admin/serviceaccounts?project=planer-f8cb7) → IAM 및 관리자 → 서비스 계정 → **서비스 계정 만들기** (이름 예: `tonkatsu-bot`)
+2. 역할은 **Cloud Datastore 사용자**(`roles/datastore.user`) 하나만 줍니다.
+3. 만든 계정 → 키 → 키 추가 → JSON. 내려받은 파일을 서버로 옮깁니다.
+4. 서버에서 저장소 **밖**에 두고 권한을 잠급니다.
+   ```bash
+   mkdir -p ~/secrets && mv planer-*.json ~/secrets/planer-bot.json && chmod 600 ~/secrets/planer-bot.json
+   ```
+5. `.env`의 `FIREBASE_CREDENTIALS`에 이 경로를 적습니다.
+
+**키 파일은 절대 GitHub나 채팅에 올리지 마세요.** 이 저장소는 공개 저장소입니다. 유출됐다면 콘솔에서 키를 삭제하고 새로 만드세요.
+
+### 5. 실행
 
 ```bash
 venv/bin/python main.py
 ```
 
-`로그인 성공!`이 출력되면 정상입니다. 슬래시 명령어가 안 보이면 디스코드 앱을 새로고침(Ctrl+R)하세요.
+`🔥 Firestore 연결 완료`와 `로그인 성공!`이 출력되면 정상입니다.
+
+### 기존 JSON 데이터 옮기기 (한 번만)
+
+예전 봇의 `study_plans.json` 등을 Firestore로 옮깁니다. JSON 파일은 바뀌지 않습니다.
+
+```bash
+sudo systemctl stop tonkatsubot                     # 1. 기존 봇 끄기
+cp -r ~/TonkatsuBot ~/TonkatsuBot-backup            # 2. 백업
+cd ~/Planer-eddited/bot
+venv/bin/python tools/migrate_json_to_firestore.py --data-dir ~/TonkatsuBot --dry-run   # 3. 개수 확인
+venv/bin/python tools/migrate_json_to_firestore.py --data-dir ~/TonkatsuBot             # 4. 옮기기
+cp ~/TonkatsuBot/study_times.json ~/TonkatsuBot/active_sessions.json . 2>/dev/null      # 5. 공부 시간 파일
+```
+
+- 문서 ID가 고정 규칙이라 여러 번 실행해도 중복되지 않습니다.
+- **되돌리기:** 새 봇을 끄고, 예전 폴더의 봇을 다시 켜면 됩니다.
 
 ### 서버에서 계속 켜두기 (systemd)
 
-`/etc/systemd/system/tonkatsubot.service` 파일을 만듭니다. 경로와 사용자 이름은 환경에 맞게 바꾸세요.
+`/etc/systemd/system/tonkatsubot.service` (경로와 사용자 이름은 환경에 맞게):
 
 ```ini
 [Unit]
@@ -153,8 +185,8 @@ Wants=network-online.target
 
 [Service]
 User=ubuntu
-WorkingDirectory=/home/ubuntu/TonkatsuBot
-ExecStart=/home/ubuntu/TonkatsuBot/venv/bin/python main.py
+WorkingDirectory=/home/ubuntu/Planer-eddited/bot
+ExecStart=/home/ubuntu/Planer-eddited/bot/venv/bin/python main.py
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
@@ -166,39 +198,43 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now tonkatsubot   # 켜기 + 재부팅 시 자동 시작
-sudo systemctl status tonkatsubot         # 상태 확인
 journalctl -u tonkatsubot -f              # 로그 보기
 ```
 
 ### 업데이트
 
 ```bash
-cd ~/TonkatsuBot && git pull && sudo systemctl restart tonkatsubot
+cd ~/Planer-eddited && git pull && sudo systemctl restart tonkatsubot
 ```
 
-봇을 두 개 동시에 켜지 마세요. 벌금이 두 번 매겨집니다.
+봇을 두 개 동시에 켜지 마세요.
 
-## 데이터 파일
+### 테스트
 
-모든 데이터는 `main.py`와 같은 폴더에 JSON 파일로 저장됩니다. 유저 ID와 벌금 기록이 들어 있어서 `.gitignore`로 GitHub에 올라가지 않게 해 두었습니다.
+저장소 루트에서 Firestore 에뮬레이터로 실행합니다 (Java 21 이상 필요, 실제 데이터에 접근하지 않음).
 
-| 파일 | 내용 |
+```bash
+pip install -r bot/requirements-dev.txt
+npm run test:bot
+```
+
+## 데이터
+
+계획·인증·휴식·면책·벌금·투표는 Firestore에 저장되고, 봇은 실시간으로 받아서 메모리에 들고 있습니다. Planer 앱에서 인증하면 봇에도 바로 반영됩니다.
+
+| 위치 | 내용 |
 |---|---|
-| `study_plans.json` | 계획, 인증 기록, 벌금, 휴식·면책 (가장 중요) |
-| `study_times.json` | 오늘 공부 시간 |
-| `active_sessions.json` | 지금 공부방에 있는 사람 |
-| `active_votes.json` | 진행 중인 면책 투표 |
-| `bot_state.json` | 마지막 정산·백업 날짜 |
+| Firestore `plans`, `checkIns`, `offDays`, `fineEvents`, `members`, `votes` | 공용 데이터 |
+| `bot/study_times.json`, `bot/active_sessions.json` | 공부방 시간 (나중에 앱 공부 기록으로 옮길 예정) |
 
-- **자동 백업:** 하루 한 번 `backups/날짜/` 폴더에 위 파일을 복사하고, 최근 14일치를 보관합니다. 같은 서버 디스크에 저장되므로, 가끔 `backups` 폴더를 다른 곳에 내려받아 두면 더 안전합니다.
-- **파일이 깨졌을 때:** 봇이 시작할 때 파일을 읽을 수 없으면 원본을 `파일이름.broken-날짜시간`으로 백업하고 빈 값으로 시작합니다. 이때는 봇을 끄고 `backups` 폴더의 최근 파일을 복사해 넣으면 됩니다.
+- **자동 백업:** 하루 한 번 `backups/날짜/firestore.json`에 공용 데이터 전체를 내려받고, 최근 14일치를 보관합니다.
+- 벌금은 건마다 `fineEvents`에 "언제, 왜, 얼마"가 남습니다.
 
 ## 설정 바꾸기
 
-`main.py`에서 아래 값을 찾아 바꾸고 봇을 재시작하면 됩니다.
-
-| 값 | 기본값 | 의미 |
-|---|---|---|
-| `SETTLEMENT_HOUR` | `12` | 정산 시각 |
-| `FINE_AMOUNT` | `3000` | 하루 벌금, `/벌금수정`으로 더하고 빼는 금액 |
-| `BACKUP_KEEP_DAYS` | `14` | 백업 보관 일수 |
+| 값 | 위치 | 기본값 | 의미 |
+|---|---|---|---|
+| `SETTLEMENT_HOUR` | `main.py` | `12` | 정산 시각 |
+| `FINE_AMOUNT` | `main.py` | `3000` | 하루 벌금, `/벌금수정` 금액 |
+| `BACKUP_KEEP_DAYS` | `main.py` | `14` | 백업 보관 일수 |
+| `DAY_START_HOUR` | `core.py` | `5` | 하루 기준 시각 (앱과 맞춰야 함) |
