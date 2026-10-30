@@ -273,8 +273,12 @@ bot_state = load_state_data()
 
 #계획 데이터 공통 함수
 # 유저 데이터 중 '계획 목록'인 항목. 나머지(alert_time, fines, exemptions, rest_history 등)는 설정/기록
-PLAN_CATEGORIES = ["Daily", "Routine", "Weekly", "Monthly", "Interval", "OneTime"]
-CATEGORY_KR = {"Daily": "일일", "Routine": "요일", "Weekly": "주간", "Monthly": "월간", "Interval": "반복", "OneTime": "목표"}
+PLAN_CATEGORIES = ["Daily", "Routine", "Weekly", "Monthly", "Interval", "OneTime", "Limit"]
+CATEGORY_KR = {"Daily": "일일", "Routine": "요일", "Weekly": "주간", "Monthly": "월간", "Interval": "반복", "OneTime": "목표", "Limit": "제한"}
+
+# 제한 계획(Limit): "주 2회 이하"처럼 기간 안에 정해진 횟수를 넘기면 벌금
+# history에 한 번 할 때마다 날짜를 하나씩 추가함 (같은 날 여러 번 가능)
+LIMIT_PERIOD_KR = {"day": "하루", "week": "이번 주", "month": "이번 달"}
 
 def photo_icon(photo_required):
     return "📸 사진 필수" if photo_required else "📝 내용만"
@@ -314,6 +318,43 @@ def count_in_week(history, date):
 def count_in_month(history, date):
     prefix = date.strftime('%Y-%m')
     return sum(1 for d in history if d.startswith(prefix))
+
+def count_in_period(history, date, period):
+    """제한 계획용: date가 속한 하루/주/달 동안의 기록 수"""
+    if period == "day":
+        return history.count(date.strftime('%Y-%m-%d'))
+    if period == "week":
+        return count_in_week(history, date)
+    return count_in_month(history, date)
+
+def limit_status(plan, date):
+    """제한 계획의 (현재 횟수, 최대 횟수, 기간 이름)"""
+    period = plan.get('period', 'week')
+    return count_in_period(plan.get('history', []), date, period), plan.get('limit', 0), LIMIT_PERIOD_KR.get(period, period)
+
+def complete_goal(user_id, plan, date_str):
+    """달성한 목표를 계획 목록에서 빼서 completed_goals 기록으로 옮김 (/인증초기화로 되돌릴 수 있음)"""
+    user_data = user_plans[user_id]
+    goals = user_data.get("OneTime", [])
+    if plan in goals:
+        goals.remove(plan)
+        if not goals:
+            del user_data["OneTime"]
+    plan['completed'] = True
+    plan['completed_at'] = date_str
+    user_data.setdefault('completed_goals', []).append(plan)
+
+def migrate_completed_goals():
+    """예전에 달성했지만 목록에 남아 있는 목표를 completed_goals로 옮김 (봇 시작 시 한 번)"""
+    moved = 0
+    for user_id, user_data in user_plans.items():
+        if not isinstance(user_data, dict): continue
+        for _, plan in list(iter_plans(user_data, categories=["OneTime"])):
+            if plan.get('completed'):
+                last = plan.get('history', [])[-1:] or [plan.get('last_verified', '')]
+                complete_goal(user_id, plan, last[0])
+                moved += 1
+    return moved
 
 def count_off_days(user_id, start_str, end_str):
     """기간(start~end, 양 끝 포함) 안의 휴식/면책 날짜 수. 휴식과 면책이 겹친 날은 한 번만 셈."""
@@ -365,6 +406,11 @@ async def on_ready():
             print(f"🔁 슬래시 명령어 {len(synced)}개 동기화 완료")
         except discord.HTTPException as e:
             print(f"⚠️ 슬래시 명령어 동기화 실패: {e}")
+
+        moved = migrate_completed_goals()
+        if moved:
+            await save_data(user_plans)
+            print(f"🏆 이미 달성한 목표 {moved}개를 계획 목록에서 정리했습니다.")
     
     daily_study_times = load_time_data()
     study_sessions = load_session_data()
@@ -546,6 +592,23 @@ async def plan_routine(interaction: discord.Interaction, 내용: PlanText, 요�
     if await register_plan(interaction, "Routine", plan):
         await interaction.response.send_message(f"✅ **[요일] 계획 등록 완료!** ({photo_icon(photo)})\n- **내용:** {내용}\n- **수행 요일:** {', '.join(selected_days)}요일")
 
+#제한 계획 (정해진 횟수를 넘기면 벌금)
+@plan_group.command(name="제한", description="기간 안에 정해진 횟수를 넘기면 벌금! (예: 몬스터 주 2회 이하)")
+@app_commands.describe(기간="언제마다 횟수를 셀까요?", 최대횟수="이 횟수까지는 괜찮아요 (0이면 한 번만 해도 벌금)", 내용="내용 (예: 몬스터)")
+@app_commands.choices(기간=[
+    app_commands.Choice(name="하루", value="day"),
+    app_commands.Choice(name="주간 (월~일)", value="week"),
+    app_commands.Choice(name="월간", value="month"),
+])
+async def plan_limit(interaction: discord.Interaction, 기간: app_commands.Choice[str], 최대횟수: app_commands.Range[int, 0, 50], 내용: PlanText):
+    plan = {"type": "제한", "content": 내용, "photo": False, "period": 기간.value, "limit": 최대횟수}
+    if await register_plan(interaction, "Limit", plan):
+        period_kr = {"day": "하루", "week": "일주일", "month": "한 달"}[기간.value]
+        await interaction.response.send_message(
+            f"🚫 **[제한] 계획 등록 완료!**\n- **내용:** {내용}\n- **제한:** {period_kr}에 **{최대횟수}회 이하**\n"
+            f"할 때마다 `/인증`으로 기록하세요. {최대횟수}회를 넘기면 정산 때 벌금이에요!"
+        )
+
 #계획 전체 삭제(초기화)
 @plan_group.command(name="초기화", description="등록된 계획을 삭제합니다.")
 @app_commands.describe(유형="어떤 계획을 비울까요?")
@@ -556,6 +619,7 @@ async def plan_routine(interaction: discord.Interaction, 내용: PlanText, 요�
     app_commands.Choice(name="월간 계획 전체 삭제", value="Monthly"),
     app_commands.Choice(name="N일(반복) 계획 전체 삭제", value="Interval"),
     app_commands.Choice(name="목표(1회성) 전체 삭제", value="OneTime"),
+    app_commands.Choice(name="제한 계획 전체 삭제", value="Limit"),
     app_commands.Choice(name="모든 계획 삭제", value="All")
 ])
 async def plan_reset(interaction: discord.Interaction, 유형: app_commands.Choice[str]):
@@ -602,6 +666,16 @@ async def plan_autocomplete(interaction: discord.Interaction, current: str) -> l
     choices = []
     for category, plan in iter_plans(user_plans[user_id]):
         history = plan.get('history', [])
+
+        # 제한 계획은 같은 날 여러 번 기록할 수 있어서 항상 보여줌
+        if category == "Limit":
+            count, limit, period_kr = limit_status(plan, target_date)
+            tag = f"제한 {period_kr} {count}/{limit}회" + (" 🚨초과" if count > limit else "")
+            name = f"[{tag}] {plan['content']}"
+            if current.lower() in name.lower() and len(plan['content']) <= 100:
+                choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
+            continue
+
         if target_date_str in history: continue  # 그날 이미 인증함
 
         if category == "Daily":
@@ -655,6 +729,7 @@ async def plan_autocomplete_delete(interaction: discord.Interaction, current: st
     for category, plan in iter_plans(user_plans.get(user_id, {})):
         if category == "Weekly": tag = f"주{plan.get('count', 1)}회"
         elif category == "Interval": tag = f"{plan.get('interval', 1)}일장"
+        elif category == "Limit": tag = f"제한 {LIMIT_PERIOD_KR.get(plan.get('period'), '')} {plan.get('limit', 0)}회"
         else: tag = CATEGORY_KR[category]
 
         name = f"[{tag}] {plan['content']}"
@@ -1128,6 +1203,13 @@ def plan_progress_line(user_id, category, plan, target_date):
         if diff == interval: return "🔥", text + "(오늘 마감!)"
         return "💤", text + f"(D-{interval-diff})"
 
+    if category == "Limit":
+        count, limit, period_kr = limit_status(plan, target_date)
+        if count > limit: mark = "🚨"       # 초과 → 벌금
+        elif count == limit: mark = "⚠️"    # 한도 도달
+        else: mark = "🟢"
+        return mark, f"[제한 {period_kr} {count}/{limit}회]"
+
     # OneTime
     if plan.get('completed', False):
         return "🏆", "[목표달성]"
@@ -1172,14 +1254,26 @@ async def process_verification(interaction: discord.Interaction, 계획:str, 내
 
     # 2. 인증 기록
     history = plan.setdefault('history', [])
-    if target_date_str not in history:
+    if category == "Limit":
+        history.append(target_date_str)  # 제한 계획은 할 때마다 한 번씩 셈 (같은 날 여러 번 가능)
+    elif target_date_str not in history:
         history.append(target_date_str)
-        history.sort()
+    history.sort()
     plan['last_verified'] = target_date_str
 
+    extra_fields = []
     if category == "OneTime":
-        plan['completed'] = True
-        verified_plan_name = f"[목표달성] {plan['content']}"
+        # 달성한 목표는 계획 목록에서 자동으로 빠짐 (/인증초기화로 되돌릴 수 있음)
+        complete_goal(user_id, plan, target_date_str)
+        verified_plan_name = f"🏆 [목표달성] {plan['content']}"
+        extra_fields.append(("🎉 목표 달성!", "달성한 목표는 계획 목록에서 자동으로 정리했어요.", False))
+    elif category == "Limit":
+        count, limit, period_kr = limit_status(plan, target_date)
+        verified_plan_name = f"[제한] {plan['content']} ({period_kr} {count}/{limit}회)"
+        if count > limit:
+            extra_fields.append(("🚨 제한 초과!", f"{period_kr} {limit}회 제한을 넘었어요. 정산 때 **{FINE_AMOUNT:,}원** 벌금이에요!", False))
+        elif count == limit:
+            extra_fields.append(("⚠️ 한도 도달", f"{period_kr} {limit}회를 다 썼어요. 한 번 더 하면 벌금이에요!", False))
     else:
         verified_plan_name = f"[{CATEGORY_KR[category]}] {plan['content']}"
 
@@ -1198,6 +1292,7 @@ async def process_verification(interaction: discord.Interaction, 계획:str, 내
         ("방금 인증함", verified_plan_name, False),
         ("인증 기준일", f"{target_date_str} {display_note}", False),
     ]
+    fields.extend(extra_fields)
     if 내용: fields.append(("코멘트", 내용, False))
     fields.append(("📅 현재 진행 상황", final_text, False))
 
@@ -1230,7 +1325,8 @@ CATEGORY_TITLES = {
     "Weekly": "📅 주간 (Weekly)",
     "Monthly": "🗓️ 월간 (Monthly)",
     "Interval": "🔁 반복 (Interval)",
-    "OneTime": "🎯 목표 (One-Time)"
+    "OneTime": "🎯 목표 (One-Time)",
+    "Limit": "🚫 제한 (Limit)"
 }
 
 def plan_status_line(user_id, category, plan, display_date):
@@ -1282,6 +1378,13 @@ def plan_status_line(user_id, category, plan, display_date):
         if diff == interval: return f"🔥 {content} (오늘 마감!)"
         return f"💤 {content} (D-{interval-diff})"
 
+    if category == "Limit":
+        count, limit, period_kr = limit_status(plan, display_date)
+        progress = f"({period_kr} {count}/{limit}회)"
+        if count > limit: return f"🚨 {content} {progress} 초과! 벌금 대상"
+        if count == limit: return f"⚠️ {content} {progress} 한도 도달"
+        return f"🟢 {content} {progress} {limit - count}회 남음"
+
     # OneTime
     if plan.get('completed', False):
         return f"🏆 ~~{content}~~ (달성 완료!)"
@@ -1331,15 +1434,26 @@ async def reset_verification(interaction: discord.Interaction):
 
     target_date_str = get_base_date().strftime('%Y-%m-%d')  # 새벽이면 어제 거를 지움
 
+    user_data = user_plans[user_id]
+
+    # 0. 오늘 달성해서 목록에서 빠진 목표는 다시 목록으로 되돌림
+    goals = user_data.get('completed_goals', [])
+    for goal in [g for g in goals if g.get('completed_at') == target_date_str]:
+        goals.remove(goal)
+        goal['completed'] = False
+        goal.pop('completed_at', None)
+        user_data.setdefault("OneTime", []).append(goal)
+    if 'completed_goals' in user_data and not goals:
+        del user_data['completed_goals']
+
     count = 0
-    for category, plan in iter_plans(user_plans[user_id]):
-        # 1. history에서 오늘 날짜 제거
-        if target_date_str in plan.get('history', []):
-            plan['history'].remove(target_date_str)
-            count += 1
-            # 목표 계획이면 완료 상태도 취소
-            if category == "OneTime":
-                plan['completed'] = False
+    for category, plan in iter_plans(user_data):
+        # 1. history에서 오늘 날짜 제거 (제한 계획은 오늘 기록 전부)
+        history = plan.get('history', [])
+        removed = history.count(target_date_str) if category == "Limit" else int(target_date_str in history)
+        if removed:
+            plan['history'] = [d for d in history if d != target_date_str]
+            count += removed
 
         # 2. last_verified가 오늘이면 삭제 (구버전 호환)
         if plan.get('last_verified') == target_date_str:
@@ -1486,6 +1600,24 @@ def find_missed_plans(user_id, data, now, yesterday_str, is_monday, is_first_day
 
     return missed_details
 
+def find_exceeded_limits(data, now, is_monday, is_first_day):
+    """
+    끝난 기간 동안 제한 횟수를 넘긴 제한 계획 목록.
+    하루 제한은 매일(어제), 주간 제한은 월요일(지난주), 월간 제한은 1일(지난달)에 검사.
+    """
+    yesterday = now - timedelta(days=1)
+    exceeded = []
+    for _, plan in iter_plans(data, categories=["Limit"]):
+        period = plan.get('period', 'week')
+        if period == "week" and not is_monday: continue
+        if period == "month" and not is_first_day: continue
+
+        count, limit, _ = limit_status(plan, yesterday)
+        if count > limit:
+            period_kr = {"day": "어제", "week": "지난주", "month": "지난달"}.get(period, period)
+            exceeded.append(f"[제한]{plan['content']}({period_kr} {count}/{limit}회)")
+    return exceeded
+
 async def run_daily_settlement(channel, now):
     """하루 한 번, SETTLEMENT_HOUR시 이후 처음 도는 시점에 어제 기록을 정산"""
     today_str = now.strftime('%Y-%m-%d')
@@ -1502,25 +1634,29 @@ async def run_daily_settlement(channel, now):
 
         try:
             missed_details = find_missed_plans(user_id, data, now, yesterday_str, is_monday, is_first_day)
+            exceeded_details = find_exceeded_limits(data, now, is_monday, is_first_day)
         except Exception:
             # 한 사람 데이터가 이상해도 나머지 사람 정산은 계속 진행
             print(f"🚨 정산 중 오류 (유저 {user_id}), 이 유저는 건너뜁니다:")
             traceback.print_exc()
             continue
 
-        if not missed_details: continue
+        if not missed_details and not exceeded_details: continue
 
         is_resting = yesterday_str in data.get('rest_history', [])
         is_exempt = yesterday_str in data.get('exemptions', [])
+        # 휴식/면책은 '못 한 계획'만 봐줌. 제한 초과는 이미 한 일이라 봐주지 않음
+        excused = is_resting or is_exempt
 
-        if is_resting:
-            fine_msg_list.append(f"🛌 <@{user_id}>님 **휴식권 사용!** (푹 쉬셨나요? 🍯)")
-        elif is_exempt:
-            fine_msg_list.append(f"🛡️ <@{user_id}>님 면책 통과! ({', '.join(missed_details)})")
-        else:
+        if exceeded_details or (missed_details and not excused):
             # 건수 상관없이 하루 고정 벌금
+            details = exceeded_details + ([] if excused else missed_details)
             data['fines'] = data.get('fines', 0) + FINE_AMOUNT
-            fine_msg_list.append(f"💸 <@{user_id}>님 **{FINE_AMOUNT}원** 벌금! ({', '.join(missed_details)})")
+            fine_msg_list.append(f"💸 <@{user_id}>님 **{FINE_AMOUNT}원** 벌금! ({', '.join(details)})")
+        elif is_resting:
+            fine_msg_list.append(f"🛌 <@{user_id}>님 **휴식권 사용!** (푹 쉬셨나요? 🍯)")
+        else:
+            fine_msg_list.append(f"🛡️ <@{user_id}>님 면책 통과! ({', '.join(missed_details)})")
 
     # 정산 완료 기록을 먼저 저장 → 이후 단계에서 문제가 생겨도 같은 날 벌금이 두 번 매겨지지 않음
     bot_state["last_settlement_date"] = today_str
