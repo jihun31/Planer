@@ -181,6 +181,159 @@ service cloud.firestore {
           && request.resource.data.date == resource.data.date && request.resource.data.routineId == resource.data.routineId;
       }
     }
+    // ===== 돈까스봇 공용 데이터 (docs/tonkatsu-integration.md) =====
+    // 봇은 서비스 계정으로 접속해 이 규칙을 거치지 않습니다. 아래는 앱(Google 로그인 사용자)에 대한 규칙입니다.
+    // 디스코드와 연동된 계정만 공용 데이터를 읽을 수 있고, 쓰기는 본인 계획·인증·휴식권·알림 시간만 가능합니다.
+    function linked() {
+      return signedIn() && exists(/databases/$(database)/documents/links/$(request.auth.uid));
+    }
+    function myDiscordId() {
+      return get(/databases/$(database)/documents/links/$(request.auth.uid)).data.discordId;
+    }
+    function validDay(d) {
+      return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+    // 날짜 D의 하루 = 한국 시간 D일 05:00 ~ D+1일 05:00 = UTC로 (D 00:00 - 4시간) ~ (D 00:00 + 20시간)
+    function dayStart(d) {
+      return timestamp.date(int(d.split('-')[0]), int(d.split('-')[1]), int(d.split('-')[2]));
+    }
+    function todayDay(d) {
+      return validDay(d) && request.time >= dayStart(d) - duration.value(4, 'h')
+        && request.time < dayStart(d) + duration.value(20, 'h');
+    }
+    // 오늘 또는 어제 (깜빡한 어제 인증 허용)
+    function recentDay(d) {
+      return validDay(d) && request.time >= dayStart(d) - duration.value(4, 'h')
+        && request.time < dayStart(d) + duration.value(44, 'h');
+    }
+    function planKeys() {
+      return ['ownerId', 'category', 'content', 'photo', 'startDate', 'status', 'completedAt', 'createdAt', 'updatedAt'];
+    }
+    function validPlan(d) {
+      return d.ownerId is string && d.ownerId.matches('^[0-9]{5,25}$')
+        && d.content is string && d.content.size() >= 1 && d.content.size() <= 80
+        && d.photo is bool
+        && validDay(d.startDate)
+        && d.status in ['active', 'completed', 'deleted']
+        && (!('completedAt' in d) || (d.category == 'OneTime' && d.status == 'completed' && validDay(d.completedAt)))
+        && (d.status != 'completed' || ('completedAt' in d))
+        && d.createdAt is timestamp && d.updatedAt is timestamp
+        && (
+          (d.category == 'Daily' && d.keys().hasOnly(planKeys()))
+          || (d.category == 'Weekly' && d.keys().hasOnly(planKeys().concat(['count']))
+              && d.count is int && d.count >= 1 && d.count <= 7)
+          || (d.category == 'Monthly' && d.keys().hasOnly(planKeys().concat(['count']))
+              && d.count is int && d.count >= 1 && d.count <= 31)
+          || (d.category == 'Routine' && d.keys().hasOnly(planKeys().concat(['days']))
+              && d.days is list && d.days.size() >= 1 && d.days.size() <= 7
+              && d.days.hasOnly(['월', '화', '수', '목', '금', '토', '일'])
+              && d.days.toSet().size() == d.days.size())
+          || (d.category == 'Interval' && d.keys().hasOnly(planKeys().concat(['interval']))
+              && d.interval is int && d.interval >= 1 && d.interval <= 365)
+          || (d.category == 'OneTime' && d.keys().hasOnly(planKeys().concat(['deadline']))
+              && validDay(d.deadline))
+          || (d.category == 'Limit' && d.keys().hasOnly(planKeys().concat(['period', 'limit']))
+              && d.period in ['day', 'week', 'month']
+              && d.limit is int && d.limit >= 0 && d.limit <= 50
+              && d.photo == false)
+        );
+    }
+    function goalCheckInAfter(planId, date) {
+      return existsAfter(/databases/$(database)/documents/checkIns/$(planId + '_' + date));
+    }
+
+    // 서버(길드) 정보: 앱 상단 제목에 서버 이름을 보여주는 용도. 봇만 씀
+    match /server/{docId} {
+      allow read: if linked();
+    }
+    // 계정 연동 결과. 봇만 씀
+    match /links/{uid} {
+      allow read: if signedIn() && uid == request.auth.uid;
+    }
+    // 앱이 만드는 연동 코드. 디스코드에서 /연동 으로 입력하면 봇이 확인 후 지움
+    match /linkCodes/{code} {
+      allow create: if signedIn() && code.matches('^[A-HJ-NP-Z2-9]{8}$')
+        && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+    // 멤버 목록. 앱에서는 본인 알림 시간만 바꿀 수 있음
+    match /members/{discordId} {
+      allow read: if linked();
+      allow update: if linked() && discordId == myDiscordId()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['alertHour'])
+        && request.resource.data.alertHour is int
+        && request.resource.data.alertHour >= 0 && request.resource.data.alertHour <= 23;
+    }
+    // 인증 계획. 지우지 않고 status를 deleted로 바꿈
+    match /plans/{planId} {
+      allow read: if linked();
+      // 등록일(startDate)은 오늘로 고정: 미래 날짜로 정산을 피하는 것을 막음
+      allow create: if linked() && request.resource.data.ownerId == myDiscordId()
+        && validPlan(request.resource.data)
+        && request.resource.data.status == 'active'
+        && todayDay(request.resource.data.startDate)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      // 이름 변경, 삭제, 목표 달성/달성 취소만 가능. 횟수·제한 같은 조건은 바꿀 수 없음
+      allow update: if linked() && resource.data.ownerId == myDiscordId()
+        && validPlan(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'status', 'completedAt', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && (
+          (resource.data.status == 'active' && request.resource.data.status in ['active', 'deleted'])
+          || (resource.data.status == 'active' && request.resource.data.status == 'completed'
+              && goalCheckInAfter(planId, request.resource.data.completedAt))
+          || (resource.data.status == 'completed' && request.resource.data.status == 'active'
+              && !goalCheckInAfter(planId, resource.data.completedAt))
+        );
+    }
+    // 인증 기록. 앱에서는 사진이 필요 없는 본인 계획을 오늘·어제 날짜로만 인증
+    match /checkIns/{checkInId} {
+      function checkInPlan() {
+        return get(/databases/$(database)/documents/plans/$(request.resource.data.planId)).data;
+      }
+      allow read: if linked();
+      allow create: if linked()
+        && request.resource.data.keys().hasOnly(['planId', 'ownerId', 'date', 'source', 'createdAt'])
+        && request.resource.data.planId is string && request.resource.data.planId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && request.resource.data.ownerId == myDiscordId()
+        && request.resource.data.source == 'app'
+        && recentDay(request.resource.data.date)
+        && checkInPlan().ownerId == myDiscordId()
+        && checkInPlan().status == 'active'
+        && checkInPlan().photo == false
+        && request.resource.data.date >= checkInPlan().startDate
+        // 제한 계획이 아니면 하루에 한 번: 문서 ID를 계획ID_날짜로 고정
+        && (checkInPlan().category == 'Limit'
+            || checkInId == request.resource.data.planId + '_' + request.resource.data.date)
+        && request.resource.data.createdAt == request.time;
+      allow delete: if linked() && resource.data.ownerId == myDiscordId() && recentDay(resource.data.date);
+    }
+    // 휴식·면책. 앱에서는 오늘 휴식권만 쓰고 취소할 수 있음 (문서 ID로 월 1회 강제). 면책은 봇만 씀
+    match /offDays/{offDayId} {
+      allow read: if linked();
+      allow create: if linked()
+        && request.resource.data.keys().hasOnly(['ownerId', 'type', 'date', 'createdAt'])
+        && request.resource.data.ownerId == myDiscordId()
+        && request.resource.data.type == 'rest'
+        && todayDay(request.resource.data.date)
+        && offDayId == myDiscordId() + '_rest_'
+             + request.resource.data.date.split('-')[0] + '-' + request.resource.data.date.split('-')[1]
+        && request.resource.data.createdAt == request.time;
+      allow delete: if linked() && resource.data.ownerId == myDiscordId()
+        && resource.data.type == 'rest' && todayDay(resource.data.date);
+    }
+    // 벌금 내역, 면책 투표: 봇만 씀
+    match /fineEvents/{eventId} {
+      allow read: if linked();
+    }
+    match /votes/{voteId} {
+      allow read: if linked();
+    }
+    // botState: 규칙 없음 = 앱에서 접근 불가
+
     // Unmatched paths (including nested collections) remain denied.
   }
 }
