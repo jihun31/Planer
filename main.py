@@ -4,13 +4,19 @@ import json
 import random
 import calendar
 import asyncio
+import shutil
+import traceback
+from pathlib import Path
 from discord import ui, app_commands
 from discord.ext import tasks, commands
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-load_dotenv()
+# 이 파일(main.py)이 있는 폴더. 어디서 실행하든 .env와 데이터 파일을 이 폴더에서 찾음
+BASE_DIR = Path(__file__).resolve().parent
+
+load_dotenv(BASE_DIR / ".env")
 TOKEN = os.getenv('TOKEN')
 
 #채널 아이디 (.env 파일에서 불러옴)
@@ -30,8 +36,13 @@ WELCOME_CHANNEL = get_id_env('WELCOME_CHANNEL')
 
 WEEKDAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
 
+# 입력 글자 수 제한 (디스코드 표시 제한을 넘지 않도록)
+PlanText = app_commands.Range[str, 1, 80]       # 계획 이름 (자동완성 선택지 최대 100자)
+LongText = app_commands.Range[str, 1, 1000]     # 사유/코멘트 (임베드 칸 최대 1024자)
+
 intents = discord.Intents.default()
-intents.message_content = True
+# 슬래시 명령어만 쓰므로 message_content 권한은 필요 없음
+# members는 개발자 포털에서 "Server Members Intent"를 켜야 함
 intents.members = True
 intents.voice_states = True
 
@@ -45,58 +56,71 @@ def get_now():
 data_lock = asyncio.Lock()
 time_lock = asyncio.Lock()
 
+#파일 저장/불러오기 공통 함수
+def load_json_file(path, default):
+    """JSON 파일을 읽음. 파일이 깨졌으면 원본을 백업해 두고 default로 시작함."""
+    if not path.exists():
+        return default
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        stamp = get_now().strftime('%Y%m%d-%H%M%S')
+        backup = path.with_name(f"{path.name}.broken-{stamp}")
+        shutil.copy2(path, backup)
+        print(f"🚨 {path.name} 파일이 손상되어 읽을 수 없습니다 ({e}).")
+        print(f"🚨 원본을 {backup.name} 으로 백업하고 빈 값으로 시작합니다.")
+        return default
+
+def _atomic_write_text(path, text):
+    # 임시 파일에 다 쓴 다음 한 번에 교체 → 저장 도중 꺼져도 기존 파일이 깨지지 않음
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+async def write_json_file(path, data, lock):
+    # JSON 변환은 여기서 바로 끝냄 → 저장하는 동안 다른 명령이 데이터를 바꿔도 안전
+    text = json.dumps(data, indent=4, ensure_ascii=False)
+    async with lock:
+        await asyncio.get_running_loop().run_in_executor(None, _atomic_write_text, path, text)
+
 #파일 관리
-DATA_FILE = "study_plans.json"
+DATA_FILE = BASE_DIR / "study_plans.json"
 def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding = "utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                print("⚠️ 계획 파일(study_plans.json)이 손상되어 빈 값으로 시작합니다.")
-                return {} # 파일이 깨졌으면 빈 딕셔너리 반환
-    return {}
+    return load_json_file(DATA_FILE, {})
 
 async def save_data(data):
-    async with data_lock: # 🔒 잠금
-        def _write():
-            with open(DATA_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-        await bot.loop.run_in_executor(None, _write)
+    await write_json_file(DATA_FILE, data, data_lock)
 
 #공부 시간 관리
-TIME_FILE = "study_times.json"
+TIME_FILE = BASE_DIR / "study_times.json"
 last_reset_date_str = ""
 
 def load_time_data():
     global last_reset_date_str
-    if os.path.exists(TIME_FILE):
-        with open(TIME_FILE, "r", encoding="utf-8") as f:
-            try:
-                raw_data = json.load(f)
-                
-                # 구버전 데이터 호환 (날짜 키가 없으면 구버전으로 간주)
-                if "users" not in raw_data:
-                    return {int(k): v for k, v in raw_data.items()}
-                
-                # 신버전 데이터
-                last_reset_date_str = raw_data.get("last_date", "")
-                return {int(k): v for k, v in raw_data["users"].items()}
-            except:
-                return {}
-    return {}
+    raw_data = load_json_file(TIME_FILE, {})
+    try:
+        # 구버전 데이터 호환 (날짜 키가 없으면 구버전으로 간주)
+        if "users" not in raw_data:
+            return {int(k): v for k, v in raw_data.items()}
+
+        # 신버전 데이터
+        last_reset_date_str = raw_data.get("last_date", "")
+        return {int(k): v for k, v in raw_data["users"].items()}
+    except (ValueError, TypeError, AttributeError) as e:
+        print(f"⚠️ {TIME_FILE.name} 내용 형식이 이상해서 빈 값으로 시작합니다: {e}")
+        return {}
 
 async def save_time_data(data):
     # 저장할 때는 날짜와 데이터를 묶어서 저장
-    async with time_lock:
-        def _write():
-            payload = {
-                "last_date": last_reset_date_str, # 현재 기억하고 있는 날짜
-                "users": data
-            }
-            with open(TIME_FILE, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=4, ensure_ascii=False)
-        await bot.loop.run_in_executor(None, _write)
+    payload = {
+        "last_date": last_reset_date_str, # 현재 기억하고 있는 날짜
+        "users": data
+    }
+    await write_json_file(TIME_FILE, payload, time_lock)
 
 async def try_reset_daily_study():
     global daily_study_times, last_reset_date_str
@@ -121,63 +145,152 @@ async def try_reset_daily_study():
 
 
 #파일 관리 코드
-SESSION_FILE = "active_sessions.json"
+SESSION_FILE = BASE_DIR / "active_sessions.json"
 session_lock = asyncio.Lock()    
 
 def load_session_data():
-    if os.path.exists(SESSION_FILE):
-        with open(SESSION_FILE, "r", encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-                # 저장된 시간(숫자)을 다시 날짜 객체로 변환
-                # 키(user_id)는 정수형(int)으로 변환
-                return {int(uid): datetime.fromtimestamp(ts, KST) for uid, ts in data.items()}
-            except:
-                return {}
-    return {}
+    data = load_json_file(SESSION_FILE, {})
+    try:
+        # 저장된 시간(숫자)을 다시 날짜 객체로 변환
+        # 키(user_id)는 정수형(int)으로 변환
+        return {int(uid): datetime.fromtimestamp(ts, KST) for uid, ts in data.items()}
+    except (ValueError, TypeError, AttributeError, OSError) as e:
+        print(f"⚠️ {SESSION_FILE.name} 내용 형식이 이상해서 빈 값으로 시작합니다: {e}")
+        return {}
 
 async def save_session_data(data):
-    async with session_lock:
-        def _write():
-            # 날짜 객체는 JSON 저장 안 됨 -> timestamp(숫자)로 변환해서 저장
-            serializable_data = {str(uid): dt.timestamp() for uid, dt in data.items()}
-            with open(SESSION_FILE, "w", encoding="utf-8") as f:
-                json.dump(serializable_data, f, indent=4)
-        await bot.loop.run_in_executor(None, _write)
+    # 날짜 객체는 JSON 저장 안 됨 -> timestamp(숫자)로 변환해서 저장
+    serializable_data = {str(uid): dt.timestamp() for uid, dt in data.items()}
+    await write_json_file(SESSION_FILE, serializable_data, session_lock)
 
 #투표 데이터 관리
-VOTE_FILE = "active_votes.json"
+VOTE_FILE = BASE_DIR / "active_votes.json"
 vote_lock = asyncio.Lock()
 
 def load_vote_data():
-    if os.path.exists(VOTE_FILE):
-        with open(VOTE_FILE, "r", encoding="utf-8") as f:
-            try:
-                # 키(message_id)는 문자열로 저장되므로, 읽을 때도 그대로 둠
-                return json.load(f)
-            except:
-                return {}
-    return {}
+    # 키(message_id)는 문자열로 저장되므로, 읽을 때도 그대로 둠
+    return load_json_file(VOTE_FILE, {})
 
 async def save_vote_data(data):
-    async with vote_lock:
-        def _write():
-            with open(VOTE_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-        await bot.loop.run_in_executor(None, _write)
+    await write_json_file(VOTE_FILE, data, vote_lock)
+
+#정산 기록 관리 (12시 정산을 하루에 정확히 한 번만 하기 위함)
+STATE_FILE = BASE_DIR / "bot_state.json"
+state_lock = asyncio.Lock()
+
+def load_state_data():
+    state = load_json_file(STATE_FILE, None)
+    if not isinstance(state, dict):
+        # 처음 실행: 이미 12시가 지났으면 오늘 정산은 기존 봇이 했다고 보고 건너뜀 (중복 벌금 방지)
+        now = get_now()
+        last = now if now.hour >= SETTLEMENT_HOUR else now - timedelta(days=1)
+        state = {"last_settlement_date": last.strftime('%Y-%m-%d')}
+    return state
+
+async def save_state_data(data):
+    await write_json_file(STATE_FILE, data, state_lock)
+
+#디스코드 글자 수 제한 대응
+EMBED_FIELD_LIMIT = 1024   # 임베드 칸(field) 하나의 최대 글자 수
+EMBED_TOTAL_LIMIT = 5500   # 임베드 전체 최대 6000자, 여유를 둠
+EMBED_MAX_FIELDS = 25      # 임베드 하나에 들어가는 최대 칸 수
+MESSAGE_LIMIT = 2000       # 일반 메시지 최대 글자 수
+
+def split_text(text, limit):
+    """줄 단위로 limit 글자 이하 덩어리로 나눔. 한 줄이 너무 길면 잘라냄."""
+    chunks, current = [], ""
+    for line in str(text).split("\n"):
+        if len(line) > limit:
+            line = line[:limit - 1] + "…"
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current or not chunks:
+        chunks.append(current or "-")
+    return chunks
+
+def build_embeds(title, color, description=None, fields=(), footer=None, image_url=None, thumbnail_url=None):
+    """
+    fields: (이름, 내용, inline) 목록.
+    내용이 길면 칸을 나누고, 칸이 너무 많으면 임베드를 여러 개로 나눠서 돌려줌.
+    """
+    def new_embed(first):
+        e = discord.Embed(title=title if first else f"{title} (계속)", color=color)
+        if first and description:
+            e.description = description[:4000]
+        return e
+
+    embeds = [new_embed(True)]
+    for name, value, inline in fields:
+        for i, chunk in enumerate(split_text(value, EMBED_FIELD_LIMIT)):
+            field_name = (name if i == 0 else f"{name} (계속)")[:256]
+            e = embeds[-1]
+            if len(e.fields) >= EMBED_MAX_FIELDS or len(e) + len(field_name) + len(chunk) > EMBED_TOTAL_LIMIT:
+                e = new_embed(False)
+                embeds.append(e)
+            e.add_field(name=field_name, value=chunk, inline=inline)
+
+    if footer:
+        embeds[-1].set_footer(text=footer[:300])
+    if image_url:
+        embeds[0].set_image(url=image_url)
+    if thumbnail_url:
+        embeds[0].set_thumbnail(url=thumbnail_url)
+    return embeds
+
+async def send_embeds(channel, embeds, content=None):
+    for i, embed in enumerate(embeds):
+        await channel.send(content=content if i == 0 else None, embed=embed)
+
+async def respond_embeds(interaction, embeds, ephemeral=False):
+    # 디스코드는 메시지 하나에 임베드 전체 6000자 제한이 있어서 하나씩 보냄
+    await interaction.response.send_message(embed=embeds[0], ephemeral=ephemeral)
+    for embed in embeds[1:]:
+        await interaction.followup.send(embed=embed, ephemeral=ephemeral)
+
+async def send_long_message(channel, text):
+    for chunk in split_text(text, MESSAGE_LIMIT):
+        await channel.send(chunk)
+
+def fit_choice(name):
+    # 자동완성 선택지 이름은 최대 100자
+    return name if len(name) <= 100 else name[:99] + "…"
 
 #계획
 user_plans = load_data()
+
+#진행 중인 투표 (메모리에 두고 바뀔 때마다 파일에 저장)
+active_votes = load_vote_data()
+
+#정산 설정
+SETTLEMENT_HOUR = 12  # 매일 이 시각(이후)에 어제 기록을 정산
+FINE_AMOUNT = 3000    # 벌금 3,000원
+bot_state = load_state_data()
 
 #공부 시간 측정
 study_sessions = {}
 daily_study_times = {}
 
 #봇 준비 
+first_ready_done = False
+
 @bot.event
 async def on_ready():
-    global daily_study_times, study_sessions
-    await bot.tree.sync()
+    # on_ready는 연결이 끊겼다 다시 붙을 때도 실행됨
+    # 명령어 동기화와 투표 버튼 복구는 처음 한 번만 (디스코드 요청 제한 방지)
+    global daily_study_times, study_sessions, first_ready_done
+    is_first_ready = not first_ready_done
+    first_ready_done = True
+
+    if is_first_ready:
+        try:
+            synced = await bot.tree.sync()
+            print(f"🔁 슬래시 명령어 {len(synced)}개 동기화 완료")
+        except discord.HTTPException as e:
+            print(f"⚠️ 슬래시 명령어 동기화 실패: {e}")
     
     daily_study_times = load_time_data()
     study_sessions = load_session_data()
@@ -225,8 +338,7 @@ async def on_ready():
     else:
         print("⚠️ 경고: TARGET_CHANNEL을 찾을 수 없습니다. 유령 세션 정리를 건너뜁니다.")
 
-    votes_data = load_vote_data()
-    for msg_id, data in votes_data.items():
+    for msg_id, data in (active_votes.items() if is_first_ready else []):
         try:
             # 저장된 과반수(required_votes)를 가져옴 (없으면 기본값 2)
             req_votes = data.get("required_votes", 2)
@@ -279,7 +391,7 @@ plan_group = app_commands.Group(name="계획", description="나만의 계획을 
     app_commands.Choice(name="X (내용만 인증)", value=0)
 ])
 
-async def plan_daily(interaction: discord.Interaction, 내용:str, 사진인증:app_commands.Choice[int]):
+async def plan_daily(interaction: discord.Interaction, 내용:PlanText, 사진인증:app_commands.Choice[int]):
     user_id = str(interaction.user.id)
     if user_id not in user_plans: user_plans[user_id] = {}
 
@@ -303,7 +415,8 @@ async def plan_daily(interaction: discord.Interaction, 내용:str, 사진인증:
         "type": "매일",
         "content": 내용,
         "photo": photoRequire,
-        "history": []
+        "history": [],
+        "created_at": get_now().strftime('%Y-%m-%d')
     })
     await save_data(user_plans)
 
@@ -317,7 +430,7 @@ async def plan_daily(interaction: discord.Interaction, 내용:str, 사진인증:
     app_commands.Choice(name="X (내용만 인증)", value=0)
 ])
 
-async def plan_weekly(interaction: discord.Interaction, 횟수:int, 내용:str, 사진인증:app_commands.Choice[int]):
+async def plan_weekly(interaction: discord.Interaction, 횟수:int, 내용:PlanText, 사진인증:app_commands.Choice[int]):
     user_id = str(interaction.user.id)
     if user_id not in user_plans: user_plans[user_id] = {}
 
@@ -342,7 +455,8 @@ async def plan_weekly(interaction: discord.Interaction, 횟수:int, 내용:str, 
         "count": 횟수,
         "content": 내용,
         "photo": photoRequire,
-        "history": []
+        "history": [],
+        "created_at": get_now().strftime('%Y-%m-%d')
     })
     await save_data(user_plans)
 
@@ -356,7 +470,7 @@ async def plan_weekly(interaction: discord.Interaction, 횟수:int, 내용:str, 
     app_commands.Choice(name="X (내용만 인증)", value=0)
 ])
 
-async def plan_monthly(interaction: discord.Interaction, 횟수:int, 내용:str, 사진인증:app_commands.Choice[int]):
+async def plan_monthly(interaction: discord.Interaction, 횟수:int, 내용:PlanText, 사진인증:app_commands.Choice[int]):
     user_id = str(interaction.user.id)
     if user_id not in user_plans: user_plans[user_id] = {}
 
@@ -381,7 +495,8 @@ async def plan_monthly(interaction: discord.Interaction, 횟수:int, 내용:str,
         "count": 횟수,
         "content": 내용,
         "photo": photoRequire,
-        "history": []
+        "history": [],
+        "created_at": get_now().strftime('%Y-%m-%d')
     })
     await save_data(user_plans)
 
@@ -395,7 +510,7 @@ async def plan_monthly(interaction: discord.Interaction, 횟수:int, 내용:str,
     app_commands.Choice(name="O (사진 필수)", value=1),
     app_commands.Choice(name="X (내용만 인증)", value=0)
 ])
-async def plan_interval(interaction: discord.Interaction, 간격: int, 내용: str, 사진인증: app_commands.Choice[int]):
+async def plan_interval(interaction: discord.Interaction, 간격: int, 내용: PlanText, 사진인증: app_commands.Choice[int]):
     user_id = str(interaction.user.id)
     if user_id not in user_plans: user_plans[user_id] = {}
 
@@ -420,7 +535,8 @@ async def plan_interval(interaction: discord.Interaction, 간격: int, 내용: s
         "interval": 간격,
         "content": 내용,
         "photo": photoRequire,
-        "history": []
+        "history": [],
+        "created_at": get_now().strftime('%Y-%m-%d')
     })
     await save_data(user_plans)
 
@@ -434,7 +550,7 @@ async def plan_interval(interaction: discord.Interaction, 간격: int, 내용: s
     app_commands.Choice(name="O (사진 필수)", value=1),
     app_commands.Choice(name="X (내용만 인증)", value=0)
 ])
-async def plan_deadline(interaction: discord.Interaction, 마감일: str, 내용: str, 사진인증: app_commands.Choice[int]):
+async def plan_deadline(interaction: discord.Interaction, 마감일: str, 내용: PlanText, 사진인증: app_commands.Choice[int]):
     user_id = str(interaction.user.id)
 
     try:
@@ -465,7 +581,8 @@ async def plan_deadline(interaction: discord.Interaction, 마감일: str, 내용
         "content": 내용,
         "photo": photoRequire,
         "completed": False, # 완료 여부 체크
-        "history": []
+        "history": [],
+        "created_at": get_now().strftime('%Y-%m-%d')
     })
     await save_data(user_plans)
 
@@ -479,7 +596,7 @@ async def plan_deadline(interaction: discord.Interaction, 마감일: str, 내용
     app_commands.Choice(name="O (사진 필수)", value=1),
     app_commands.Choice(name="X (내용만 인증)", value=0)
 ])
-async def plan_routine(interaction: discord.Interaction, 내용:str, 요일:str, 사진인증:app_commands.Choice[int]):
+async def plan_routine(interaction: discord.Interaction, 내용:PlanText, 요일:str, 사진인증:app_commands.Choice[int]):
     user_id = str(interaction.user.id)
     if user_id not in user_plans: user_plans[user_id] = {}
     if "Routine" not in user_plans[user_id]: user_plans[user_id]["Routine"] = []
@@ -678,8 +795,8 @@ async def plan_autocomplete(interaction: discord.Interaction, current: str) -> l
                 if is_completed: continue
                 
                 name = f"[{tag}] {plan['content']}"
-                if current.lower() in name.lower():
-                        choices.append(app_commands.Choice(name=name, value=plan['content']))
+                if current.lower() in name.lower() and len(plan['content']) <= 100:
+                        choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
 
     return choices[:25]
 
@@ -708,8 +825,8 @@ async def plan_autocomplete_delete(interaction: discord.Interaction, current: st
                 name = f"[{tag}] {plan['content']}"
                 
                 # 검색 필터
-                if current.lower() in name.lower():
-                    choices.append(app_commands.Choice(name=name, value=plan['content']))
+                if current.lower() in name.lower() and len(plan['content']) <= 100:
+                    choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
 
     return choices[:25]
 
@@ -807,11 +924,10 @@ class ImmunityView(ui.View):
             agree_btn.disabled = True
 
     async def save_status(self):
-        votes_data = load_vote_data()
-        if self.message_id in votes_data:
-            votes_data[self.message_id]['agreed_users'] = list(self.agreed_users)
-            votes_data[self.message_id]['denied_users'] = list(self.denied_users)
-            await save_vote_data(votes_data)
+        if self.message_id in active_votes:
+            active_votes[self.message_id]['agreed_users'] = list(self.agreed_users)
+            active_votes[self.message_id]['denied_users'] = list(self.denied_users)
+            await save_vote_data(active_votes)
 
     @ui.button(label="인정합니다 (0/2)", style=discord.ButtonStyle.success, emoji="👌", custom_id="vote_agree")
     async def agree_button(self, interaction: discord.Interaction, button: ui.Button):
@@ -850,10 +966,9 @@ class ImmunityView(ui.View):
             
             if added_count > 0: await save_data(user_plans)
 
-            votes_data = load_vote_data()
-            if self.message_id in votes_data:
-                del votes_data[self.message_id]
-                await save_vote_data(votes_data)
+            if self.message_id in active_votes:
+                del active_votes[self.message_id]
+                await save_vote_data(active_votes)
 
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.blue()
@@ -898,10 +1013,9 @@ class ImmunityView(ui.View):
         max_possible_yes = self.total_members - 1 - len(self.denied_users)
         #거절
         if max_possible_yes < self.required_votes:
-            votes_data = load_vote_data()
-            if self.message_id in votes_data:
-                del votes_data[self.message_id]
-                await save_vote_data(votes_data)
+            if self.message_id in active_votes:
+                del active_votes[self.message_id]
+                await save_vote_data(active_votes)
 
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.red()
@@ -918,7 +1032,8 @@ class ImmunityView(ui.View):
 # --- 면책 요청 ---
 @bot.tree.command(name="면책", description="개인 사정으로 인한 벌금 면제를 요청합니다 (2인 동의 필요).")
 @app_commands.describe(사유="면책을 요청하는 합당한 사유를 적어주세요.")
-async def request_immunity(interaction: discord.Interaction, 사유: str):
+@app_commands.guild_only()
+async def request_immunity(interaction: discord.Interaction, 사유: LongText):
     user_id_int = interaction.user.id      # 뷰(View) 전달용 (숫자)
     user_id_str = str(interaction.user.id) # 데이터 키(Key)용 (문자열)
     
@@ -952,8 +1067,7 @@ async def request_immunity(interaction: discord.Interaction, 사유: str):
     await interaction.edit_original_response(view=view)
 
     # 3. 파일 저장 (목표 표수도 같이 저장해야 재부팅 때 기억함!)
-    votes_data = load_vote_data()
-    votes_data[str(message.id)] = {
+    active_votes[str(message.id)] = {
         "target_id": user_id_int,
         "target_dates": target_dates_list,
         "agreed_users": [],
@@ -961,12 +1075,13 @@ async def request_immunity(interaction: discord.Interaction, 사유: str):
         "total_members": total_human,
         "required_votes": required_votes
     }
-    await save_vote_data(votes_data)
+    await save_vote_data(active_votes)
 
 #---면책기간---
 @bot.tree.command(name="면책기간", description="특정 기간 동안의 벌금 면제를 요청합니다.")
 @app_commands.describe(시작일="YYYY-MM-DD", 종료일="YYYY-MM-DD", 사유="면책 사유")
-async def request_immunity_period(interaction: discord.Interaction, 시작일: str, 종료일: str, 사유: str):
+@app_commands.guild_only()
+async def request_immunity_period(interaction: discord.Interaction, 시작일: str, 종료일: str, 사유: LongText):
     user_id_int = interaction.user.id
     user_id_str = str(interaction.user.id)
 
@@ -1017,8 +1132,7 @@ async def request_immunity_period(interaction: discord.Interaction, 시작일: s
     await interaction.edit_original_response(view=view)
 
     # 6. 파일 저장
-    votes_data = load_vote_data()
-    votes_data[str(message.id)] = {
+    active_votes[str(message.id)] = {
         "target_id": user_id_int,
         "target_dates": date_list,
         "agreed_users": [],
@@ -1026,7 +1140,7 @@ async def request_immunity_period(interaction: discord.Interaction, 시작일: s
         "total_members": total_human,
         "required_votes": required_votes
     }
-    await save_vote_data(votes_data)
+    await save_vote_data(active_votes)
 
 #휴식 (월 1회)
 @bot.tree.command(name="휴식", description="한 달에 한 번, 오늘을 휴식일로 지정합니다. (벌금 면제)")
@@ -1198,8 +1312,10 @@ async def set_weekly_override(interaction: discord.Interaction, 계획: str, 횟
         return
 
     now = get_now()
+    # 새벽 0~5시는 전날로 취급 (다른 명령어와 같은 기준)
+    base_date = now - timedelta(days=1) if now.hour < 6 else now
     # 이번 주 월요일 날짜를 키(Key)로 사용
-    start_of_week = now - timedelta(days=now.weekday())
+    start_of_week = base_date - timedelta(days=base_date.weekday())
     start_of_week_str = start_of_week.strftime('%Y-%m-%d')
 
     target_plan = None
@@ -1230,11 +1346,13 @@ async def set_weekly_override(interaction: discord.Interaction, 계획: str, 횟
 
 #현황
 @bot.tree.command(name="현황", description="이번 달 멤버들의 휴식 및 면책 사용 내역을 확인합니다.")
+@app_commands.guild_only()
 async def check_monthly_status(interaction: discord.Interaction):
     now = get_now()
     this_month_str = now.strftime('%Y-%m') # 예: 2026-01
     
-    embed = discord.Embed(title=f"📊 {now.month}월 현황판", description="이번 달 휴식 및 면책 사용 기록입니다.", color=discord.Color.blurple())
+    description = "이번 달 휴식 및 면책 사용 기록입니다."
+    fields = []
     
     # 서버에 있는 실제 멤버들만 조회
     members = [m for m in interaction.guild.members if not m.bot]
@@ -1274,17 +1392,24 @@ async def check_monthly_status(interaction: discord.Interaction):
         rest_txt = f"🛌 **휴식({len(month_rests)}회):** {fmt_dates(month_rests)}"
         imm_txt = f"🛡️ **면책({len(pure_immunity)}회):** {fmt_dates(pure_immunity)}"
         
-        embed.add_field(name=f"👤 {member.display_name}", value=f"{rest_txt}\n{imm_txt}", inline=False)
+        fields.append((f"👤 {member.display_name}", f"{rest_txt}\n{imm_txt}", False))
 
     if not has_data:
-        embed.description = "✨ 이번 달은 아직 휴식이나 면책을 쓴 사람이 없네요! 성실해요! 🔥"
+        description = "✨ 이번 달은 아직 휴식이나 면책을 쓴 사람이 없네요! 성실해요! 🔥"
 
-    embed.set_footer(text=f"기준: {now.strftime('%Y년 %m월')}")
-    await interaction.response.send_message(embed=embed)
+    embeds = build_embeds(
+        title=f"📊 {now.month}월 현황판",
+        color=discord.Color.blurple(),
+        description=description,
+        fields=fields,
+        footer=f"기준: {now.strftime('%Y년 %m월')}",
+    )
+    await respond_embeds(interaction, embeds)
 
 #인증 처리
 async def process_verification(interaction: discord.Interaction, 계획:str, 내용: str, 사진: discord.Attachment, is_yesterday: bool):
-    if 사진 and not 사진.content_type.startswith("image/"):
+    # content_type이 비어 있는(None) 첨부 파일도 있어서 안전하게 확인
+    if 사진 and not (사진.content_type or "").startswith("image/"):
         await interaction.response.send_message("❌ 사진 파일만 올릴 수 있어요!", ephemeral=True)
         return
     
@@ -1464,28 +1589,33 @@ async def process_verification(interaction: discord.Interaction, 계획:str, 내
 
     final_text = "\n".join(plan_text_list) if plan_text_list else "계획 없음"
 
-    embed = discord.Embed(title="🔥 인증 현황", color=discord.Color.green())
-    embed.add_field(name="방금 인증함", value=verified_plan_name if verified_plan_name else 계획, inline=False)
-    embed.add_field(name="인증 기준일", value=f"{target_date_str} {display_note}", inline=False)
-    
-    if 내용: embed.add_field(name="코멘트", value=내용, inline=False)
-    embed.add_field(name="📅 현재 진행 상황", value=final_text, inline=False)
-    if 사진: embed.set_image(url=사진.url)
-    
-    await interaction.response.send_message(embed=embed)
+    fields = [
+        ("방금 인증함", verified_plan_name if verified_plan_name else 계획, False),
+        ("인증 기준일", f"{target_date_str} {display_note}", False),
+    ]
+    if 내용: fields.append(("코멘트", 내용, False))
+    fields.append(("📅 현재 진행 상황", final_text, False))
+
+    embeds = build_embeds(
+        title="🔥 인증 현황",
+        color=discord.Color.green(),
+        fields=fields,
+        image_url=사진.url if 사진 else None,
+    )
+    await respond_embeds(interaction, embeds)
 
 #계획 인증(오늘)
 @bot.tree.command(name="인증", description="한 내용을 인증하세요")
 @app_commands.describe(계획="인증할 계획 선택", 내용="코멘트 (선택)", 사진="인증샷 (선택)")
 @app_commands.autocomplete(계획=plan_autocomplete)
-async def verify_study(interaction: discord.Interaction, 계획:str, 내용: str=None, 사진: discord.Attachment=None):
+async def verify_study(interaction: discord.Interaction, 계획:str, 내용: LongText=None, 사진: discord.Attachment=None):
     await process_verification(interaction, 계획, 내용, 사진, is_yesterday=False)
 
 #계획 인증(어제)
 @bot.tree.command(name="어제인증", description="깜빡한 어제 계획을 인증합니다.")
 @app_commands.describe(계획="인증할 계획 선택", 내용="코멘트 (선택)", 사진="인증샷 (선택)")
 @app_commands.autocomplete(계획=plan_autocomplete)
-async def verify_study_yesterday(interaction: discord.Interaction, 계획:str, 내용: str=None, 사진: discord.Attachment=None):
+async def verify_study_yesterday(interaction: discord.Interaction, 계획:str, 내용: LongText=None, 사진: discord.Attachment=None):
     await process_verification(interaction, 계획, 내용, 사진, is_yesterday=True)
 
 #계획표
@@ -1511,7 +1641,8 @@ async def check_my_plans(interaction: discord.Interaction):
     start_of_week_str = start_of_week.strftime('%Y-%m-%d')
     this_month_str = display_date.strftime('%Y-%m')
 
-    embed = discord.Embed(title=f"📋 {interaction.user.display_name}님의 계획표", color=discord.Color.blue())
+    fields = []
+    description = None
 
     has_plan = False
     
@@ -1654,16 +1785,22 @@ async def check_my_plans(interaction: discord.Interaction):
         
         if desc_list:
             has_plan = True
-            embed.add_field(name=category_names[category], value="\n".join(desc_list), inline=False)
+            fields.append((category_names[category], "\n".join(desc_list), False))
 
     if not has_plan:
-        embed.description = "등록된 계획이 없거나 내용이 비어있네요? 🤔"
+        description = "등록된 계획이 없거나 내용이 비어있네요? 🤔"
     
     rest_cnt = len(user_plans[user_id].get('rest_history', []))
     exempt_cnt = len(user_plans[user_id].get('exemptions', []))
-    embed.set_footer(text=f"기준: {today_str} {note_date} | 이번 달 휴식: {rest_cnt}회 / 면책: {exempt_cnt}회")
-    
-    await interaction.response.send_message(embed=embed)
+
+    embeds = build_embeds(
+        title=f"📋 {interaction.user.display_name}님의 계획표",
+        color=discord.Color.blue(),
+        description=description,
+        fields=fields,
+        footer=f"기준: {today_str} {note_date} | 이번 달 휴식: {rest_cnt}회 / 면책: {exempt_cnt}회",
+    )
+    await respond_embeds(interaction, embeds)
     
 #인증초기화
 @bot.tree.command(name="인증초기화", description="[테스트용] 오늘의 모든 인증 도장을 지웁니다.")
@@ -1737,150 +1874,187 @@ async def set_alert_time(interaction: discord.Interaction, 시간:int):
 #감시자
 @tasks.loop(minutes=60)
 async def check_study_status():
+    # 각 단계를 따로 감싸서, 한 곳에서 오류가 나도 반복 작업 자체는 멈추지 않게 함
+    try:
+        if await try_reset_daily_study():
+            print("🌅 지능형 초기화 완료: 새로운 하루가 시작되었습니다.")
+    except Exception:
+        print("🚨 공부 시간 초기화 중 오류:")
+        traceback.print_exc()
+
     now = get_now()
-    current_hour = now.hour
     today_str = now.strftime('%Y-%m-%d')
-
-    # 날짜 계산
-    yesterday = now - timedelta(days=1)
-    yesterday_str = yesterday.strftime('%Y-%m-%d')
-
-    if await try_reset_daily_study():
-        print("🌅 지능형 초기화 완료: 새로운 하루가 시작되었습니다.")
-
-    check_target_str = yesterday_str if 0 <= current_hour <= 6 else today_str
-    print(f"⏰ 점검 중... {now.month}/{now.day} {current_hour}시 (인증기준: {check_target_str})")
+    yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+    check_target_str = yesterday_str if 0 <= now.hour < 6 else today_str
+    print(f"⏰ 점검 중... {now.month}/{now.day} {now.hour}시 (인증기준: {check_target_str})")
 
     channel = bot.get_channel(ALERT_CHANNEL)
-    if not channel: return
+    if not channel:
+        print("⚠️ 경고: ALERT_CHANNEL을 찾을 수 없어 정산/알림을 건너뜁니다. .env의 ID를 확인해주세요.")
+        return
 
-    #12시 벌금 정산
-    if current_hour == 12:
-        fine_msg_list = []
-        FINE_AMOUNT = 3000 # 👈 벌금 3,000원 설정
+    try:
+        await run_daily_settlement(channel, now)
+    except Exception:
+        print("🚨 벌금 정산 중 오류:")
+        traceback.print_exc()
 
-        is_monday = (now.weekday() == 0) # 월요일 (지난주 검사)
-        is_first_day = (now.day == 1)    # 1일 (지난달 검사)
+    try:
+        await send_hourly_alerts(channel, now)
+    except Exception:
+        print("🚨 인증 알림 전송 중 오류:")
+        traceback.print_exc()
 
-        for user_id, data in user_plans.items():
-            if user_id == "system_data": continue # 혹시 모를 예외 처리
+def find_missed_plans(user_id, data, now, yesterday_str, is_monday, is_first_day):
+    """어제(일일/요일/목표), 지난주(월요일), 지난달(1일) 기준으로 못 한 계획 목록을 돌려줌"""
+    missed_details = []
 
-            # 1. 어제 날짜로 면책권을 썼는지 확인
-            exemptions = data.get('exemptions', [])
-            is_exempt = (yesterday_str in exemptions)
+    # (1) 어제 '일일 계획'을 안 했는지 체크
+    for plan in data.get("Daily", []):
+        if not isinstance(plan, dict): continue
+        # 어제 이후에 등록한 계획은 어제 검사 대상이 아님
+        if yesterday_str < plan.get('created_at', '2000-01-01'): continue
 
-            rest_history = data.get('rest_history', [])
-            is_resting = (yesterday_str in rest_history)
+        if yesterday_str not in plan.get('history', []):
+            missed_details.append(f"[일일]{plan['content']}")
 
-            missed_something = False # 하나라도 놓쳤는지 확인용
-            missed_details = []      # 무엇을 놓쳤는지 기록
-            
-            # 2. 어제 '일일 계획'을 안 했는지 체크
-            if "Daily" in data:
-                for plan in data["Daily"]:
+    # (1.5) 어제 '요일 계획'을 안 했는지 체크
+    yesterday_dt = datetime.strptime(yesterday_str, '%Y-%m-%d')
+    yesterday_weekday = WEEKDAY_NAMES[yesterday_dt.weekday()]
+    for plan in data.get("Routine", []):
+        if not isinstance(plan, dict): continue
+        if yesterday_str < plan.get('created_at', '2000-01-01'): continue
 
-                    history = plan.get('history', [])
+        # 어제 요일이 계획된 요일 목록에 있을 때만 검사!
+        if yesterday_weekday in plan.get('days', []):
+            if yesterday_str not in plan.get('history', []):
+                missed_details.append(f"[요일]{plan['content']}")
 
-                    if yesterday_str not in history:
-                        missed_details.append(f"[일일]{plan['content']}")
-            
-            # (1.5) 어제 '요일 계획'을 안 했는지 체크
-            if "Routine" in data:
-                yesterday_dt = datetime.strptime(yesterday_str, '%Y-%m-%d')
-                yesterday_weekday = WEEKDAY_NAMES[yesterday_dt.weekday()]
+    # (2) [주간] 월요일이면 '지난주' 실적 체크
+    if is_monday:
+        last_week_start = now - timedelta(days=7) # 저번주 월
+        last_week_end = now - timedelta(days=1)   # 저번주 일
+        last_week_start_str = last_week_start.strftime('%Y-%m-%d')
+        last_week_end_str = last_week_end.strftime('%Y-%m-%d')
 
-                for plan in data["Routine"]:
-                    if isinstance(plan, str): continue
+        for plan in data.get("Weekly", []):
+            if not isinstance(plan, dict): continue
+            # 지난주 중간에 등록한 계획은 첫 주 검사에서 제외
+            if plan.get('created_at', '2000-01-01') > last_week_start_str: continue
 
-                    created_at = plan.get('created_at', '2000-01-01') # 예전 데이터 호환용
-                    if yesterday_str < created_at:
-                        continue
+            history = plan.get('history', [])
+            count = sum(1 for d in history if last_week_start_str <= d <= last_week_end_str)
+            # 화면에 보여주는 목표와 같은 기준 (휴식/면책 차감, /이번주목표 반영)
+            target = get_weekly_target(user_id, plan, last_week_end)
 
-                    plan_days = plan.get('days', [])
-                    # 어제 요일이 계획된 요일 목록에 있을 때만 검사!
-                    if yesterday_weekday in plan_days:
-                        if yesterday_str not in plan.get('history', []):
-                            missed_details.append(f"[요일]{plan['content']}")
+            if count < target:
+                missed_details.append(f"[주간]{plan['content']}({count}/{target}회)")
 
-            # (2) [주간] 월요일이면 '지난주' 실적 체크
-            if is_monday and "Weekly" in data:
-                # 지난주 월요일 ~ 일요일 범위 계산
-                last_week_start = now - timedelta(days=7) # 저번주 월
-                last_week_end = now - timedelta(days=1)   # 저번주 일
-                last_week_start_str = last_week_start.strftime('%Y-%m-%d')
-                last_week_end_str = last_week_end.strftime('%Y-%m-%d')
+    # (3) [월간] 1일이면 '지난달' 실적 체크
+    if is_first_day:
+        last_month_str = (now - timedelta(days=1)).strftime('%Y-%m')
 
-                for plan in data["Weekly"]:
-                    history = plan.get('history', [])
-                    # 지난주 기간 내에 찍힌 도장 개수 세기
-                    count = sum(1 for d in history if last_week_start_str <= d <= last_week_end_str)
-                    target = plan.get('count', 1)
-                    
-                    if count < target:
-                        missed_details.append(f"[주간]{plan['content']}({count}/{target}회)")
+        for plan in data.get("Monthly", []):
+            if not isinstance(plan, dict): continue
+            # 지난달 중간에 등록한 계획은 첫 달 검사에서 제외
+            if plan.get('created_at', '2000-01-01') > f"{last_month_str}-01": continue
 
-            # (3) [월간] 1일이면 '지난달' 실적 체크
-            if is_first_day and "Monthly" in data:
-                # 지난달 구하기 (오늘-1일 의 년-월)
-                last_month_date = now - timedelta(days=1)
-                last_month_str = last_month_date.strftime('%Y-%m')
+            history = plan.get('history', [])
+            count = sum(1 for d in history if d.startswith(last_month_str))
+            target = plan.get('count', 1)
 
-                for plan in data["Monthly"]:
-                    history = plan.get('history', [])
-                    # 지난달 접두사로 시작하는 도장 개수 세기
-                    count = sum(1 for d in history if d.startswith(last_month_str))
-                    target = plan.get('count', 1)
+            if count < target:
+                missed_details.append(f"[월간]{plan['content']}({count}/{target}회)")
 
-                    if count < target:
-                        missed_details.append(f"[월간]{plan['content']}({count}/{target}회)")
-            
-            if "OneTime" in data:
-                for plan in data["OneTime"]:
-                    # 마감일이 어제였고, 아직 완료(completed)가 False인 경우
-                    if plan['deadline'] == yesterday_str and not plan.get('completed', False):
-                        missed_details.append(f"[목표]{plan['content']}")
+    # (4) 마감일이 어제였고, 아직 완료(completed)가 False인 목표
+    for plan in data.get("OneTime", []):
+        if not isinstance(plan, dict): continue
+        if plan.get('deadline') == yesterday_str and not plan.get('completed', False):
+            missed_details.append(f"[목표]{plan['content']}")
 
-            # 벌금 처리
-            if missed_details:
-                if is_resting:
-                    fine_msg_list.append(f"🛌 <@{user_id}>님 **휴식권 사용!** (푹 쉬셨나요? 🍯)")
-                
-                elif is_exempt:
-                    fine_msg_list.append(f"🛡️ <@{user_id}>님 면책 통과! ({', '.join(missed_details)})")
-                
-                else:
-                    # 건수 상관없이 하루 고정 벌금 or 건당 벌금 (여기선 고정 3000원 방식 유지)
-                    # 만약 주간/월간 겹치는 날에 벌금을 더 걷고 싶으면 로직 변경 가능
-                    current_fine = data.get('fines', 0)
-                    data['fines'] = current_fine + FINE_AMOUNT
-                    fine_msg_list.append(f"💸 <@{user_id}>님 **{FINE_AMOUNT}원** 벌금! ({', '.join(missed_details)})")
+    return missed_details
 
-        await save_data(user_plans) # 저장
+async def run_daily_settlement(channel, now):
+    """하루 한 번, SETTLEMENT_HOUR시 이후 처음 도는 시점에 어제 기록을 정산"""
+    today_str = now.strftime('%Y-%m-%d')
+    if now.hour < SETTLEMENT_HOUR or bot_state.get("last_settlement_date") == today_str:
+        return
 
-        # 4. 정산 결과 및 랭킹 출력
-        if fine_msg_list:
-            sorted_users = sorted(user_plans.items(), key=lambda x: x[1].get('fines', 0), reverse=True)
-            rank_text = ""
-            rank = 1
-            for uid, udata in sorted_users:
-                fine = udata.get('fines', 0)
-                if fine > 0:
-                    icon = ["🥇", "🥈", "🥉"][rank-1] if rank <= 3 else f"{rank}."
-                    rank_text += f"{icon} <@{uid}>: **{fine:,}원**\n"
-                    rank += 1
-            
-            title_txt = f"💸 {yesterday_str} 정산"
-            if is_monday: title_txt += " (주간결산 포함)"
-            if is_first_day: title_txt += " (월간결산 포함)"
+    yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+    is_monday = (now.weekday() == 0) # 월요일 (지난주 검사)
+    is_first_day = (now.day == 1)    # 1일 (지난달 검사)
 
-            embed = discord.Embed(title=title_txt, description="**돈** 내기 싫으면 **까**먹지 말고 **스**스로 해라", color=discord.Color.red())
-            embed.add_field(name="🧾 정산 결과", value="\n".join(fine_msg_list), inline=False)
-            if rank_text: embed.add_field(name="🏆 명예의 전당", value=rank_text, inline=False)
-            
-            await channel.send(embed=embed)
+    fine_msg_list = []
+    for user_id, data in list(user_plans.items()):
+        if user_id == "system_data" or not isinstance(data, dict): continue
+
+        try:
+            missed_details = find_missed_plans(user_id, data, now, yesterday_str, is_monday, is_first_day)
+        except Exception:
+            # 한 사람 데이터가 이상해도 나머지 사람 정산은 계속 진행
+            print(f"🚨 정산 중 오류 (유저 {user_id}), 이 유저는 건너뜁니다:")
+            traceback.print_exc()
+            continue
+
+        if not missed_details: continue
+
+        is_resting = yesterday_str in data.get('rest_history', [])
+        is_exempt = yesterday_str in data.get('exemptions', [])
+
+        if is_resting:
+            fine_msg_list.append(f"🛌 <@{user_id}>님 **휴식권 사용!** (푹 쉬셨나요? 🍯)")
+        elif is_exempt:
+            fine_msg_list.append(f"🛡️ <@{user_id}>님 면책 통과! ({', '.join(missed_details)})")
+        else:
+            # 건수 상관없이 하루 고정 벌금
+            data['fines'] = data.get('fines', 0) + FINE_AMOUNT
+            fine_msg_list.append(f"💸 <@{user_id}>님 **{FINE_AMOUNT}원** 벌금! ({', '.join(missed_details)})")
+
+    # 정산 완료 기록을 먼저 저장 → 이후 단계에서 문제가 생겨도 같은 날 벌금이 두 번 매겨지지 않음
+    bot_state["last_settlement_date"] = today_str
+    await save_state_data(bot_state)
+    await save_data(user_plans)
+    print(f"💸 {yesterday_str} 정산 완료 ({len(fine_msg_list)}건)")
+
+    if not fine_msg_list:
+        return
+
+    # 정산 결과 및 랭킹 출력
+    sorted_users = sorted(
+        ((uid, udata) for uid, udata in user_plans.items() if isinstance(udata, dict)),
+        key=lambda x: x[1].get('fines', 0), reverse=True
+    )
+    rank_lines = []
+    for uid, udata in sorted_users:
+        fine = udata.get('fines', 0)
+        if fine > 0:
+            rank = len(rank_lines) + 1
+            icon = ["🥇", "🥈", "🥉"][rank-1] if rank <= 3 else f"{rank}."
+            rank_lines.append(f"{icon} <@{uid}>: **{fine:,}원**")
+
+    title_txt = f"💸 {yesterday_str} 정산"
+    if is_monday: title_txt += " (주간결산 포함)"
+    if is_first_day: title_txt += " (월간결산 포함)"
+
+    fields = [("🧾 정산 결과", "\n".join(fine_msg_list), False)]
+    if rank_lines: fields.append(("🏆 명예의 전당", "\n".join(rank_lines), False))
+
+    embeds = build_embeds(
+        title=title_txt,
+        color=discord.Color.red(),
+        description="**돈** 내기 싫으면 **까**먹지 말고 **스**스로 해라",
+        fields=fields,
+    )
+    await send_embeds(channel, embeds)
+
+async def send_hourly_alerts(channel, now):
+    """각자 설정한 알림 시간(기본 2시)에 아직 인증 안 한 계획을 알려줌"""
+    current_hour = now.hour
 
     #2시 알림
-    for user_id, data in user_plans.items():
+    # list()로 복사해서 순회 → 메시지 보내는 사이 새 유저가 생겨도 오류 없음
+    for user_id, data in list(user_plans.items()):
+        if not isinstance(data, dict): continue
         if data.get('alert_time', 2) == current_hour:
             
             if 0 <= current_hour < 6:
@@ -1999,7 +2173,8 @@ async def check_study_status():
                 if todo_interval: msg += f"- **[반복]** {', '.join(todo_interval)}\n"
                 if todo_onetime: msg += f"- **[목표]** {', '.join(todo_onetime)}\n"
 
-                await channel.send(msg)
+                # 2000자가 넘으면 나눠서 보냄
+                await send_long_message(channel, msg)
 
 #정각 대기
 @check_study_status.before_loop
@@ -2018,7 +2193,7 @@ async def before_check_study_status():
 @bot.tree.command(name="벌금수정", description="특정 유저의 벌금을 수정합니다.")
 @app_commands.describe(유저="대상 유저", 금액="수정할 최종 금액 (예: 0, 5000)", 사유="수정 사유")
 @app_commands.checks.has_permissions(administrator=True)
-async def adjust_fine(interaction: discord.Interaction, 유저: discord.Member, 금액: int, 사유: str = "관리자 수정"):
+async def adjust_fine(interaction: discord.Interaction, 유저: discord.Member, 금액: int, 사유: LongText = "관리자 수정"):
     user_id = str(유저.id)
     
     if user_id not in user_plans:
@@ -2040,10 +2215,28 @@ async def adjust_fine(interaction: discord.Interaction, 유저: discord.Member, 
     
     await interaction.response.send_message(embed=embed)
 
-@adjust_fine.error
-async def adjust_fine_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+#명령어 오류 공통 처리 (권한 없음, DM 사용, 예상 못 한 오류)
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ 관리자만 사용할 수 있는 명령어입니다!", ephemeral=True)
+        msg = "❌ 관리자만 사용할 수 있는 명령어입니다!"
+    elif isinstance(error, app_commands.NoPrivateMessage):
+        msg = "❌ 이 명령어는 서버 채널에서만 사용할 수 있어요!"
+    elif isinstance(error, app_commands.CheckFailure):
+        msg = "❌ 이 명령어를 사용할 수 없어요."
+    else:
+        cmd_name = interaction.command.name if interaction.command else "알 수 없음"
+        print(f"🚨 /{cmd_name} 명령어 실행 중 오류:")
+        traceback.print_exception(type(error), error, error.__traceback__)
+        msg = "⚠️ 명령어 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요."
+
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except discord.HTTPException:
+        pass
 
 #공부 시간 측정
 @bot.event
@@ -2096,7 +2289,8 @@ async def on_voice_state_update(member, before, after):
 #공지
 @bot.tree.command(name="공지", description="채널에 임베드 공지를 보냅니다.")
 @app_commands.describe(제목="공지 제목", 내용="내용 ('\\n'으로 줄바꿈 가능)")
-async def send_notice(interaction: discord.Interaction, 제목: str, 내용: str):
+@app_commands.checks.has_permissions(administrator=True)
+async def send_notice(interaction: discord.Interaction, 제목: app_commands.Range[str, 1, 256], 내용: app_commands.Range[str, 1, 4000]):
     
     target_channel = bot.get_channel(ALERT_CHANNEL)
 

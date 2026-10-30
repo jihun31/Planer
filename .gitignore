@@ -218,3 +218,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# TonkatsuBot 데이터 파일 (유저 ID, 벌금 기록이 들어 있어 올리지 않음)
+study_plans.json
+study_times.json
+active_sessions.json
+active_votes.json
+bot_state.json
+*.json.tmp
+*.json.broken-*
