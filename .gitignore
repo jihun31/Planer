@@ -227,3 +227,4 @@ active_votes.json
 bot_state.json
 *.json.tmp
 *.json.broken-*
+backups/

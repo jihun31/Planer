@@ -4,6 +4,7 @@ import json
 import random
 import calendar
 import asyncio
+import re
 import shutil
 import traceback
 from pathlib import Path
@@ -123,7 +124,7 @@ async def save_time_data(data):
     await write_json_file(TIME_FILE, payload, time_lock)
 
 async def try_reset_daily_study():
-    global daily_study_times, last_reset_date_str
+    global last_reset_date_str
     
     # 1. '공부 기준 날짜' 계산 (아침 6시 이전이면 어제로 취급)
     now = get_now()
@@ -270,6 +271,79 @@ SETTLEMENT_HOUR = 12  # 매일 이 시각(이후)에 어제 기록을 정산
 FINE_AMOUNT = 3000    # 벌금 3,000원
 bot_state = load_state_data()
 
+#계획 데이터 공통 함수
+# 유저 데이터 중 '계획 목록'인 항목. 나머지(alert_time, fines, exemptions, rest_history 등)는 설정/기록
+PLAN_CATEGORIES = ["Daily", "Routine", "Weekly", "Monthly", "Interval", "OneTime"]
+CATEGORY_KR = {"Daily": "일일", "Routine": "요일", "Weekly": "주간", "Monthly": "월간", "Interval": "반복", "OneTime": "목표"}
+
+def photo_icon(photo_required):
+    return "📸 사진 필수" if photo_required else "📝 내용만"
+
+def get_base_date(now=None):
+    """새벽 0~5시는 전날로 취급한 '기준 날짜' (밤샘 인증 배려)"""
+    if now is None:
+        now = get_now()
+    return now - timedelta(days=1) if now.hour < 6 else now
+
+def iter_plans(user_data, categories=PLAN_CATEGORIES):
+    """(카테고리, 계획) 순서로 돌려줌. 옛날 형식(문자열)이나 깨진 계획은 건너뜀."""
+    for category in categories:
+        plans = user_data.get(category)
+        if not isinstance(plans, list):
+            continue
+        for plan in plans:
+            if isinstance(plan, dict) and "content" in plan:
+                yield category, plan
+
+def find_plan(user_id, content):
+    """계획 이름으로 찾기. 없으면 (None, None)"""
+    for category, plan in iter_plans(user_plans.get(user_id, {})):
+        if plan["content"] == content:
+            return category, plan
+    return None, None
+
+def week_bounds(date):
+    """date가 속한 주의 (월요일, 다음 주 월요일) 날짜 문자열. 범위는 월요일 이상 ~ 다음 주 월요일 미만"""
+    start = date - timedelta(days=date.weekday())
+    return start.strftime('%Y-%m-%d'), (start + timedelta(days=7)).strftime('%Y-%m-%d')
+
+def count_in_week(history, date):
+    start, next_start = week_bounds(date)
+    return sum(1 for d in history if start <= d < next_start)
+
+def count_in_month(history, date):
+    prefix = date.strftime('%Y-%m')
+    return sum(1 for d in history if d.startswith(prefix))
+
+def count_off_days(user_id, start_str, end_str):
+    """기간(start~end, 양 끝 포함) 안의 휴식/면책 날짜 수. 휴식과 면책이 겹친 날은 한 번만 셈."""
+    data = user_plans.get(user_id, {})
+    off_days = set(data.get('rest_history', [])) | set(data.get('exemptions', []))
+    return sum(1 for d in off_days if start_str <= d <= end_str)
+
+def get_weekly_target(user_id, plan, target_date=None):
+    """이번 주 실제 목표 횟수. '/이번주목표' 수정값이 최우선, 없으면 원래 목표에서 휴식/면책 일수만큼 뺌."""
+    if target_date is None:
+        target_date = get_now()
+
+    start_str, _ = week_bounds(target_date)
+    overrides = plan.get('overrides', {})
+    if start_str in overrides:
+        return overrides[start_str]
+
+    end_str = (datetime.strptime(start_str, '%Y-%m-%d') + timedelta(days=6)).strftime('%Y-%m-%d')
+    return max(0, plan.get('count', 1) - count_off_days(user_id, start_str, end_str))
+
+def get_monthly_target(user_id, plan, target_date=None):
+    """이번 달 실제 목표 횟수. 원래 목표에서 이번 달 휴식/면책 일수만큼 뺌 (주간 목표와 같은 방식)."""
+    if target_date is None:
+        target_date = get_now()
+
+    last_day = calendar.monthrange(target_date.year, target_date.month)[1]
+    start_str = target_date.strftime('%Y-%m-01')
+    end_str = target_date.strftime(f'%Y-%m-{last_day:02d}')
+    return max(0, plan.get('count', 1) - count_off_days(user_id, start_str, end_str))
+
 #공부 시간 측정
 study_sessions = {}
 daily_study_times = {}
@@ -358,7 +432,8 @@ async def on_ready():
                 agreed_users=data['agreed_users'],
                 denied_users=denied,
                 total_members=tot_mem,
-                required_votes=req_votes
+                required_votes=req_votes,
+                eligible_voters=data.get("eligible_voters")  # 예전 투표는 없음 → 누구나 투표 가능
             )
             bot.add_view(view, message_id=int(msg_id))
 
@@ -383,264 +458,93 @@ async def on_member_join(member):
 #계획 등록
 plan_group = app_commands.Group(name="계획", description="나만의 계획을 세웁니다.")
 
+PHOTO_CHOICES = [
+    app_commands.Choice(name="O (사진 필수)", value=1),
+    app_commands.Choice(name="X (내용만 인증)", value=0)
+]
+
+async def register_plan(interaction: discord.Interaction, category: str, plan: dict) -> bool:
+    """중복 이름을 검사하고 계획을 저장함. 중복이면 안내 메시지를 보내고 False를 돌려줌."""
+    user_id = str(interaction.user.id)
+
+    existing_category, _ = find_plan(user_id, plan['content'])
+    if existing_category:
+        await interaction.response.send_message(f"✋ **'{plan['content']}'** 계획은 이미 [{CATEGORY_KR[existing_category]}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
+        return False
+
+    plan.setdefault("history", [])
+    plan.setdefault("created_at", get_now().strftime('%Y-%m-%d'))
+    user_plans.setdefault(user_id, {}).setdefault(category, []).append(plan)
+    await save_data(user_plans)
+    return True
+
 #일일계획
 @plan_group.command(name="일일", description="매일 반복할 계획을 세웁니다.")
 @app_commands.describe(내용="내용", 사진인증="사진 인증 여부 선택")
-@app_commands.choices(사진인증=[
-    app_commands.Choice(name="O (사진 필수)", value=1),
-    app_commands.Choice(name="X (내용만 인증)", value=0)
-])
+@app_commands.choices(사진인증=PHOTO_CHOICES)
+async def plan_daily(interaction: discord.Interaction, 내용: PlanText, 사진인증: app_commands.Choice[int]):
+    photo = bool(사진인증.value)
+    if await register_plan(interaction, "Daily", {"type": "매일", "content": 내용, "photo": photo}):
+        await interaction.response.send_message(f"📅 **[일일] 계획 등록 완료!** ({photo_icon(photo)})\n- **내용:** {내용}")
 
-async def plan_daily(interaction: discord.Interaction, 내용:PlanText, 사진인증:app_commands.Choice[int]):
-    user_id = str(interaction.user.id)
-    if user_id not in user_plans: user_plans[user_id] = {}
-
-    if "Daily" not in  user_plans[user_id]:
-        user_plans[user_id]["Daily"] = []
-    
-    for cat, plans in user_plans[user_id].items():
-        if cat in ["alert_time", "fines", "exemptions", "rest_history"]: 
-            continue
-            
-        if isinstance(plans, list): 
-            for plan in plans:
-                # 데이터가 딕셔너리(계획 형태)인지 한 번 더 안전하게 확인
-                if isinstance(plan, dict) and plan.get('content') == 내용:
-                    await interaction.response.send_message(f"✋ **'{내용}'** 계획은 이미 [{cat}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
-                    return
-
-    photoRequire = bool(사진인증.value)
-
-    user_plans[user_id]["Daily"].append({
-        "type": "매일",
-        "content": 내용,
-        "photo": photoRequire,
-        "history": [],
-        "created_at": get_now().strftime('%Y-%m-%d')
-    })
-    await save_data(user_plans)
-
-    icon = "📸" if photoRequire else "📝"
-    await interaction.response.send_message(f"📅 **[일일] 계획 등록 완료!**\n- **내용:** {내용}")
 #주간계획
 @plan_group.command(name="주간", description="주간 계획을 세웁니다.")
-@app_commands.describe(횟수="주N회", 내용="내용", 사진인증="사진 인증 여부 선택")
-@app_commands.choices(사진인증=[
-    app_commands.Choice(name="O (사진 필수)", value=1),
-    app_commands.Choice(name="X (내용만 인증)", value=0)
-])
+@app_commands.describe(횟수="주N회 (1~7)", 내용="내용", 사진인증="사진 인증 여부 선택")
+@app_commands.choices(사진인증=PHOTO_CHOICES)
+async def plan_weekly(interaction: discord.Interaction, 횟수: app_commands.Range[int, 1, 7], 내용: PlanText, 사진인증: app_commands.Choice[int]):
+    photo = bool(사진인증.value)
+    if await register_plan(interaction, "Weekly", {"type": "주간", "count": 횟수, "content": 내용, "photo": photo}):
+        await interaction.response.send_message(f"📅 **[주간] 계획 등록 완료!** ({photo_icon(photo)})\n- **목표:** 주 {횟수}회\n- **내용:** {내용}")
 
-async def plan_weekly(interaction: discord.Interaction, 횟수:int, 내용:PlanText, 사진인증:app_commands.Choice[int]):
-    user_id = str(interaction.user.id)
-    if user_id not in user_plans: user_plans[user_id] = {}
-
-    if "Weekly" not in  user_plans[user_id]:
-        user_plans[user_id]["Weekly"] = []
-
-    for cat, plans in user_plans[user_id].items():
-        if cat in ["alert_time", "fines", "exemptions", "rest_history"]: 
-            continue
-            
-        if isinstance(plans, list): 
-            for plan in plans:
-                # 데이터가 딕셔너리(계획 형태)인지 한 번 더 안전하게 확인
-                if isinstance(plan, dict) and plan.get('content') == 내용:
-                    await interaction.response.send_message(f"✋ **'{내용}'** 계획은 이미 [{cat}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
-                    return
-
-    photoRequire = bool(사진인증.value)
-
-    user_plans[user_id]["Weekly"].append({
-        "type": "주간",
-        "count": 횟수,
-        "content": 내용,
-        "photo": photoRequire,
-        "history": [],
-        "created_at": get_now().strftime('%Y-%m-%d')
-    })
-    await save_data(user_plans)
-
-    icon = "📸" if photoRequire else "📝"
-    await interaction.response.send_message(f"📅 **[주간] 계획 등록 완료!**\n- **목표:** 주 {횟수}회\n- **내용:** {내용}")
 #월간계획
 @plan_group.command(name="월간", description="월간 계획을 세웁니다.")
-@app_commands.describe(횟수="월N회", 내용="내용", 사진인증="사진 인증 여부 선택")
-@app_commands.choices(사진인증=[
-    app_commands.Choice(name="O (사진 필수)", value=1),
-    app_commands.Choice(name="X (내용만 인증)", value=0)
-])
-
-async def plan_monthly(interaction: discord.Interaction, 횟수:int, 내용:PlanText, 사진인증:app_commands.Choice[int]):
-    user_id = str(interaction.user.id)
-    if user_id not in user_plans: user_plans[user_id] = {}
-
-    if "Monthly" not in  user_plans[user_id]:
-        user_plans[user_id]["Monthly"] = []
-
-    for cat, plans in user_plans[user_id].items():
-        if cat in ["alert_time", "fines", "exemptions", "rest_history"]: 
-            continue
-            
-        if isinstance(plans, list): 
-            for plan in plans:
-                # 데이터가 딕셔너리(계획 형태)인지 한 번 더 안전하게 확인
-                if isinstance(plan, dict) and plan.get('content') == 내용:
-                    await interaction.response.send_message(f"✋ **'{내용}'** 계획은 이미 [{cat}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
-                    return
-
-    photoRequire = bool(사진인증.value)
-
-    user_plans[user_id]["Monthly"].append({
-        "type": "월간",
-        "count": 횟수,
-        "content": 내용,
-        "photo": photoRequire,
-        "history": [],
-        "created_at": get_now().strftime('%Y-%m-%d')
-    })
-    await save_data(user_plans)
-
-    icon = "📸" if photoRequire else "📝"       
-    await interaction.response.send_message(f"📅 **[월간] 계획 등록 완료!**\n- **목표:** 월 {횟수}회\n- **내용:** {내용}")
+@app_commands.describe(횟수="월N회 (1~31)", 내용="내용", 사진인증="사진 인증 여부 선택")
+@app_commands.choices(사진인증=PHOTO_CHOICES)
+async def plan_monthly(interaction: discord.Interaction, 횟수: app_commands.Range[int, 1, 31], 내용: PlanText, 사진인증: app_commands.Choice[int]):
+    photo = bool(사진인증.value)
+    if await register_plan(interaction, "Monthly", {"type": "월간", "count": 횟수, "content": 내용, "photo": photo}):
+        await interaction.response.send_message(f"📅 **[월간] 계획 등록 완료!** ({photo_icon(photo)})\n- **목표:** 월 {횟수}회\n- **내용:** {내용}")
 
 #n일계획
 @plan_group.command(name="n일", description="N일마다 반복하는 계획을 세웁니다")
-@app_commands.describe(간격="며칠마다 할까요? (숫자)", 내용="내용", 사진인증="인증 방식")
-@app_commands.choices(사진인증=[
-    app_commands.Choice(name="O (사진 필수)", value=1),
-    app_commands.Choice(name="X (내용만 인증)", value=0)
-])
-async def plan_interval(interaction: discord.Interaction, 간격: int, 내용: PlanText, 사진인증: app_commands.Choice[int]):
-    user_id = str(interaction.user.id)
-    if user_id not in user_plans: user_plans[user_id] = {}
-
-    if "Interval" not in user_plans[user_id]:
-        user_plans[user_id]["Interval"] = []
-
-    for cat, plans in user_plans[user_id].items():
-        if cat in ["alert_time", "fines", "exemptions", "rest_history"]: 
-            continue
-            
-        if isinstance(plans, list): 
-            for plan in plans:
-                # 데이터가 딕셔너리(계획 형태)인지 한 번 더 안전하게 확인
-                if isinstance(plan, dict) and plan.get('content') == 내용:
-                    await interaction.response.send_message(f"✋ **'{내용}'** 계획은 이미 [{cat}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
-                    return
-
-    photoRequire = bool(사진인증.value)
-
-    user_plans[user_id]["Interval"].append({
-        "type": "N일",
-        "interval": 간격,
-        "content": 내용,
-        "photo": photoRequire,
-        "history": [],
-        "created_at": get_now().strftime('%Y-%m-%d')
-    })
-    await save_data(user_plans)
-
-    icon = "📸" if photoRequire else "📝"
-    await interaction.response.send_message(f"📅 **[{간격}일마다] 계획 등록!** ({icon})\n- **내용:** {내용}")
+@app_commands.describe(간격="며칠마다 할까요? (1~365)", 내용="내용", 사진인증="인증 방식")
+@app_commands.choices(사진인증=PHOTO_CHOICES)
+async def plan_interval(interaction: discord.Interaction, 간격: app_commands.Range[int, 1, 365], 내용: PlanText, 사진인증: app_commands.Choice[int]):
+    photo = bool(사진인증.value)
+    if await register_plan(interaction, "Interval", {"type": "N일", "interval": 간격, "content": 내용, "photo": photo}):
+        await interaction.response.send_message(f"📅 **[{간격}일마다] 계획 등록!** ({photo_icon(photo)})\n- **내용:** {내용}")
 
 #일회성 목표
 @plan_group.command(name="목표", description="특정 날짜까지 완수해야 하는 1회성 목표를 세웁니다.")
 @app_commands.describe(마감일="YYYY-MM-DD 형식 (예: 2026-01-20)", 내용="목표 내용", 사진인증="인증 방식")
-@app_commands.choices(사진인증=[
-    app_commands.Choice(name="O (사진 필수)", value=1),
-    app_commands.Choice(name="X (내용만 인증)", value=0)
-])
+@app_commands.choices(사진인증=PHOTO_CHOICES)
 async def plan_deadline(interaction: discord.Interaction, 마감일: str, 내용: PlanText, 사진인증: app_commands.Choice[int]):
-    user_id = str(interaction.user.id)
-
     try:
         datetime.strptime(마감일, "%Y-%m-%d")
     except ValueError:
         await interaction.response.send_message("❌ 날짜 형식이 틀렸어요! **2026-01-20** 처럼 적어주세요.", ephemeral=True)
         return
 
-    if user_id not in user_plans: user_plans[user_id] = {}
-    if "OneTime" not in user_plans[user_id]: user_plans[user_id]["OneTime"] = []
+    photo = bool(사진인증.value)
+    plan = {"type": "목표", "deadline": 마감일, "content": 내용, "photo": photo, "completed": False}
+    if await register_plan(interaction, "OneTime", plan):
+        await interaction.response.send_message(f"🎯 **[목표] 등록 완료!** ({photo_icon(photo)})\n- **마감:** {마감일}까지\n- **내용:** {내용}")
 
-    for cat, plans in user_plans[user_id].items():
-        if cat in ["alert_time", "fines", "exemptions", "rest_history"]: 
-            continue
-            
-        if isinstance(plans, list): 
-            for plan in plans:
-                # 데이터가 딕셔너리(계획 형태)인지 한 번 더 안전하게 확인
-                if isinstance(plan, dict) and plan.get('content') == 내용:
-                    await interaction.response.send_message(f"✋ **'{내용}'** 계획은 이미 [{cat}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
-                    return
-
-    photoRequire = bool(사진인증.value)
-
-    user_plans[user_id]["OneTime"].append({
-        "type": "목표",
-        "deadline": 마감일,
-        "content": 내용,
-        "photo": photoRequire,
-        "completed": False, # 완료 여부 체크
-        "history": [],
-        "created_at": get_now().strftime('%Y-%m-%d')
-    })
-    await save_data(user_plans)
-
-    icon = "📸" if photoRequire else "📝"
-    await interaction.response.send_message(f"🎯 **[목표] 등록 완료!**\n- **마감:** {마감일}까지\n- **내용:** {내용} {icon}")
-
-# --- 요일 계획 등록 명령어 ---
+#요일 계획
 @plan_group.command(name="요일", description="특정 요일에만 반복할 계획을 세웁니다.")
 @app_commands.describe(내용="내용", 요일="예: 월수금, 토일 (원하는 요일을 붙여서 적으세요)", 사진인증="사진 인증 여부 선택")
-@app_commands.choices(사진인증=[
-    app_commands.Choice(name="O (사진 필수)", value=1),
-    app_commands.Choice(name="X (내용만 인증)", value=0)
-])
-async def plan_routine(interaction: discord.Interaction, 내용:PlanText, 요일:str, 사진인증:app_commands.Choice[int]):
-    user_id = str(interaction.user.id)
-    if user_id not in user_plans: user_plans[user_id] = {}
-    if "Routine" not in user_plans[user_id]: user_plans[user_id]["Routine"] = []
-
-    # 1. 중복 계획 검사
-    for cat, plans in user_plans[user_id].items():
-        if cat in ["alert_time", "fines", "exemptions", "rest_history"]: 
-            continue
-            
-        if isinstance(plans, list): 
-            for plan in plans:
-                # 데이터가 딕셔너리(계획 형태)인지 한 번 더 안전하게 확인
-                if isinstance(plan, dict) and plan.get('content') == 내용:
-                    await interaction.response.send_message(f"✋ **'{내용}'** 계획은 이미 [{cat}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
-                    return
-
-    # 2. [핵심] 입력한 글자에서 요일만 쏙쏙 뽑아내기!
-    selected_days = []
-    for day in WEEKDAY_NAMES: # ["월", "화", "수", "목", "금", "토", "일"]
-        if day in 요일:
-            selected_days.append(day)
-            
-    # 요일을 하나도 못 찾았을 경우 튕겨내기
+@app_commands.choices(사진인증=PHOTO_CHOICES)
+async def plan_routine(interaction: discord.Interaction, 내용: PlanText, 요일: str, 사진인증: app_commands.Choice[int]):
+    # 입력한 글자에서 요일만 뽑아내기 (예: "월수금" → ["월", "수", "금"])
+    selected_days = [day for day in WEEKDAY_NAMES if day in 요일]
     if not selected_days:
         await interaction.response.send_message("❌ 요일을 제대로 인식하지 못했어요! **'월수금'**, **'토일'** 처럼 요일 글자를 포함해서 적어주세요.", ephemeral=True)
         return
 
-    photoRequire = bool(사진인증.value)
-
-    today_str = get_now().strftime('%Y-%m-%d')
-
-    # 3. 데이터 저장
-    user_plans[user_id]["Routine"].append({
-        "type": "요일",
-        "content": 내용,
-        "photo": photoRequire,
-        "days": selected_days, 
-        "history": [],
-        "created_at": today_str
-    })
-    await save_data(user_plans)
-
-    days_str = ", ".join(selected_days)
-    await interaction.response.send_message(f"✅ **[요일] 계획 등록 완료!**\n- **내용:** {내용}\n- **수행 요일:** {days_str}요일")
+    photo = bool(사진인증.value)
+    plan = {"type": "요일", "content": 내용, "photo": photo, "days": selected_days}
+    if await register_plan(interaction, "Routine", plan):
+        await interaction.response.send_message(f"✅ **[요일] 계획 등록 완료!** ({photo_icon(photo)})\n- **내용:** {내용}\n- **수행 요일:** {', '.join(selected_days)}요일")
 
 #계획 전체 삭제(초기화)
 @plan_group.command(name="초기화", description="등록된 계획을 삭제합니다.")
@@ -664,10 +568,9 @@ async def plan_reset(interaction: discord.Interaction, 유형: app_commands.Choi
     
     if target == "All":
         # 계획 카테고리만 골라서 지웁니다.
-        categories_to_delete = ["Daily", "Routine", "Weekly", "Monthly", "Interval", "OneTime"]
         deleted_count = 0
         
-        for cat in categories_to_delete:
+        for cat in PLAN_CATEGORIES:
             if cat in user_plans[user_id]:
                 del user_plans[user_id][cat]
                 deleted_count += 1
@@ -685,148 +588,78 @@ async def plan_reset(interaction: discord.Interaction, 유형: app_commands.Choi
     else:
         await interaction.response.send_message(f"❓ **{유형.name}**은 등록된 게 없네요.", ephemeral=True)
 
-#자동완성
+#자동완성 (인증할 수 있는 계획만 보여줌)
 async def plan_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     user_id = str(interaction.user.id)
+    if user_id not in user_plans:
+        return []
+
+    base_date = get_base_date()
+    cmd_name = interaction.command.name if interaction.command else "인증"
+    target_date = base_date - timedelta(days=1) if cmd_name == "어제인증" else base_date
+    target_date_str = target_date.strftime('%Y-%m-%d')
+
     choices = []
+    for category, plan in iter_plans(user_plans[user_id]):
+        history = plan.get('history', [])
+        if target_date_str in history: continue  # 그날 이미 인증함
 
-    if user_id in user_plans:
+        if category == "Daily":
+            tag = "일일"
 
-        now = get_now()
-        current_hour = now.hour
-        
-        if 0 <= current_hour < 6:
-            base_date = now - timedelta(days=1)
-        else:
-            base_date = now
-        
-        cmd_name = interaction.command.name if interaction.command else "인증"
-        
-        if cmd_name == "어제인증":
-            target_date = base_date - timedelta(days=1)
-        else:
-            target_date = base_date
-        
-        target_date_str = target_date.strftime('%Y-%m-%d')
-        
-        # 주간/월간 계산용
-        start_of_week = target_date - timedelta(days=target_date.weekday())
-        start_of_week_str = start_of_week.strftime('%Y-%m-%d')
-        next_week_start_str = (start_of_week + timedelta(days=7)).strftime('%Y-%m-%d')
-        this_month_str = target_date.strftime('%Y-%m')
+        elif category == "Routine":
+            tag = "요일"
+            plan_days = plan.get('days', [])
+            # 지정된 요일이 있고, 오늘(어제)이 그 요일이 아니면 목록에서 제외
+            if plan_days and WEEKDAY_NAMES[target_date.weekday()] not in plan_days:
+                continue
 
-        for category, plans in user_plans[user_id].items():
-            if category in ["alert_time", "fines", "exemptions", "rest_history"]: continue
-            if not isinstance(plans, list): continue
+        elif category == "Weekly":
+            final_target = get_weekly_target(user_id, plan, target_date)
+            if count_in_week(history, target_date) >= final_target: continue
+            tag = f"주{final_target}회"
 
-            for plan in plans:
-                if isinstance(plan, str): continue
+        elif category == "Monthly":
+            if count_in_month(history, target_date) >= get_monthly_target(user_id, plan, target_date): continue
+            tag = "월간"
 
-                is_completed = False
+        elif category == "Interval":
+            interval = plan.get('interval', 1)
+            if history:
+                diff = (datetime.strptime(target_date_str, "%Y-%m-%d") - datetime.strptime(history[-1], "%Y-%m-%d")).days
+                if diff < interval:
+                    tag = f"{interval}일장/D-{interval-diff}"
+                elif diff == interval:
+                    tag = f"{interval}일장/오늘마감"
+                else:
+                    tag = f"{interval}일장/D+{diff-interval}"
+            else:
+                tag = f"{interval}일장/시작전"
 
-                history = plan.get('history', [])
-                if target_date_str in history: continue
-                
-                tag = category
+        else:  # OneTime
+            if plan.get('completed', False): continue  # 이미 완료된 건 추천에 안 띄우기
+            tag = f"~{plan.get('deadline', '날짜미정')}"
 
-                if category == "Daily":
-                    tag = "일일"
-                    if target_date_str in history:
-                        is_completed = True
-
-                elif category == "Routine":
-                    tag = "요일"
-                    target_weekday = WEEKDAY_NAMES[target_date.weekday()]
-                    plan_days = plan.get('days', [])
-                    
-                    # 지정된 요일이 있고, 오늘(어제)이 그 요일이 아니면 목록에서 제외
-                    if plan_days and target_weekday not in plan_days:
-                        continue
-                        
-                    if target_date_str in history:
-                        is_completed = True
-
-                elif category == "Weekly":
-                    final_target = get_weekly_target(user_id, plan, target_date)
-                    tag = f"주{final_target}회"
-                    
-                    current_count = 0
-                    for h in history:
-                        if start_of_week_str <= h < next_week_start_str:
-                            current_count += 1
-
-                    if current_count >= final_target: continue
-
-                elif category == "Monthly":
-                    tag = "월간"
-                    current_count = sum(1 for d in history if d.startswith(this_month_str))
-                    target_count = plan.get('count', 1)
-                    if current_count >= target_count: is_completed = True
-
-                elif category == "Interval":
-                    interval = plan.get('interval', 1)
-                    last_date = history[-1] if history else ""
-
-                    curr_dt = datetime.strptime(target_date_str, "%Y-%m-%d")
-                    
-                    if last_date:
-                        last_dt = datetime.strptime(last_date, "%Y-%m-%d")
-                        diff = (curr_dt - last_dt).days
-
-                        # 아직 기간이 안 찼으면 (D-1) 형태로 표시
-                        if diff < interval:
-                            tag = f"{interval}일장/D-{interval-diff}"
-                        # 👇 [추가된 부분] 오늘이 딱 마감일일 때
-                        elif diff == interval:
-                            tag = f"{interval}일장/오늘마감"
-                        else:
-                            # 기간이 지났으면 (D+1) 형태로 표시 (급함!)
-                            tag = f"{interval}일장/D+{diff-interval}"
-                    else:
-                        tag = f"{interval}일장/시작전"
-
-                elif category == "OneTime": 
-                    # 이미 완료된 건 추천에 안 띄우기
-                    if plan.get('completed', False): 
-                        is_completed = True
-                    else:
-                        tag = f"~{plan.get('deadline', '날짜미정')}"
-
-                if is_completed: continue
-                
-                name = f"[{tag}] {plan['content']}"
-                if current.lower() in name.lower() and len(plan['content']) <= 100:
-                        choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
+        photo_mark = "📸 " if plan.get('photo') else ""
+        name = f"[{tag}] {photo_mark}{plan['content']}"
+        if current.lower() in name.lower() and len(plan['content']) <= 100:
+            choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
 
     return choices[:25]
 
-#자동완성(삭제)
+#자동완성(삭제) - 모든 계획을 보여줌
 async def plan_autocomplete_delete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     user_id = str(interaction.user.id)
     choices = []
 
-    if user_id in user_plans:
-        for category, plans in user_plans[user_id].items():
+    for category, plan in iter_plans(user_plans.get(user_id, {})):
+        if category == "Weekly": tag = f"주{plan.get('count', 1)}회"
+        elif category == "Interval": tag = f"{plan.get('interval', 1)}일장"
+        else: tag = CATEGORY_KR[category]
 
-            if category in ["alert_time", "fines", "exemptions", "rest_history"]: continue
-            if not isinstance(plans, list): continue
-
-            for plan in plans:
-                if isinstance(plan, str): continue # 안전장치
-
-                tag = category
-                if category == "Daily": tag = "일일"
-                elif category == "Routine": tag = "요일"
-                elif category == "Weekly": tag = f"주{plan.get('count', 1)}회"
-                elif category == "Monthly": tag = "월간"
-                elif category == "Interval": tag = f"{plan.get('interval', 1)}일장"
-                elif category == "OneTime": tag = "목표"
-
-                name = f"[{tag}] {plan['content']}"
-                
-                # 검색 필터
-                if current.lower() in name.lower() and len(plan['content']) <= 100:
-                    choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
+        name = f"[{tag}] {plan['content']}"
+        if current.lower() in name.lower() and len(plan['content']) <= 100:
+            choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
 
     return choices[:25]
 
@@ -834,90 +667,64 @@ async def plan_autocomplete_delete(interaction: discord.Interaction, current: st
 @plan_group.command(name="삭제", description="등록된 계획 중 하나를 선택해 삭제합니다.")
 @app_commands.describe(계획="삭제할 계획을 선택하세요?")
 @app_commands.autocomplete(계획=plan_autocomplete_delete)
-
 async def plan_delete(interaction: discord.Interaction, 계획: str):
     user_id = str(interaction.user.id)
-    
-    if user_id not in user_plans:
-        await interaction.response.send_message("❌ 등록된 계획이 하나도 없어요!", ephemeral=True)
+    category, plan = find_plan(user_id, 계획)
+
+    if not plan:
+        await interaction.response.send_message(f"❓ **'{계획}'**라는 계획을 못 찾겠어요. 이미 삭제됐나 봐요!", ephemeral=True)
         return
 
-    deleted_plan_info = ""
-    cats_to_check = []
+    plans = user_plans[user_id][category]
+    plans.remove(plan)
+    if not plans:
+        del user_plans[user_id][category]
 
-    for category, plans in user_plans[user_id].items():
-        if category in ["alert_time", "fines", "exemptions", "rest_history"]: continue
-        if not isinstance(plans, list): continue
-
-        for index, plan in enumerate(plans):
-            if isinstance(plan, dict) and plan.get('content') == 계획:
-                plans.pop(index)
-                cats_to_check.append(category) # 나중에 비었는지 확인
-                
-                cat_name = "기타"
-                if category == "Daily": cat_name = "일일"
-                elif category == "Routine": cat_name = "요일"
-                elif category == "Weekly": cat_name = "주간"
-                elif category == "Monthly": cat_name = "월간"
-                elif category == "Interval": cat_name = "반복"
-                elif category == "OneTime": cat_name = "목표"
-                
-                deleted_plan_info = f"[{cat_name}] {계획}"
-                break 
-        
-        if deleted_plan_info: break
-
-    for cat in cats_to_check:
-        if not user_plans[user_id][cat]:
-            del user_plans[user_id][cat]
-
-    if deleted_plan_info:
-        await save_data(user_plans) # 저장 필수
-        await interaction.response.send_message(f"🗑️ **{deleted_plan_info}** 계획을 시원하게 삭제했습니다! 👋")
-    else:
-        await interaction.response.send_message(f"❓ **'{계획}'**라는 계획을 못 찾겠어요. 이미 삭제됐나 봐요!", ephemeral=True)
+    await save_data(user_plans)
+    await interaction.response.send_message(f"🗑️ **[{CATEGORY_KR[category]}] {계획}** 계획을 시원하게 삭제했습니다! 👋")
 
 bot.tree.add_command(plan_group)
 
 # --- 면책 ---
 class ImmunityView(ui.View):
-    def __init__(self, message_id: int, target_id: int, target_dates: list, agreed_users: list, denied_users: list, total_members: int, required_votes: int):
+    """
+    면책 투표 버튼.
+    total_members: 요청자를 포함한 투표 대상 인원 (요청자 제외 투표 가능 인원 = total_members - 1)
+    eligible_voters: 투표할 수 있는 유저 ID 목록. None이면 누구나 가능 (예전에 만든 투표 호환용)
+    """
+    def __init__(self, message_id: int, target_id: int, target_dates: list, agreed_users: list, denied_users: list,
+                 total_members: int, required_votes: int, eligible_voters: list = None):
         super().__init__(timeout=None)
         self.message_id = str(message_id)
         self.target_id = target_id
+        self.target_dates = [target_dates] if isinstance(target_dates, str) else target_dates
 
-        if isinstance(target_dates, str):
-            self.target_dates = [target_dates]
-        else:
-            self.target_dates = target_dates
-        
         self.agreed_users = set(agreed_users) # 찬성 명단
-        self.denied_users = set(denied_users) # 반대 명단 (추가됨)
-        self.total_members = total_members    # 전체 인원 (계산용)
+        self.denied_users = set(denied_users) # 반대 명단
+        self.total_members = total_members
         self.required_votes = required_votes
+        self.eligible_voters = set(eligible_voters) if eligible_voters is not None else None
 
         self.update_button_label()
-    
+
+    def max_possible_yes(self):
+        # 남은 사람이 전부 찬성해도 받을 수 있는 최대 찬성 수
+        return self.total_members - 1 - len(self.denied_users)
+
     def update_button_label(self):
-        # 첫 번째 버튼(찬성) 찾기
         agree_btn = [x for x in self.children if x.custom_id == "vote_agree"][0]
         deny_btn = [x for x in self.children if x.custom_id == "vote_deny"][0]
 
-        agree_count = len(self.agreed_users)
-        deny_count = len(self.denied_users)
+        agree_btn.label = f"인정합니다 ({len(self.agreed_users)}/{self.required_votes})"
+        deny_btn.label = f"반대합니다 ({len(self.denied_users)})"
 
-        agree_btn.label = f"인정합니다 ({agree_count}/{self.required_votes})"
-        deny_btn.label = f"반대합니다 ({deny_count})"
-        
-        max_possible_yes = self.total_members - 1 - deny_count
-
-        if agree_count >= self.required_votes:
+        if len(self.agreed_users) >= self.required_votes:
             agree_btn.label = "면책 통과됨 🎉"
             agree_btn.style = discord.ButtonStyle.primary
             agree_btn.disabled = True
             deny_btn.disabled = True
 
-        elif max_possible_yes < self.required_votes:
+        elif self.max_possible_yes() < self.required_votes:
             deny_btn.label = "면책 거절됨 ❌"
             deny_btn.style = discord.ButtonStyle.danger
             deny_btn.disabled = True
@@ -929,22 +736,29 @@ class ImmunityView(ui.View):
             active_votes[self.message_id]['denied_users'] = list(self.denied_users)
             await save_vote_data(active_votes)
 
+    async def finish_vote(self):
+        if self.message_id in active_votes:
+            del active_votes[self.message_id]
+            await save_vote_data(active_votes)
+
+    def vote_error(self, user_id, is_agree):
+        """투표할 수 없으면 안내 문구, 가능하면 None"""
+        if user_id == self.target_id:
+            return "❌ 본인 사유에는 투표할 수 없어요!" if is_agree else "❌ 본인 사유에 반대할 수 없어요! (하고 싶으신가요..?)"
+        if self.eligible_voters is not None and user_id not in self.eligible_voters:
+            return "❌ 계획을 등록한 참가자만 투표할 수 있어요!"
+        if user_id in self.agreed_users:
+            return "이미 찬성하셨습니다." if is_agree else "이미 '찬성'표를 던지셨네요! 취소할 수 없습니다."
+        if user_id in self.denied_users:
+            return "이미 '반대'표를 던지셨네요! 취소할 수 없습니다." if is_agree else "이미 '반대'하셨습니다."
+        return None
+
     @ui.button(label="인정합니다 (0/2)", style=discord.ButtonStyle.success, emoji="👌", custom_id="vote_agree")
     async def agree_button(self, interaction: discord.Interaction, button: ui.Button):
         user_id = interaction.user.id
-        
-        # 본인 투표 금지
-        if user_id == self.target_id:
-            await interaction.response.send_message("❌ 본인 사유에는 투표할 수 없어요!", ephemeral=True)
-            return
-        
-        # 이미 투표했는지 확인
-        if user_id in self.agreed_users:
-            await interaction.response.send_message("이미 찬성하셨습니다.", ephemeral=True)
-            return
-        
-        if user_id in self.denied_users:
-            await interaction.response.send_message("이미 '반대'표를 던지셨네요! 취소할 수 없습니다.", ephemeral=True)
+        error = self.vote_error(user_id, is_agree=True)
+        if error:
+            await interaction.response.send_message(error, ephemeral=True)
             return
 
         self.agreed_users.add(user_id)
@@ -952,56 +766,38 @@ class ImmunityView(ui.View):
         self.update_button_label()
 
         await interaction.channel.send(f"🙆‍♂️ <@{user_id}>님이 **찬성**했습니다!")
-        
-        if len(self.agreed_users) >= self.required_votes:
-            user_id_str = str(self.target_id)
-            if user_id_str not in user_plans: user_plans[user_id_str] = {}
-            if 'exemptions' not in user_plans[user_id_str]: user_plans[user_id_str]['exemptions'] = []
-            
-            added_count = 0
-            for d_str in self.target_dates:
-                if d_str not in user_plans[user_id_str]['exemptions']:
-                    user_plans[user_id_str]['exemptions'].append(d_str)
-                    added_count += 1
-            
-            if added_count > 0: await save_data(user_plans)
 
-            if self.message_id in active_votes:
-                del active_votes[self.message_id]
-                await save_vote_data(active_votes)
-
-            embed = interaction.message.embeds[0]
-            embed.color = discord.Color.blue()
-
-            embed.set_footer(text="")
-            #embed.clear_fields()
-            
-            if len(self.target_dates) > 1:
-                period_str = f"{self.target_dates[0]} ~ {self.target_dates[-1]} ({len(self.target_dates)}일간)"
-            else:
-                period_str = self.target_dates[0]
-
-            embed.add_field(name="최종 결과", value=f"✅ **{len(self.agreed_users)}표** 찬성으로 면책되었습니다!", inline=False)
-            
-            await interaction.response.edit_message(embed=embed, view=self)
-            await interaction.followup.send(f"🛡️ <@{self.target_id}>님의 **{period_str}** 벌금이 면제되었습니다!")
-        else:
+        if len(self.agreed_users) < self.required_votes:
             await interaction.response.edit_message(view=self)
+            return
+
+        # 통과: 면책 날짜 등록
+        exemptions = user_plans.setdefault(str(self.target_id), {}).setdefault('exemptions', [])
+        new_dates = [d for d in self.target_dates if d not in exemptions]
+        if new_dates:
+            exemptions.extend(new_dates)
+            await save_data(user_plans)
+        await self.finish_vote()
+
+        if len(self.target_dates) > 1:
+            period_str = f"{self.target_dates[0]} ~ {self.target_dates[-1]} ({len(self.target_dates)}일간)"
+        else:
+            period_str = self.target_dates[0]
+
+        embed = interaction.message.embeds[0]
+        embed.color = discord.Color.blue()
+        embed.set_footer(text="")
+        embed.add_field(name="최종 결과", value=f"✅ **{len(self.agreed_users)}표** 찬성으로 면책되었습니다!", inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.followup.send(f"🛡️ <@{self.target_id}>님의 **{period_str}** 벌금이 면제되었습니다!")
 
     @ui.button(label="반대합니다", style=discord.ButtonStyle.secondary, emoji="🙅", custom_id="vote_deny")
     async def deny_button(self, interaction: discord.Interaction, button: ui.Button):
         user_id = interaction.user.id
-
-        if user_id == self.target_id:
-            await interaction.response.send_message("❌ 본인 사유에 반대할 수 없어요! (하고 싶으신가요..?)", ephemeral=True)
-            return
-            
-        if user_id in self.denied_users:
-            await interaction.response.send_message("이미 '반대'하셨습니다.", ephemeral=True)
-            return
-            
-        if user_id in self.agreed_users:
-            await interaction.response.send_message("이미 '찬성'표를 던지셨네요! 취소할 수 없습니다.", ephemeral=True)
+        error = self.vote_error(user_id, is_agree=False)
+        if error:
+            await interaction.response.send_message(error, ephemeral=True)
             return
 
         self.denied_users.add(user_id)
@@ -1009,83 +805,81 @@ class ImmunityView(ui.View):
         self.update_button_label()
 
         await interaction.channel.send(f"🙅 <@{user_id}>님이 **반대**했습니다!")
-        
-        max_possible_yes = self.total_members - 1 - len(self.denied_users)
-        #거절
-        if max_possible_yes < self.required_votes:
-            if self.message_id in active_votes:
-                del active_votes[self.message_id]
-                await save_vote_data(active_votes)
 
-            embed = interaction.message.embeds[0]
-            embed.color = discord.Color.red()
-            embed.set_footer(text="")
-
-            #embed.clear_fields()
-            embed.add_field(name="결과", value=f"❌ 반대가 너무 많아 **부결(거절)**되었습니다.", inline=False)
-
-            await interaction.response.edit_message(embed=embed, view=self)
-            await interaction.followup.send(f"🚫 <@{self.target_id}>님의 면책 요청이 **거절**되었습니다.")
-        else:
+        if self.max_possible_yes() >= self.required_votes:
             await interaction.response.edit_message(view=self)
-       
-# --- 면책 요청 ---
-@bot.tree.command(name="면책", description="개인 사정으로 인한 벌금 면제를 요청합니다 (2인 동의 필요).")
-@app_commands.describe(사유="면책을 요청하는 합당한 사유를 적어주세요.")
-@app_commands.guild_only()
-async def request_immunity(interaction: discord.Interaction, 사유: LongText):
-    user_id_int = interaction.user.id      # 뷰(View) 전달용 (숫자)
-    user_id_str = str(interaction.user.id) # 데이터 키(Key)용 (문자열)
-    
-    # 1. 과반수 계산 (봇 제외)
-    members = [m for m in interaction.guild.members if not m.bot]
-    total_human = len(members)
+            return
 
-    # 과반수(최소 2표)
-    required_votes = max(2, (total_human // 2) + 1)
+        # 거절: 남은 사람이 다 찬성해도 과반수가 안 됨
+        await self.finish_vote()
 
-    # 데이터 초기화 (없으면 생성)
-    if user_id_str not in user_plans: user_plans[user_id_str] = {}
-    
-    # 오늘 날짜
-    now_kst = get_now()
-    today_str = now_kst.strftime('%Y-%m-%d')
-    
-    # 임베드 생성
-    embed = discord.Embed(title="🛡️ 면책 요청합니다!", description=f"**{interaction.user.display_name}**님이 개인 사정으로 면책을 요청했습니다.", color=discord.Color.orange())
-    embed.add_field(name="📅 날짜", value=today_str, inline=True)
+        embed = interaction.message.embeds[0]
+        embed.color = discord.Color.red()
+        embed.set_footer(text="")
+        embed.add_field(name="결과", value="❌ 반대가 너무 많아 **부결(거절)**되었습니다.", inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.followup.send(f"🚫 <@{self.target_id}>님의 면책 요청이 **거절**되었습니다.")
+
+def get_eligible_voters(guild, requester_id):
+    """투표할 수 있는 사람: 서버에 있는 사람 중 계획을 하나라도 등록한 참가자 (요청자, 봇 제외)"""
+    voters = []
+    for member in guild.members:
+        if member.bot or member.id == requester_id:
+            continue
+        if any(True for _ in iter_plans(user_plans.get(str(member.id), {}))):
+            voters.append(member.id)
+    return voters
+
+async def start_immunity_vote(interaction: discord.Interaction, dates: list, title: str, color: discord.Color, date_field: tuple, 사유: str):
+    """면책 투표 메시지를 만들고 저장함 (/면책, /면책기간 공통)"""
+    requester_id = interaction.user.id
+    voters = get_eligible_voters(interaction.guild, requester_id)
+
+    if not voters:
+        await interaction.response.send_message("❌ 투표해 줄 다른 참가자가 없어요! (계획을 등록한 다른 멤버가 있어야 해요)", ephemeral=True)
+        return
+
+    # 요청자를 뺀 참가자의 과반수
+    required_votes = len(voters) // 2 + 1
+
+    embed = discord.Embed(title=title, description=f"**{interaction.user.display_name}**님이 면책을 요청했습니다.", color=color)
+    embed.add_field(name=date_field[0], value=date_field[1], inline=False)
     embed.add_field(name="📝 사유", value=사유, inline=False)
-    embed.set_footer(text=f"현재 인원 {total_human}명 중 과반수인 {required_votes}명의 동의가 필요합니다.")
-    
+    embed.set_footer(text=f"참가자 {len(voters)}명 중 과반수인 {required_votes}명의 동의가 필요합니다.")
+
     await interaction.response.send_message(content="@everyone", embed=embed)
     message = await interaction.original_response()
 
-    # 2. 뷰 생성 (계산된 required_votes 전달)
-    target_dates_list = [today_str]
-    view = ImmunityView(message.id, user_id_int, target_dates_list, [], [], total_human, required_votes)
-
+    view = ImmunityView(message.id, requester_id, dates, [], [], len(voters) + 1, required_votes, voters)
     await interaction.edit_original_response(view=view)
 
-    # 3. 파일 저장 (목표 표수도 같이 저장해야 재부팅 때 기억함!)
+    # 재부팅 때 버튼을 복구할 수 있도록 저장
     active_votes[str(message.id)] = {
-        "target_id": user_id_int,
-        "target_dates": target_dates_list,
+        "target_id": requester_id,
+        "target_dates": dates,
         "agreed_users": [],
         "denied_users": [],
-        "total_members": total_human,
-        "required_votes": required_votes
+        "total_members": len(voters) + 1,
+        "required_votes": required_votes,
+        "eligible_voters": voters,
     }
     await save_vote_data(active_votes)
 
+# --- 면책 요청 ---
+@bot.tree.command(name="면책", description="개인 사정으로 인한 오늘 벌금 면제를 요청합니다 (참가자 과반수 동의 필요).")
+@app_commands.describe(사유="면책을 요청하는 합당한 사유를 적어주세요.")
+@app_commands.guild_only()
+async def request_immunity(interaction: discord.Interaction, 사유: LongText):
+    # 새벽 0~5시에 요청하면 전날 기준 (인증/정산과 같은 기준)
+    target_str = get_base_date().strftime('%Y-%m-%d')
+    await start_immunity_vote(interaction, [target_str], "🛡️ 면책 요청합니다!", discord.Color.orange(), ("📅 날짜", target_str), 사유)
+
 #---면책기간---
-@bot.tree.command(name="면책기간", description="특정 기간 동안의 벌금 면제를 요청합니다.")
+@bot.tree.command(name="면책기간", description="특정 기간 동안의 벌금 면제를 요청합니다 (참가자 과반수 동의 필요).")
 @app_commands.describe(시작일="YYYY-MM-DD", 종료일="YYYY-MM-DD", 사유="면책 사유")
 @app_commands.guild_only()
 async def request_immunity_period(interaction: discord.Interaction, 시작일: str, 종료일: str, 사유: LongText):
-    user_id_int = interaction.user.id
-    user_id_str = str(interaction.user.id)
-
-    # 1. 날짜 형식 및 유효성 검사
     try:
         start_dt = datetime.strptime(시작일, "%Y-%m-%d")
         end_dt = datetime.strptime(종료일, "%Y-%m-%d")
@@ -1097,50 +891,14 @@ async def request_immunity_period(interaction: discord.Interaction, 시작일: s
         await interaction.response.send_message("❌ 종료일이 시작일보다 빠를 수 없습니다!", ephemeral=True)
         return
 
-    # 2. 날짜 리스트 생성 (시작일 ~ 종료일)
-    date_list = []
-    curr = start_dt
-    while curr <= end_dt:
-        date_list.append(curr.strftime("%Y-%m-%d"))
-        curr += timedelta(days=1)
-        
-    # (선택사항) 너무 긴 기간 방지 (예: 30일 이상 금지)
-    if len(date_list) > 30:
-         await interaction.response.send_message("❌ 면책 기간은 최대 30일까지만 요청할 수 있어요.", ephemeral=True)
-         return
+    days = (end_dt - start_dt).days + 1
+    if days > 30:
+        await interaction.response.send_message("❌ 면책 기간은 최대 30일까지만 요청할 수 있어요.", ephemeral=True)
+        return
 
-    # 3. 과반수 계산
-    members = [m for m in interaction.guild.members if not m.bot]
-    total_human = len(members) # 👈 전체 인원
-    required_votes = max(2, (total_human // 2) + 1)
-
-    if user_id_str not in user_plans: user_plans[user_id_str] = {}
-
-    # 4. 임베드 생성
-    period_str = f"{시작일} ~ {종료일} (**총 {len(date_list)}일**)"
-    
-    embed = discord.Embed(title="🛡️ 장기 면책 요청합니다!", description=f"**{interaction.user.display_name}**님이 **기간 면책**을 요청했습니다.", color=discord.Color.purple())
-    embed.add_field(name="📅 기간", value=period_str, inline=False)
-    embed.add_field(name="📝 사유", value=사유, inline=False)
-    embed.set_footer(text=f"과반수({required_votes}명) 동의 필요")
-
-    await interaction.response.send_message(content="@everyone", embed=embed)
-    message = await interaction.original_response()
-
-    # 5. 뷰 연결 (리스트 전달)
-    view = ImmunityView(message.id, user_id_int, date_list, [], [], total_human, required_votes)
-    await interaction.edit_original_response(view=view)
-
-    # 6. 파일 저장
-    active_votes[str(message.id)] = {
-        "target_id": user_id_int,
-        "target_dates": date_list,
-        "agreed_users": [],
-        "denied_users": [], 
-        "total_members": total_human,
-        "required_votes": required_votes
-    }
-    await save_vote_data(active_votes)
+    date_list = [(start_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
+    period_str = f"{시작일} ~ {종료일} (**총 {days}일**)"
+    await start_immunity_vote(interaction, date_list, "🛡️ 장기 면책 요청합니다!", discord.Color.purple(), ("📅 기간", period_str), 사유)
 
 #휴식 (월 1회)
 @bot.tree.command(name="휴식", description="한 달에 한 번, 오늘을 휴식일로 지정합니다. (벌금 면제)")
@@ -1150,31 +908,15 @@ async def take_rest(interaction: discord.Interaction):
     if user_id not in user_plans:
         user_plans[user_id] = {}
 
-    # 1. 날짜 계산
-    now = get_now()
-    if 0 <= now.hour < 6:
-        target_date = now - timedelta(days=1)
-        note = "(새벽🌙)"
-    else:
-        target_date = now
-        note = ""
-
+    # 1. 날짜 계산 (새벽 0~5시는 전날)
+    target_date = get_base_date()
+    note = "(새벽🌙)" if get_now().hour < 6 else ""
     target_date_str = target_date.strftime('%Y-%m-%d')
-    current_month_str = target_date.strftime('%Y-%m')
 
-    # 2. 휴식 사용 기록 확인
-    if 'rest_history' not in user_plans[user_id]:
-        user_plans[user_id]['rest_history'] = []
-    
-    # 이번 달에 쓴 적 있는지 확인
-    has_used = False
-    for date_str in user_plans[user_id]['rest_history']:
-        if date_str.startswith(current_month_str):
-            has_used = True
-            break
-    
-    if has_used:
-        await interaction.response.send_message(f"❌ **이번 달 휴식권을 이미 사용하셨어요!** (월 1회 제한)", ephemeral=True)
+    # 2. 이번 달에 쓴 적 있는지 확인
+    rest_history = user_plans[user_id].setdefault('rest_history', [])
+    if count_in_month(rest_history, target_date) > 0:
+        await interaction.response.send_message("❌ **이번 달 휴식권을 이미 사용하셨어요!** (월 1회 제한)", ephemeral=True)
         return
 
     # 3. 휴식 처리
@@ -1197,14 +939,8 @@ async def cancel_rest(interaction: discord.Interaction):
         await interaction.response.send_message("❌ 등록된 데이터가 없습니다.", ephemeral=True)
         return
 
-    # 1. 취소할 날짜 계산 (새벽 보정 로직과 똑같이 맞춰야 찾을 수 있음)
-    now = get_now()
-    if 0 <= now.hour < 6:
-        target_date = now - timedelta(days=1)
-    else:
-        target_date = now
-    
-    target_date_str = target_date.strftime('%Y-%m-%d')
+    # 1. 취소할 날짜 계산 (휴식 사용과 같은 새벽 기준)
+    target_date_str = get_base_date().strftime('%Y-%m-%d')
     
     # 2. 데이터 확인 및 삭제
     deleted = False
@@ -1259,84 +995,33 @@ async def admin_manage_rest(interaction: discord.Interaction, 동작: app_comman
         await interaction.response.send_message(f"🔧 **{유저.display_name}**님의 **{날짜}** 휴식 기록을 삭제했습니다. 🗑️")
 
 #주간 목표 수정
-# [핵심] 이번 주 유효 목표 횟수 계산기 (면책/휴식 자동 차감)
-def get_weekly_target(user_id, plan, target_date=None):
-    if target_date is None:
-        target_date = get_now()
-    
-    # 1. 이번 주 시작(월) ~ 끝(일) 날짜 구하기
-    start_of_week = target_date - timedelta(days=target_date.weekday())
-    start_of_week_str = start_of_week.strftime('%Y-%m-%d')
-    end_of_week = start_of_week + timedelta(days=6)
-    end_of_week_str = end_of_week.strftime('%Y-%m-%d')
-
-    original_target = plan.get('count', 1)
-
-    # 2. [수동] '이번주목표'로 강제 수정한 값이 있으면 최우선 적용
-    overrides = plan.get('overrides', {})
-    if start_of_week_str in overrides:
-        return overrides[start_of_week_str]
-
-    # 3. [자동] 이번 주에 포함된 휴식 & 면책 날짜 세기
-    deduction = 0
-    if user_id in user_plans:
-        data = user_plans[user_id]
-        
-        # (1) 휴식 날짜 카운트
-        rest_list = data.get('rest_history', [])
-        for r_date in rest_list:
-            if start_of_week_str <= r_date <= end_of_week_str:
-                deduction += 1
-        
-        # (2) 면책 날짜 카운트 (기간 면책 포함)
-        # * 휴식과 겹치는 날은 중복해서 빼지 않음
-        exempt_list = data.get('exemptions', [])
-        for e_date in exempt_list:
-             if start_of_week_str <= e_date <= end_of_week_str:
-                 if e_date not in rest_list:
-                     deduction += 1
-
-    # 4. 최종 목표 (원래목표 - 뺄셈), 최소 0보다는 작아질 수 없음
-    final_target = max(0, original_target - deduction)
-    return final_target
+# 자동완성: 주간 계획만 보여줌 (이번 주 목표를 이미 채운 계획도 포함)
+async def weekly_plan_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    user_id = str(interaction.user.id)
+    choices = []
+    for _, plan in iter_plans(user_plans.get(user_id, {}), categories=["Weekly"]):
+        name = f"[주{plan.get('count', 1)}회] {plan['content']}"
+        if current.lower() in name.lower() and len(plan['content']) <= 100:
+            choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
+    return choices[:25]
 
 # 이번 주 한정 목표 수정 명령어
 @bot.tree.command(name="이번주목표", description="이번 주만 적용될 주간 목표 횟수를 수정합니다.")
 @app_commands.describe(계획="수정할 주간 계획 선택", 횟수="이번 주에 적용할 목표 횟수 (0이면 면제)")
-@app_commands.autocomplete(계획=plan_autocomplete)
-async def set_weekly_override(interaction: discord.Interaction, 계획: str, 횟수: int):
+@app_commands.autocomplete(계획=weekly_plan_autocomplete)
+async def set_weekly_override(interaction: discord.Interaction, 계획: str, 횟수: app_commands.Range[int, 0, 7]):
     user_id = str(interaction.user.id)
-    
-    if user_id not in user_plans:
-        await interaction.response.send_message("❌ 등록된 계획이 없습니다.", ephemeral=True)
-        return
+    category, target_plan = find_plan(user_id, 계획)
 
-    now = get_now()
-    # 새벽 0~5시는 전날로 취급 (다른 명령어와 같은 기준)
-    base_date = now - timedelta(days=1) if now.hour < 6 else now
-    # 이번 주 월요일 날짜를 키(Key)로 사용
-    start_of_week = base_date - timedelta(days=base_date.weekday())
-    start_of_week_str = start_of_week.strftime('%Y-%m-%d')
-
-    target_plan = None
-    
-    # 계획 찾기
-    if "Weekly" in user_plans[user_id]:
-        for plan in user_plans[user_id]["Weekly"]:
-            if isinstance(plan, str): continue
-            if plan['content'] == 계획:
-                target_plan = plan
-                break
-    
-    if not target_plan:
+    if category != "Weekly":
         await interaction.response.send_message("❌ 해당 주간 계획을 찾을 수 없습니다.", ephemeral=True)
         return
 
+    # 이번 주 월요일 날짜를 키(Key)로 사용 (새벽 0~5시는 전날 기준)
+    start_of_week_str, _ = week_bounds(get_base_date())
+
     # 데이터 저장 구조: 'overrides': {'2026-02-09': 3}
-    if 'overrides' not in target_plan:
-        target_plan['overrides'] = {}
-    
-    target_plan['overrides'][start_of_week_str] = 횟수
+    target_plan.setdefault('overrides', {})[start_of_week_str] = 횟수
     await save_data(user_plans)
 
     embed = discord.Embed(title="📅 이번 주 목표 수정 완료", color=discord.Color.orange())
@@ -1348,7 +1033,7 @@ async def set_weekly_override(interaction: discord.Interaction, 계획: str, 횟
 @bot.tree.command(name="현황", description="이번 달 멤버들의 휴식 및 면책 사용 내역을 확인합니다.")
 @app_commands.guild_only()
 async def check_monthly_status(interaction: discord.Interaction):
-    now = get_now()
+    now = get_base_date()  # 새벽 0~5시는 전날 기준
     this_month_str = now.strftime('%Y-%m') # 예: 2026-01
     
     description = "이번 달 휴식 및 면책 사용 기록입니다."
@@ -1407,190 +1092,110 @@ async def check_monthly_status(interaction: discord.Interaction):
     await respond_embeds(interaction, embeds)
 
 #인증 처리
+def plan_progress_line(user_id, category, plan, target_date):
+    """인증 후 '현재 진행 상황'에 보여줄 (표시, 설명) 한 줄"""
+    target_date_str = target_date.strftime('%Y-%m-%d')
+    history = plan.get('history', [])
+    if 'last_verified' in plan and not history:
+        history = [plan['last_verified']]  # 구버전 데이터 호환
+
+    if category in ("Daily", "Routine"):
+        mark = "✅" if target_date_str in history else "⬜"
+        return mark, "[매일]" if category == "Daily" else "[요일]"
+
+    if category in ("Weekly", "Monthly"):
+        if category == "Weekly":
+            count = count_in_week(history, target_date)
+            target = get_weekly_target(user_id, plan, target_date)
+        else:
+            count = count_in_month(history, target_date)
+            target = get_monthly_target(user_id, plan, target_date)
+
+        if count >= target: mark = "✅"                  # 목표 달성
+        elif target_date_str in history: mark = "☑️"     # 오늘은 인증함
+        else: mark = "⬜"
+        return mark, f"[{count}/{target}회]"
+
+    if category == "Interval":
+        interval = plan.get('interval', 2)
+        text = f"[{interval}일장]"
+        if not history:
+            return "🚨", text
+        if history[-1] == target_date_str:
+            return "✅", text + "(완료)"
+        diff = (datetime.strptime(target_date_str, "%Y-%m-%d") - datetime.strptime(history[-1], "%Y-%m-%d")).days
+        if diff > interval: return "🚨", text + f"(D+{diff-interval})"
+        if diff == interval: return "🔥", text + "(오늘 마감!)"
+        return "💤", text + f"(D-{interval-diff})"
+
+    # OneTime
+    if plan.get('completed', False):
+        return "🏆", "[목표달성]"
+    deadline = plan.get('deadline', '9999-12-31')
+    days_left = (datetime.strptime(deadline, "%Y-%m-%d") - datetime.strptime(target_date_str, "%Y-%m-%d")).days
+    if days_left < 0: return "💀", f"[마감지남 D+{abs(days_left)}]"
+    if days_left == 0: return "🔥", "[오늘마감]"
+    return "⏳", f"[D-{days_left}]"
+
 async def process_verification(interaction: discord.Interaction, 계획:str, 내용: str, 사진: discord.Attachment, is_yesterday: bool):
     # content_type이 비어 있는(None) 첨부 파일도 있어서 안전하게 확인
     if 사진 and not (사진.content_type or "").startswith("image/"):
         await interaction.response.send_message("❌ 사진 파일만 올릴 수 있어요!", ephemeral=True)
         return
-    
-    now = get_now()
-    current_hour = now.hour
 
+    base_date = get_base_date()  # 새벽 0~5시는 전날
     if is_yesterday:
-        if 0 <= current_hour < 6:
-            target_date = now - timedelta(days=2) 
-        else:
-            target_date = now - timedelta(days=1)
+        target_date = base_date - timedelta(days=1)
         display_note = "(어제 늦은 인증😅)"
-
     else:
-        if 0 <= current_hour < 6:
-            target_date = now - timedelta(days=1)
-            display_note = "(새벽🌙)"
-        else:
-            target_date = now
-            display_note = ""
-
+        target_date = base_date
+        display_note = "(새벽🌙)" if get_now().hour < 6 else ""
     target_date_str = target_date.strftime('%Y-%m-%d')
-    
-    start_of_week = target_date - timedelta(days=target_date.weekday())
-    start_of_week_str = start_of_week.strftime('%Y-%m-%d')
-    this_month_str = target_date.strftime('%Y-%m')
-    
+
     user_id = str(interaction.user.id)
-    target_weekday = WEEKDAY_NAMES[target_date.weekday()]
+    category, plan = find_plan(user_id, 계획)
 
-    if user_id in user_plans and "Routine" in user_plans[user_id]:
-        for plan in user_plans[user_id]["Routine"]:
-            if plan['content'] == 계획:
-                if plan.get('days') and target_weekday not in plan['days']:
-                    await interaction.response.send_message(f"❌ **'{계획}'**은(는) **{target_weekday}요일**에 하는 날이 아닙니다!", ephemeral=True)
-                    return
-
-    verified_plan_name = ""
-
-    if user_id in user_plans:
-        # [수정할 코드]
-        for category, plans in user_plans[user_id].items():
-            if category in ["alert_time", "fines", "exemptions", "rest_history"]: continue
-            if not isinstance(plans, list): continue
-
-            for plan in plans:
-                if isinstance(plan, dict) and plan.get('content') == 계획:
-                    if 'history' not in plan: plan['history'] = []
-                    
-                    if target_date_str not in plan['history']:
-                        plan['history'].append(target_date_str)
-                        plan['history'].sort()
-                    
-                    plan['last_verified'] = target_date_str
-
-                    if category == "OneTime":
-                        plan['completed'] = True
-                        verified_plan_name = f"[목표달성] {plan['content']}"
-                    else:
-                        verified_plan_name = f"[{category}] {plan['content']}"
-
-        await save_data(user_plans)
-
-    if not verified_plan_name:
+    # 1. 인증 전에 확인 (조건이 안 맞으면 아무것도 저장하지 않음)
+    if not plan:
         await interaction.response.send_message("❌ 해당 계획을 찾을 수 없어요! 목록에서 선택해주세요.", ephemeral=True)
         return
-    
+
+    if category == "Routine":
+        target_weekday = WEEKDAY_NAMES[target_date.weekday()]
+        if plan.get('days') and target_weekday not in plan['days']:
+            await interaction.response.send_message(f"❌ **'{계획}'**은(는) **{target_weekday}요일**에 하는 날이 아닙니다!", ephemeral=True)
+            return
+
+    if plan.get('photo') and not 사진:
+        await interaction.response.send_message(f"📸 **'{계획}'**은(는) 사진 인증이 필요한 계획이에요! `사진` 칸에 인증샷을 첨부해주세요.", ephemeral=True)
+        return
+
+    # 2. 인증 기록
+    history = plan.setdefault('history', [])
+    if target_date_str not in history:
+        history.append(target_date_str)
+        history.sort()
+    plan['last_verified'] = target_date_str
+
+    if category == "OneTime":
+        plan['completed'] = True
+        verified_plan_name = f"[목표달성] {plan['content']}"
+    else:
+        verified_plan_name = f"[{CATEGORY_KR[category]}] {plan['content']}"
+
+    await save_data(user_plans)
+
+    # 3. 현재 진행 상황
     plan_text_list = []
-
-    if user_id in user_plans:
-        for freq, data_list in user_plans[user_id].items():
-            if freq in ["alert_time", "fines", "exemptions", "rest_history"]: continue
-            
-            for plan in data_list:
-                history = plan.get('history', [])
-                if 'last_verified' in plan and not history:
-                    history = [plan['last_verified']]
-                
-                status_mark = "⬜"
-                status_text = ""
-
-                #일일
-                if freq == "Daily":
-                    if target_date_str in history: status_mark = "✅"
-                    status_text = "[매일]"
-
-                # 요일
-                elif freq == "Routine":
-                    status_text = "[요일]"
-                    if target_date_str in history: status_mark = "✅"
-
-                elif freq == "Weekly":
-                    weekly_count = sum(1 for d in history if d >= start_of_week_str)
-                    final_target = get_weekly_target(user_id, plan, target_date)
-                    
-                    status_text = f"[{weekly_count}/{final_target}회]"
-                    
-                    # 1. 목표 달성 시 -> 초록 체크 (완료되었으니 숨김 처리)
-                    if weekly_count >= final_target:
-                        status_mark = "✅"
-
-                    # 2. 오늘 인증했으면 -> 회색 체크
-                    elif target_date_str in history:
-                        status_mark = "☑️"
-
-                elif freq == "Monthly":
-                    monthly_count = sum(1 for d in history if d.startswith(this_month_str))
-                    target_count = plan.get('count', 1)
-                    
-                    status_text = f"[{monthly_count}/{target_count}회]"
- 
-                    if monthly_count >= target_count:
-                        status_mark = "✅"
-
-                    elif target_date_str in history:
-                        status_mark = "☑️"
-                
-                elif freq == "Interval":
-                    interval = plan.get('interval', 2)
-                    status_text = f"[{interval}일장]"
-
-                    if history:
-                        last_v_date_str = history[-1]
-
-                        if target_date_str == last_v_date_str:
-                            status_mark = "✅"
-                            status_text += "(완료)"
-
-                        else:
-                            curr_dt = datetime.strptime(target_date_str, "%Y-%m-%d")
-                            last_dt = datetime.strptime(last_v_date_str, "%Y-%m-%d")
-                            diff = (curr_dt - last_dt).days
-
-                            if diff > interval: 
-                                status_mark = "🚨"
-                                status_text += f"(D+{diff-interval})"
-                            elif diff == interval:
-                                status_mark = "🔥"
-                                status_text += "(오늘 마감!)"
-                            else:
-                                status_mark = "💤"
-                                status_text += f"(D-{interval-diff})"
-                    else:
-                        status_mark = "🚨"
-
-                elif freq == "OneTime":
-                    deadline = plan.get('deadline', '9999-12-31')
-                    is_completed = plan.get('completed', False)
-                    
-                    if is_completed:
-                        status_mark = "🏆"
-                        status_text = "[목표달성]"
-                    else:
-                        # 마감일 지났는지 체크
-                        today_dt = datetime.strptime(target_date_str, "%Y-%m-%d")
-                        deadline_dt = datetime.strptime(deadline, "%Y-%m-%d")
-                        days_left = (deadline_dt - today_dt).days
-                        
-                        if days_left < 0:
-                            status_mark = "💀"
-                            status_text = f"[마감지남 D+{abs(days_left)}]"
-                        elif days_left == 0:
-                            status_mark = "🔥"
-                            status_text = "[오늘마감]"
-                        else:
-                            status_mark = "⏳"
-                            status_text = f"[D-{days_left}]"
-
-                content_display = plan['content']
-                if plan['content'] == 계획:
-                    content_display = f"**{content_display}**"
-
-                if locals().get('is_hidden', False):
-                    continue
-
-                plan_text_list.append(f"{status_mark} {status_text} {content_display}")
+    for cat, p in iter_plans(user_plans[user_id]):
+        mark, text = plan_progress_line(user_id, cat, p, target_date)
+        content_display = f"**{p['content']}**" if p['content'] == 계획 else p['content']
+        plan_text_list.append(f"{mark} {text} {content_display}")
 
     final_text = "\n".join(plan_text_list) if plan_text_list else "계획 없음"
 
     fields = [
-        ("방금 인증함", verified_plan_name if verified_plan_name else 계획, False),
+        ("방금 인증함", verified_plan_name, False),
         ("인증 기준일", f"{target_date_str} {display_note}", False),
     ]
     if 내용: fields.append(("코멘트", 내용, False))
@@ -1619,233 +1224,133 @@ async def verify_study_yesterday(interaction: discord.Interaction, 계획:str, �
     await process_verification(interaction, 계획, 내용, 사진, is_yesterday=True)
 
 #계획표
-# [수정됨] 계획표 확인 (변수명 오타 수정)
+CATEGORY_TITLES = {
+    "Daily": "🌞 매일 (Daily)",
+    "Routine": "🔄 요일 (Routine)",
+    "Weekly": "📅 주간 (Weekly)",
+    "Monthly": "🗓️ 월간 (Monthly)",
+    "Interval": "🔁 반복 (Interval)",
+    "OneTime": "🎯 목표 (One-Time)"
+}
+
+def plan_status_line(user_id, category, plan, display_date):
+    """계획표에 보여줄 한 줄"""
+    today_str = display_date.strftime('%Y-%m-%d')
+    history = plan.get('history', [])
+    content = plan['content']
+
+    if category == "Daily":
+        if today_str in history:
+            return f"✅ ~~{content}~~ (완료)"
+        return f"⬜ {content}"
+
+    if category == "Routine":
+        plan_days = plan.get('days', [])
+        day_badge = f" ({', '.join(plan_days)})" if plan_days else " (요일 미지정)"
+        if today_str in history:
+            return f"✅ ~~{content}~~{day_badge} (완료)"
+        if plan_days and WEEKDAY_NAMES[display_date.weekday()] not in plan_days:
+            return f"💤 {content}{day_badge} (쉬는 날)"
+        return f"⬜ {content}{day_badge}"
+
+    if category in ("Weekly", "Monthly"):
+        original_target = plan.get('count', 1)
+        if category == "Weekly":
+            current_count = count_in_week(history, display_date)
+            real_target = get_weekly_target(user_id, plan, display_date)
+        else:
+            current_count = count_in_month(history, display_date)
+            real_target = get_monthly_target(user_id, plan, display_date)
+
+        target_display = f"{real_target}회 (📉원래 {original_target}회)" if real_target < original_target else f"{real_target}회"
+        progress = f"({current_count}/{target_display})"
+
+        if current_count >= real_target:
+            return f"✅ ~~{content}~~ {progress}"
+        if today_str in history:
+            return f"☑️ {content} {progress}"
+        return f"⬜ {content} {progress}"
+
+    if category == "Interval":
+        interval = plan.get('interval', 2)
+        if not history:
+            return f"🚨 {content} (시작 전)"
+        if history[-1] == today_str:
+            return f"✅ ~~{content}~~ (오늘 완료)"
+        diff = (datetime.strptime(today_str, "%Y-%m-%d") - datetime.strptime(history[-1], "%Y-%m-%d")).days
+        if diff > interval: return f"🚨 {content} (마감지남 D+{diff-interval})"
+        if diff == interval: return f"🔥 {content} (오늘 마감!)"
+        return f"💤 {content} (D-{interval-diff})"
+
+    # OneTime
+    if plan.get('completed', False):
+        return f"🏆 ~~{content}~~ (달성 완료!)"
+    deadline = plan.get('deadline', '9999-12-31')
+    days_left = (datetime.strptime(deadline, "%Y-%m-%d") - datetime.strptime(today_str, "%Y-%m-%d")).days
+    if days_left < 0: return f"💀 {content} (마감 {abs(days_left)}일 지남)"
+    if days_left == 0: return f"🔥 {content} (오늘 마감!)"
+    return f"⏳ {content} (D-{days_left})"
+
 @bot.tree.command(name="계획표", description="나의 계획과 달성 현황을 확인합니다.")
 async def check_my_plans(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
-    
-    if user_id not in user_plans or not user_plans[user_id]:
-        await interaction.response.send_message("📭 등록된 계획이 없어요! `/계획등록` 명령어로 추가해보세요.", ephemeral=True)
-        return
-    
-    now_kst = get_now()
-    if 0 <= now_kst.hour < 6:
-        display_date = now_kst - timedelta(days=1)
-        note_date = "(새벽🌙)"
-    else:
-        display_date = now_kst
-        note_date = ""
+    user_data = user_plans.get(user_id, {})
 
+    display_date = get_base_date()  # 새벽 0~5시는 전날
+    note_date = "(새벽🌙)" if get_now().hour < 6 else ""
     today_str = display_date.strftime('%Y-%m-%d')
-    start_of_week = display_date - timedelta(days=display_date.weekday())
-    start_of_week_str = start_of_week.strftime('%Y-%m-%d')
-    this_month_str = display_date.strftime('%Y-%m')
 
     fields = []
-    description = None
+    for category in PLAN_CATEGORIES:
+        lines = [plan_status_line(user_id, category, plan, display_date) for _, plan in iter_plans(user_data, categories=[category])]
+        if lines:
+            fields.append((CATEGORY_TITLES[category], "\n".join(lines), False))
 
-    has_plan = False
-    
-    category_order = ["Daily", "Routine", "Weekly", "Monthly", "Interval", "OneTime"]
-    category_names = {
-        "Daily": "🌞 매일 (Daily)",
-        "Routine": "🔄 요일 (Routine)", # 추가된 부분!
-        "Weekly": "📅 주간 (Weekly)",
-        "Monthly": "🗓️ 월간 (Monthly)",
-        "Interval": "🔁 반복 (Interval)",
-        "OneTime": "🎯 목표 (One-Time)"
-    }
+    if not fields:
+        await interaction.response.send_message("📭 등록된 계획이 없어요! `/계획 일일`, `/계획 주간` 같은 명령어로 추가해보세요.", ephemeral=True)
+        return
 
-    for category in category_order:
-        if category not in user_plans[user_id]: continue
-        plans = user_plans[user_id][category]
-        if not plans: continue
-        
-        desc_list = []
-        
-        for plan in plans:
-            if isinstance(plan, str): continue
-
-            history = plan.get('history', [])
-            content = plan['content']
-            status_mark = "⬜"
-            status_text = ""
-
-            # 1. 일일
-            if category == "Daily":
-                if today_str in history:
-                    status_mark = "✅"
-                    status_text = f"~~{content}~~ (완료)"
-                else:
-                    status_text = content
-
-            # 2. 요일
-            elif category == "Routine":
-                plan_days = plan.get('days', [])
-                day_badge = f" ({', '.join(plan_days)})" if plan_days else " (요일 미지정)"
-                
-                if today_str in history:
-                    status_mark = "✅"
-                    status_text = f"~~{content}~~{day_badge} (완료)"
-                else:
-                    target_weekday = WEEKDAY_NAMES[display_date.weekday()]
-                    if plan_days and target_weekday not in plan_days:
-                        status_mark = "💤"
-                        status_text = f"{content}{day_badge} (쉬는 날)"
-                    else:
-                        status_mark = "⬜"
-                        status_text = f"{content}{day_badge}"
-
-            # 2. 주간 (오타 수정된 부분)
-            elif category == "Weekly":
-                current_count = sum(1 for d in history if d >= start_of_week_str)
-                
-                # 👇 [수정] 변수명 통일 (original_target)
-                original_target = plan.get('count', 1)
-                real_target = get_weekly_target(user_id, plan, display_date)
-                
-                if real_target < original_target:
-                    target_display = f"{real_target}회 (📉원래 {original_target}회)"
-                else:
-                    target_display = f"{real_target}회"
-
-                if current_count >= real_target:
-                    status_mark = "✅"
-                    status_text = f"~~{content}~~ ({current_count}/{target_display})"
-                elif today_str in history:
-                    status_mark = "☑️"
-                    status_text = f"{content} ({current_count}/{target_display})"
-                else:
-                    status_text = f"{content} ({current_count}/{target_display})"
-
-            # 3. 월간
-            elif category == "Monthly":
-                current_count = sum(1 for d in history if d.startswith(this_month_str))
-                target = plan.get('count', 1)
-                
-                if current_count >= target:
-                    status_mark = "✅"
-                    status_text = f"~~{content}~~ ({current_count}/{target}회)"
-                elif today_str in history:
-                    status_mark = "☑️"
-                    status_text = f"{content} ({current_count}/{target}회)"
-                else:
-                    status_text = f"{content} ({current_count}/{target}회)"
-
-            # 4. 반복
-            elif category == "Interval":
-                interval = plan.get('interval', 2)
-                last_v_str = history[-1] if history else ""
-                
-                if last_v_str == today_str:
-                    status_mark = "✅"
-                    status_text = f"~~{content}~~ (오늘 완료)"
-                elif not last_v_str:
-                    status_mark = "🚨"
-                    status_text = f"{content} (시작 전)"
-                else:
-                    curr_dt = datetime.strptime(today_str, "%Y-%m-%d")
-                    last_dt = datetime.strptime(last_v_str, "%Y-%m-%d")
-                    diff = (curr_dt - last_dt).days
-                    
-                    if diff > interval:
-                        status_mark = "🚨"
-                        status_text = f"{content} (마감지남 D+{diff-interval})"
-                    elif diff == interval:
-                        status_mark = "🔥"
-                        status_text = f"{content} (오늘 마감!)"
-                    else:
-                        status_mark = "💤"
-                        status_text = f"{content} (D-{interval-diff})"
-
-            # 5. 목표
-            elif category == "OneTime":
-                deadline = plan.get('deadline', '9999-12-31')
-                is_completed = plan.get('completed', False)
-
-                if is_completed:
-                    status_mark = "🏆"
-                    status_text = f"~~{content}~~ (달성 완료!)"
-                else:
-                    today_dt = datetime.strptime(today_str, "%Y-%m-%d")
-                    deadline_dt = datetime.strptime(deadline, "%Y-%m-%d")
-                    days_left = (deadline_dt - today_dt).days
-
-                    if days_left < 0:
-                        status_mark = "💀"
-                        status_text = f"{content} (마감 {abs(days_left)}일 지남)"
-                    elif days_left == 0:
-                        status_mark = "🔥"
-                        status_text = f"{content} (오늘 마감!)"
-                    else:
-                        status_mark = "⏳"
-                        status_text = f"{content} (D-{days_left})"
-
-            desc_list.append(f"{status_mark} {status_text}")
-        
-        if desc_list:
-            has_plan = True
-            fields.append((category_names[category], "\n".join(desc_list), False))
-
-    if not has_plan:
-        description = "등록된 계획이 없거나 내용이 비어있네요? 🤔"
-    
-    rest_cnt = len(user_plans[user_id].get('rest_history', []))
-    exempt_cnt = len(user_plans[user_id].get('exemptions', []))
+    rest_cnt = count_in_month(user_data.get('rest_history', []), display_date)
+    exempt_cnt = count_in_month(user_data.get('exemptions', []), display_date)
 
     embeds = build_embeds(
         title=f"📋 {interaction.user.display_name}님의 계획표",
         color=discord.Color.blue(),
-        description=description,
         fields=fields,
         footer=f"기준: {today_str} {note_date} | 이번 달 휴식: {rest_cnt}회 / 면책: {exempt_cnt}회",
     )
     await respond_embeds(interaction, embeds)
-    
+
 #인증초기화
 @bot.tree.command(name="인증초기화", description="[테스트용] 오늘의 모든 인증 도장을 지웁니다.")
 async def reset_verification(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
-    
-    if user_id in user_plans:
-        # 오늘 날짜 구하기
-        now = get_now()
-        current_hour = now.hour
-
-        if 0 <= current_hour < 6:
-            target_date = now - timedelta(days=1) # 새벽이면 어제 거를 지워야 함
-        else:
-            target_date = now
-            
-        target_date_str = target_date.strftime('%Y-%m-%d')
-
-        count = 0
-        for category, plans in user_plans[user_id].items():
-            if category in ["alert_time", "fines", "exemptions", "rest_history"]: continue
-            if not isinstance(plans, list): continue
-            
-            for plan in plans:
-                # 1. history에서 오늘 날짜 제거
-                if 'history' in plan and target_date_str in plan['history']:
-                    plan['history'].remove(target_date_str)
-                    count += 1
-
-                    #OneTime 계획이면 완료 상태도 취소
-                    if category == "OneTime":
-                        plan['completed'] = False
-                
-                # 2. last_verified가 오늘이면 삭제 (구버전 호환)
-                if plan.get('last_verified') == target_date_str:
-                    del plan['last_verified']
-
-        await save_data(user_plans) # 변경사항 저장
-
-        if count > 0:
-            await interaction.response.send_message(f"🧹 **{target_date_str}** 날짜의 인증 도장 **{count}개**를 지웠습니다! ✨", ephemeral=True)
-        else:
-            await interaction.response.send_message(f"❓ **{target_date_str}** 날짜에 찍힌 도장이 없어요.", ephemeral=True)
-    else:
+    if user_id not in user_plans:
         await interaction.response.send_message("❓ 등록된 계획이 없어서 초기화할 게 없네요.", ephemeral=True)
+        return
+
+    target_date_str = get_base_date().strftime('%Y-%m-%d')  # 새벽이면 어제 거를 지움
+
+    count = 0
+    for category, plan in iter_plans(user_plans[user_id]):
+        # 1. history에서 오늘 날짜 제거
+        if target_date_str in plan.get('history', []):
+            plan['history'].remove(target_date_str)
+            count += 1
+            # 목표 계획이면 완료 상태도 취소
+            if category == "OneTime":
+                plan['completed'] = False
+
+        # 2. last_verified가 오늘이면 삭제 (구버전 호환)
+        if plan.get('last_verified') == target_date_str:
+            del plan['last_verified']
+
+    await save_data(user_plans)
+
+    if count > 0:
+        await interaction.response.send_message(f"🧹 **{target_date_str}** 날짜의 인증 도장 **{count}개**를 지웠습니다! ✨", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"❓ **{target_date_str}** 날짜에 찍힌 도장이 없어요.", ephemeral=True)
 
 #알림 시간 설정
 @bot.tree.command(name="알림시간", description="인증 검사 알림 시간 설정")
@@ -1871,6 +1376,32 @@ async def set_alert_time(interaction: discord.Interaction, 시간:int):
 
     await interaction.response.send_message(msg, ephemeral=True)
 
+#자동 백업 (하루 한 번, backups/날짜/ 폴더에 데이터 파일 복사)
+BACKUP_DIR = BASE_DIR / "backups"
+BACKUP_KEEP_DAYS = 14  # 최근 14일치만 보관
+
+def _make_backup(date_str):
+    folder = BACKUP_DIR / date_str
+    folder.mkdir(parents=True, exist_ok=True)
+    for path in (DATA_FILE, TIME_FILE, SESSION_FILE, VOTE_FILE, STATE_FILE):
+        if path.exists():
+            shutil.copy2(path, folder / path.name)
+
+    # 오래된 백업 삭제 (날짜 이름 폴더만 대상)
+    dated = sorted(p for p in BACKUP_DIR.iterdir() if p.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", p.name))
+    for old in dated[:-BACKUP_KEEP_DAYS]:
+        shutil.rmtree(old)
+
+async def run_daily_backup(now):
+    today_str = now.strftime('%Y-%m-%d')
+    if bot_state.get("last_backup_date") == today_str:
+        return
+    # 저장은 항상 파일을 통째로 교체하는 방식이라, 복사하는 도중에 반쯤 쓰인 파일이 복사될 일은 없음
+    await asyncio.get_running_loop().run_in_executor(None, _make_backup, today_str)
+    bot_state["last_backup_date"] = today_str
+    await save_state_data(bot_state)
+    print(f"💾 데이터 백업 완료: backups/{today_str}/")
+
 #감시자
 @tasks.loop(minutes=60)
 async def check_study_status():
@@ -1883,9 +1414,7 @@ async def check_study_status():
         traceback.print_exc()
 
     now = get_now()
-    today_str = now.strftime('%Y-%m-%d')
-    yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
-    check_target_str = yesterday_str if 0 <= now.hour < 6 else today_str
+    check_target_str = get_base_date(now).strftime('%Y-%m-%d')
     print(f"⏰ 점검 중... {now.month}/{now.day} {now.hour}시 (인증기준: {check_target_str})")
 
     channel = bot.get_channel(ALERT_CHANNEL)
@@ -1905,72 +1434,55 @@ async def check_study_status():
         print("🚨 인증 알림 전송 중 오류:")
         traceback.print_exc()
 
+    try:
+        await run_daily_backup(now)
+    except Exception:
+        print("🚨 데이터 백업 중 오류:")
+        traceback.print_exc()
+
 def find_missed_plans(user_id, data, now, yesterday_str, is_monday, is_first_day):
     """어제(일일/요일/목표), 지난주(월요일), 지난달(1일) 기준으로 못 한 계획 목록을 돌려줌"""
     missed_details = []
+    yesterday = now - timedelta(days=1)
+    yesterday_weekday = WEEKDAY_NAMES[yesterday.weekday()]
 
-    # (1) 어제 '일일 계획'을 안 했는지 체크
-    for plan in data.get("Daily", []):
-        if not isinstance(plan, dict): continue
-        # 어제 이후에 등록한 계획은 어제 검사 대상이 아님
-        if yesterday_str < plan.get('created_at', '2000-01-01'): continue
+    for category, plan in iter_plans(data):
+        history = plan.get('history', [])
+        created_at = plan.get('created_at', '2000-01-01')  # 예전 데이터는 등록일 없음 → 항상 검사
 
-        if yesterday_str not in plan.get('history', []):
-            missed_details.append(f"[일일]{plan['content']}")
+        # (1) 어제 '일일 계획'
+        if category == "Daily":
+            # 어제 이후에 등록한 계획은 어제 검사 대상이 아님
+            if yesterday_str >= created_at and yesterday_str not in history:
+                missed_details.append(f"[일일]{plan['content']}")
 
-    # (1.5) 어제 '요일 계획'을 안 했는지 체크
-    yesterday_dt = datetime.strptime(yesterday_str, '%Y-%m-%d')
-    yesterday_weekday = WEEKDAY_NAMES[yesterday_dt.weekday()]
-    for plan in data.get("Routine", []):
-        if not isinstance(plan, dict): continue
-        if yesterday_str < plan.get('created_at', '2000-01-01'): continue
-
-        # 어제 요일이 계획된 요일 목록에 있을 때만 검사!
-        if yesterday_weekday in plan.get('days', []):
-            if yesterday_str not in plan.get('history', []):
+        # (2) 어제 '요일 계획' (어제 요일이 계획된 요일일 때만)
+        elif category == "Routine":
+            if yesterday_str >= created_at and yesterday_weekday in plan.get('days', []) and yesterday_str not in history:
                 missed_details.append(f"[요일]{plan['content']}")
 
-    # (2) [주간] 월요일이면 '지난주' 실적 체크
-    if is_monday:
-        last_week_start = now - timedelta(days=7) # 저번주 월
-        last_week_end = now - timedelta(days=1)   # 저번주 일
-        last_week_start_str = last_week_start.strftime('%Y-%m-%d')
-        last_week_end_str = last_week_end.strftime('%Y-%m-%d')
+        # (3) [주간] 월요일이면 '지난주' 실적 체크 (지난주 중간에 만든 계획은 첫 주 제외)
+        elif category == "Weekly" and is_monday:
+            last_week_start_str, _ = week_bounds(yesterday)
+            if created_at <= last_week_start_str:
+                count = count_in_week(history, yesterday)
+                # 화면에 보여주는 목표와 같은 기준 (휴식/면책 차감, /이번주목표 반영)
+                target = get_weekly_target(user_id, plan, yesterday)
+                if count < target:
+                    missed_details.append(f"[주간]{plan['content']}({count}/{target}회)")
 
-        for plan in data.get("Weekly", []):
-            if not isinstance(plan, dict): continue
-            # 지난주 중간에 등록한 계획은 첫 주 검사에서 제외
-            if plan.get('created_at', '2000-01-01') > last_week_start_str: continue
+        # (4) [월간] 1일이면 '지난달' 실적 체크 (지난달 중간에 만든 계획은 첫 달 제외)
+        elif category == "Monthly" and is_first_day:
+            if created_at <= yesterday.strftime('%Y-%m-01'):
+                count = count_in_month(history, yesterday)
+                target = get_monthly_target(user_id, plan, yesterday)
+                if count < target:
+                    missed_details.append(f"[월간]{plan['content']}({count}/{target}회)")
 
-            history = plan.get('history', [])
-            count = sum(1 for d in history if last_week_start_str <= d <= last_week_end_str)
-            # 화면에 보여주는 목표와 같은 기준 (휴식/면책 차감, /이번주목표 반영)
-            target = get_weekly_target(user_id, plan, last_week_end)
-
-            if count < target:
-                missed_details.append(f"[주간]{plan['content']}({count}/{target}회)")
-
-    # (3) [월간] 1일이면 '지난달' 실적 체크
-    if is_first_day:
-        last_month_str = (now - timedelta(days=1)).strftime('%Y-%m')
-
-        for plan in data.get("Monthly", []):
-            if not isinstance(plan, dict): continue
-            # 지난달 중간에 등록한 계획은 첫 달 검사에서 제외
-            if plan.get('created_at', '2000-01-01') > f"{last_month_str}-01": continue
-
-            history = plan.get('history', [])
-            count = sum(1 for d in history if d.startswith(last_month_str))
-            target = plan.get('count', 1)
-
-            if count < target:
-                missed_details.append(f"[월간]{plan['content']}({count}/{target}회)")
-
-    # (4) 마감일이 어제였고, 아직 완료(completed)가 False인 목표
-    for plan in data.get("OneTime", []):
-        if not isinstance(plan, dict): continue
-        if plan.get('deadline') == yesterday_str and not plan.get('completed', False):
-            missed_details.append(f"[목표]{plan['content']}")
+        # (5) 마감일이 어제였고, 아직 완료하지 못한 목표
+        elif category == "OneTime":
+            if plan.get('deadline') == yesterday_str and not plan.get('completed', False):
+                missed_details.append(f"[목표]{plan['content']}")
 
     return missed_details
 
@@ -2047,134 +1559,97 @@ async def run_daily_settlement(channel, now):
     )
     await send_embeds(channel, embeds)
 
+def find_todo_plans(user_id, data, alert_date):
+    """알림 날짜 기준으로 아직 인증 안 한 계획을 카테고리별로 모아서 돌려줌"""
+    alert_date_str = alert_date.strftime('%Y-%m-%d')
+    alert_weekday = WEEKDAY_NAMES[alert_date.weekday()]
+    last_day_of_month = calendar.monthrange(alert_date.year, alert_date.month)[1]
+    todo = {category: [] for category in PLAN_CATEGORIES}
+
+    for category, plan in iter_plans(data):
+        history = plan.get('history', [])
+        done_today = alert_date_str in history
+
+        # (1) 일일: 오늘 안 했으면 알림
+        if category == "Daily":
+            if not done_today:
+                todo[category].append(plan['content'])
+
+        # (2) 요일: 오늘이 계획된 요일이고 아직 안 했으면 알림
+        elif category == "Routine":
+            if alert_weekday in plan.get('days', []) and not done_today:
+                todo[category].append(plan['content'])
+
+        # (3) 주간: 금·토·일에만, 이번 주 목표를 아직 못 채웠으면 알림
+        elif category == "Weekly":
+            if alert_date.weekday() >= 4 and not done_today:
+                cnt = count_in_week(history, alert_date)
+                target = get_weekly_target(user_id, plan, alert_date)  # 휴식/면책이 있으면 줄어듦
+                if target > 0 and cnt < target:
+                    todo[category].append(f"{plan['content']}({cnt}/{target})")
+
+        # (4) 월간: 20일, 25일, 말일에만, 이번 달 목표를 아직 못 채웠으면 알림
+        elif category == "Monthly":
+            if alert_date.day in (20, 25, last_day_of_month) and not done_today:
+                cnt = count_in_month(history, alert_date)
+                target = get_monthly_target(user_id, plan, alert_date)
+                if target > 0 and cnt < target:
+                    todo[category].append(f"{plan['content']}({cnt}/{target})")
+
+        # (5) N일 간격: 간격이 다 찼으면 알림
+        elif category == "Interval":
+            interval = plan.get('interval', 1)
+            if not history:
+                todo[category].append(f"{plan['content']}(시작안함)")
+            elif not done_today:
+                diff = (alert_date.date() - datetime.strptime(history[-1], "%Y-%m-%d").date()).days
+                if diff >= interval:
+                    todo[category].append(f"{plan['content']}(D+{diff-interval})")
+
+        # (6) 목표: 마감 3일 전부터 알림
+        elif category == "OneTime":
+            if not plan.get('completed', False):
+                deadline = plan.get('deadline', '9999-12-31')
+                days_left = (datetime.strptime(deadline, "%Y-%m-%d").date() - alert_date.date()).days
+                if days_left == 0:
+                    todo[category].append(f"🔥 {plan['content']}(오늘마감!)")
+                elif 0 < days_left <= 3:
+                    todo[category].append(f"⏳ {plan['content']}(D-{days_left})")
+
+    return todo
+
 async def send_hourly_alerts(channel, now):
     """각자 설정한 알림 시간(기본 2시)에 아직 인증 안 한 계획을 알려줌"""
-    current_hour = now.hour
+    alert_date = get_base_date(now)  # 새벽 0~5시는 전날 기록을 검사
+    alert_date_str = alert_date.strftime('%Y-%m-%d')
 
-    #2시 알림
     # list()로 복사해서 순회 → 메시지 보내는 사이 새 유저가 생겨도 오류 없음
     for user_id, data in list(user_plans.items()):
         if not isinstance(data, dict): continue
-        if data.get('alert_time', 2) == current_hour:
-            
-            if 0 <= current_hour < 6:
-                alert_date = now - timedelta(days=1)
-            else:
-                alert_date = now
-            
-            alert_date_str = alert_date.strftime('%Y-%m-%d')
-            alert_start_week = alert_date - timedelta(days=alert_date.weekday())
-            alert_start_week_str = alert_start_week.strftime('%Y-%m-%d')
-            alert_month_str = alert_date.strftime('%Y-%m')
+        if data.get('alert_time', 2) != now.hour: continue
 
-            exemptions = data.get('exemptions', [])
-            is_exempt = (alert_date_str in exemptions)
+        # 휴식/면책 날에는 알림 안 보냄
+        if alert_date_str in data.get('exemptions', []) or alert_date_str in data.get('rest_history', []):
+            continue
 
-            rest_history = data.get('rest_history', [])
-            is_resting = (alert_date_str in rest_history)
-            
-            if is_exempt or is_resting: continue
+        try:
+            todo = find_todo_plans(user_id, data, alert_date)
+        except Exception:
+            # 한 사람 데이터가 이상해도 나머지 사람 알림은 계속 보냄
+            print(f"🚨 알림 확인 중 오류 (유저 {user_id}), 이 유저는 건너뜁니다:")
+            traceback.print_exc()
+            continue
 
-            # 알림 메시지용 리스트
-            todo_daily, todo_routine, todo_weekly, todo_monthly, todo_interval, todo_onetime = [], [], [], [], [], []
+        if not any(todo.values()):
+            continue
 
-            # (1) 일일 (오늘 안 했으면 알림)
-            if "Daily" in data:
-                for plan in data["Daily"]:
-                    if isinstance(plan, str): continue
-                    if alert_date_str not in plan.get('history', []):
-                        todo_daily.append(plan['content'])
+        msg = f"🔔 <@{user_id}>님! 인증할 시간이에요!\n"
+        for category in PLAN_CATEGORIES:
+            if todo[category]:
+                msg += f"- **[{CATEGORY_KR[category]}]** {', '.join(todo[category])}\n"
 
-            if "Routine" in data:
-                alert_weekday = WEEKDAY_NAMES[alert_date.weekday()]
-                for plan in data["Routine"]:
-                    if isinstance(plan, str): continue
-
-                    plan_days = plan.get('days', [])
-                    # 알림 날짜가 계획된 요일에 포함되는지 확인
-                    if alert_weekday in plan_days:
-                        # 오늘 인증(history)을 아직 안 했는지 확인
-                        if alert_date_str not in plan.get('history', []):
-                            todo_routine.append(plan['content'])
-
-            # (2) 주간 (Weekly)
-            if "Weekly" in data:
-                # 금,토,일요일에만 검사 (또는 원하시는 요일)
-                if alert_date.weekday() >= 4:
-                    for plan in data["Weekly"]:
-                        if isinstance(plan, str): continue
-                        
-                        # 오늘 이미 했으면 패스
-                        if alert_date_str in plan.get('history', []):
-                            continue 
-
-                        # 현재까지 수행한 횟수
-                        cnt = sum(1 for d in plan.get('history', []) if d >= alert_start_week_str)
-                        
-                        # 👇 [수정됨] 고정된 count 대신, 유동적인 목표(target)를 가져옵니다!
-                        # 휴식/면책이 있으면 target이 줄어듭니다.
-                        target = get_weekly_target(user_id, plan, alert_date)
-                        
-                        # 목표가 0이 되었으면(휴식을 많이 써서) 알림 안 보냄
-                        if target > 0 and cnt < target:
-                            todo_weekly.append(f"{plan['content']}({cnt}/{target})")
-                            
-            # (3) 월간 (이번달 남은 횟수 알림 - 월말에만 강조)
-            last_day_of_month = calendar.monthrange(alert_date.year, alert_date.month)[1]
-            if "Monthly" in data and (alert_date.day in [20, 25] or alert_date.day == last_day_of_month):
-                for plan in data["Monthly"]:
-                    if isinstance(plan, str): continue
-
-                    if alert_date_str in plan.get('history', []):
-                        continue
-
-                    cnt = sum(1 for d in plan.get('history', []) if d.startswith(alert_month_str))
-                    target = plan.get('count', 1)
-                    
-                    if cnt < target:
-                        todo_monthly.append(f"{plan['content']}({cnt}/{target})")
-
-            # (4) N일 간격 (오늘 해야 하는지 체크)
-            if "Interval" in data:
-                for plan in data["Interval"]:
-                    hist = plan.get('history', [])
-                    interval = plan.get('interval', 1)
-                    if not hist:
-                        todo_interval.append(f"{plan['content']}(시작안함)")
-                    elif alert_date_str != hist[-1]:
-                        last_dt = datetime.strptime(hist[-1], "%Y-%m-%d")
-                        # 알림 기준 날짜(alert_date)와 마지막 인증일 비교
-                        diff = (alert_date.date() - last_dt.date()).days
-                        if diff >= interval:
-                            todo_interval.append(f"{plan['content']}(D+{diff-interval})")
-
-            # 👇 [추가] (5) 목표 (OneTime) - 마감 임박 알림!
-            if "OneTime" in data:
-                for plan in data["OneTime"]:
-                    if not plan.get('completed', False):
-                        deadline = plan.get('deadline', '9999-12-31')
-                        d_dt = datetime.strptime(deadline, "%Y-%m-%d")
-                        a_dt = datetime.strptime(alert_date_str, "%Y-%m-%d") # 시간 제거
-                        days_left = (d_dt - a_dt).days
-                        
-                        # 마감 당일이거나, 3일 전부터 알림
-                        if days_left == 0:
-                             todo_onetime.append(f"🔥 {plan['content']}(오늘마감!)")
-                        elif 0 < days_left <= 3:
-                             todo_onetime.append(f"⏳ {plan['content']}(D-{days_left})")
-
-            # 알림 전송
-            if any([todo_daily,todo_routine, todo_weekly, todo_monthly, todo_interval, todo_onetime]):
-                msg = f"🔔 <@{user_id}>님! 인증할 시간이에요!\n"
-                if todo_daily: msg += f"- **[일일]** {', '.join(todo_daily)}\n"
-                if todo_routine: msg += f"- **[요일]** {', '.join(todo_routine)}\n"
-                if todo_weekly: msg += f"- **[주간]** {', '.join(todo_weekly)}\n"
-                if todo_monthly: msg += f"- **[월간]** {', '.join(todo_monthly)}\n"
-                if todo_interval: msg += f"- **[반복]** {', '.join(todo_interval)}\n"
-                if todo_onetime: msg += f"- **[목표]** {', '.join(todo_onetime)}\n"
-
-                # 2000자가 넘으면 나눠서 보냄
-                await send_long_message(channel, msg)
+        # 2000자가 넘으면 나눠서 보냄
+        await send_long_message(channel, msg)
 
 #정각 대기
 @check_study_status.before_loop
@@ -2241,9 +1716,6 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 #공부 시간 측정
 @bot.event
 async def on_voice_state_update(member, before, after):
-    global study_sessions, daily_study_times
-
-    target_channel = bot.get_channel(TARGET_CHANNEL)
     alert_channel = bot.get_channel(TEST_CHANNEL)
 
     if member.bot or before.channel == after.channel:
