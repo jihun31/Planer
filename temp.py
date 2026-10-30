@@ -13,11 +13,20 @@ from zoneinfo import ZoneInfo
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 
-#채널 아이디
-TARGET_CHANNEL = 
-ALERT_CHANNEL = 
-TEST_CHANNEL = 
-WELCOME_CHANNEL = 
+#채널 아이디 (.env 파일에서 불러옴)
+def get_id_env(name):
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f".env 파일에 {name} 값이 없습니다. .env.example을 참고해 추가해주세요.")
+    try:
+        return int(value)
+    except ValueError:
+        raise RuntimeError(f".env 파일의 {name} 값은 숫자 ID여야 합니다. (현재 값: {value!r})")
+
+TARGET_CHANNEL = get_id_env('TARGET_CHANNEL')
+ALERT_CHANNEL = get_id_env('ALERT_CHANNEL')
+TEST_CHANNEL = get_id_env('TEST_CHANNEL')
+WELCOME_CHANNEL = get_id_env('WELCOME_CHANNEL')
 
 WEEKDAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
 
@@ -2092,7 +2101,7 @@ async def send_notice(interaction: discord.Interaction, 제목: str, 내용: str
     target_channel = bot.get_channel(ALERT_CHANNEL)
 
     if not target_channel:
-        await interaction.response.send_message("❌ 공지 채널을 찾을 수 없어요! 코드 상단의 ALERT_CHANNEL ID를 확인해주세요.", ephemeral=True)
+        await interaction.response.send_message("❌ 공지 채널을 찾을 수 없어요! .env 파일의 ALERT_CHANNEL ID를 확인해주세요.", ephemeral=True)
         return
 
     # 줄바꿈 처리
