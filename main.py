@@ -289,6 +289,17 @@ def get_base_date(now=None):
         now = get_now()
     return now - timedelta(days=1) if now.hour < 6 else now
 
+# /인증, /인증취소의 '날짜' 옵션
+DATE_CHOICES = [
+    app_commands.Choice(name="오늘", value="today"),
+    app_commands.Choice(name="어제 (깜빡한 인증)", value="yesterday"),
+]
+
+def resolve_target_date(date_value):
+    """'today'/'yesterday'(또는 None) → 기준 날짜"""
+    base_date = get_base_date()
+    return base_date - timedelta(days=1) if date_value == "yesterday" else base_date
+
 def iter_plans(user_data, categories=PLAN_CATEGORIES):
     """(카테고리, 계획) 순서로 돌려줌. 옛날 형식(문자열)이나 깨진 계획은 건너뜀."""
     for category in categories:
@@ -333,7 +344,7 @@ def limit_status(plan, date):
     return count_in_period(plan.get('history', []), date, period), plan.get('limit', 0), LIMIT_PERIOD_KR.get(period, period)
 
 def complete_goal(user_id, plan, date_str):
-    """달성한 목표를 계획 목록에서 빼서 completed_goals 기록으로 옮김 (/인증초기화로 되돌릴 수 있음)"""
+    """달성한 목표를 계획 목록에서 빼서 completed_goals 기록으로 옮김 (/인증취소로 되돌릴 수 있음)"""
     user_data = user_plans[user_id]
     goals = user_data.get("OneTime", [])
     if plan in goals:
@@ -363,15 +374,11 @@ def count_off_days(user_id, start_str, end_str):
     return sum(1 for d in off_days if start_str <= d <= end_str)
 
 def get_weekly_target(user_id, plan, target_date=None):
-    """이번 주 실제 목표 횟수. '/이번주목표' 수정값이 최우선, 없으면 원래 목표에서 휴식/면책 일수만큼 뺌."""
+    """이번 주 실제 목표 횟수. 원래 목표에서 이번 주 휴식/면책 일수만큼 뺌."""
     if target_date is None:
         target_date = get_now()
 
     start_str, _ = week_bounds(target_date)
-    overrides = plan.get('overrides', {})
-    if start_str in overrides:
-        return overrides[start_str]
-
     end_str = (datetime.strptime(start_str, '%Y-%m-%d') + timedelta(days=6)).strftime('%Y-%m-%d')
     return max(0, plan.get('count', 1) - count_off_days(user_id, start_str, end_str))
 
@@ -524,133 +531,105 @@ async def register_plan(interaction: discord.Interaction, category: str, plan: d
     await save_data(user_plans)
     return True
 
-#일일계획
-@plan_group.command(name="일일", description="매일 반복할 계획을 세웁니다.")
-@app_commands.describe(내용="내용", 사진인증="사진 인증 여부 선택")
-@app_commands.choices(사진인증=PHOTO_CHOICES)
-async def plan_daily(interaction: discord.Interaction, 내용: PlanText, 사진인증: app_commands.Choice[int]):
-    photo = bool(사진인증.value)
-    if await register_plan(interaction, "Daily", {"type": "매일", "content": 내용, "photo": photo}):
-        await interaction.response.send_message(f"📅 **[일일] 계획 등록 완료!** ({photo_icon(photo)})\n- **내용:** {내용}")
+#계획 등록 (매일/주간/월간 + 제한)
+@plan_group.command(name="등록", description="매일/주간/월간 계획을 세웁니다. 제한 O면 'N회 이하로 참기' 계획이 돼요.")
+@app_commands.describe(
+    주기="매일 / 주간(월~일) / 월간",
+    내용="내용 (예: 운동, 몬스터)",
+    횟수="주간·월간: 목표 횟수 / 제한: 최대 횟수 (매일 목표는 입력 안 해도 됨)",
+    제한="O: 횟수를 넘기면 벌금 (예: 몬스터 주 2회 이하) / X: 횟수 이상 하기 (기본)",
+    사진인증="인증할 때 사진 필수 여부 (기본 X)",
+)
+@app_commands.choices(
+    주기=[
+        app_commands.Choice(name="매일", value="day"),
+        app_commands.Choice(name="주간 (월~일)", value="week"),
+        app_commands.Choice(name="월간", value="month"),
+    ],
+    제한=[
+        app_commands.Choice(name="X (N회 이상 하기)", value=0),
+        app_commands.Choice(name="O (N회 이하로 참기, 넘기면 벌금)", value=1),
+    ],
+    사진인증=PHOTO_CHOICES,
+)
+async def plan_register(interaction: discord.Interaction, 주기: app_commands.Choice[str], 내용: PlanText,
+                        횟수: app_commands.Range[int, 0, 50] = None,
+                        제한: app_commands.Choice[int] = None,
+                        사진인증: app_commands.Choice[int] = None):
+    period = 주기.value
+    is_limit = bool(제한 and 제한.value)
+    photo = bool(사진인증 and 사진인증.value)
+    period_kr = {"day": "하루", "week": "일주일", "month": "한 달"}[period]
 
-#주간계획
-@plan_group.command(name="주간", description="주간 계획을 세웁니다.")
-@app_commands.describe(횟수="주N회 (1~7)", 내용="내용", 사진인증="사진 인증 여부 선택")
-@app_commands.choices(사진인증=PHOTO_CHOICES)
-async def plan_weekly(interaction: discord.Interaction, 횟수: app_commands.Range[int, 1, 7], 내용: PlanText, 사진인증: app_commands.Choice[int]):
-    photo = bool(사진인증.value)
-    if await register_plan(interaction, "Weekly", {"type": "주간", "count": 횟수, "content": 내용, "photo": photo}):
-        await interaction.response.send_message(f"📅 **[주간] 계획 등록 완료!** ({photo_icon(photo)})\n- **목표:** 주 {횟수}회\n- **내용:** {내용}")
-
-#월간계획
-@plan_group.command(name="월간", description="월간 계획을 세웁니다.")
-@app_commands.describe(횟수="월N회 (1~31)", 내용="내용", 사진인증="사진 인증 여부 선택")
-@app_commands.choices(사진인증=PHOTO_CHOICES)
-async def plan_monthly(interaction: discord.Interaction, 횟수: app_commands.Range[int, 1, 31], 내용: PlanText, 사진인증: app_commands.Choice[int]):
-    photo = bool(사진인증.value)
-    if await register_plan(interaction, "Monthly", {"type": "월간", "count": 횟수, "content": 내용, "photo": photo}):
-        await interaction.response.send_message(f"📅 **[월간] 계획 등록 완료!** ({photo_icon(photo)})\n- **목표:** 월 {횟수}회\n- **내용:** {내용}")
-
-#n일계획
-@plan_group.command(name="n일", description="N일마다 반복하는 계획을 세웁니다")
-@app_commands.describe(간격="며칠마다 할까요? (1~365)", 내용="내용", 사진인증="인증 방식")
-@app_commands.choices(사진인증=PHOTO_CHOICES)
-async def plan_interval(interaction: discord.Interaction, 간격: app_commands.Range[int, 1, 365], 내용: PlanText, 사진인증: app_commands.Choice[int]):
-    photo = bool(사진인증.value)
-    if await register_plan(interaction, "Interval", {"type": "N일", "interval": 간격, "content": 내용, "photo": photo}):
-        await interaction.response.send_message(f"📅 **[{간격}일마다] 계획 등록!** ({photo_icon(photo)})\n- **내용:** {내용}")
-
-#일회성 목표
-@plan_group.command(name="목표", description="특정 날짜까지 완수해야 하는 1회성 목표를 세웁니다.")
-@app_commands.describe(마감일="YYYY-MM-DD 형식 (예: 2026-01-20)", 내용="목표 내용", 사진인증="인증 방식")
-@app_commands.choices(사진인증=PHOTO_CHOICES)
-async def plan_deadline(interaction: discord.Interaction, 마감일: str, 내용: PlanText, 사진인증: app_commands.Choice[int]):
-    try:
-        datetime.strptime(마감일, "%Y-%m-%d")
-    except ValueError:
-        await interaction.response.send_message("❌ 날짜 형식이 틀렸어요! **2026-01-20** 처럼 적어주세요.", ephemeral=True)
+    # 1. 제한 계획: N회 이하
+    if is_limit:
+        if 횟수 is None:
+            await interaction.response.send_message("❌ 제한 계획은 `횟수`(최대 몇 번까지 괜찮은지)를 입력해주세요! 0이면 한 번만 해도 벌금이에요.", ephemeral=True)
+            return
+        plan = {"type": "제한", "content": 내용, "photo": False, "period": period, "limit": 횟수}
+        if await register_plan(interaction, "Limit", plan):
+            await interaction.response.send_message(
+                f"🚫 **[제한] 계획 등록 완료!**\n- **내용:** {내용}\n- **제한:** {period_kr}에 **{횟수}회 이하**\n"
+                f"할 때마다 `/인증`으로 기록하세요. {횟수}회를 넘기면 정산 때 벌금이에요!"
+            )
         return
 
-    photo = bool(사진인증.value)
-    plan = {"type": "목표", "deadline": 마감일, "content": 내용, "photo": photo, "completed": False}
-    if await register_plan(interaction, "OneTime", plan):
-        await interaction.response.send_message(f"🎯 **[목표] 등록 완료!** ({photo_icon(photo)})\n- **마감:** {마감일}까지\n- **내용:** {내용}")
+    # 2. 매일 계획: 하루 한 번
+    if period == "day":
+        if await register_plan(interaction, "Daily", {"type": "매일", "content": 내용, "photo": photo}):
+            await interaction.response.send_message(f"📅 **[일일] 계획 등록 완료!** ({photo_icon(photo)})\n- **내용:** {내용}")
+        return
+
+    # 3. 주간/월간 계획: N회 이상
+    max_count = 7 if period == "week" else 31
+    if 횟수 is None or not 1 <= 횟수 <= max_count:
+        await interaction.response.send_message(f"❌ {주기.name} 계획은 `횟수`를 **1~{max_count}** 사이로 입력해주세요!", ephemeral=True)
+        return
+
+    category, type_kr, unit = ("Weekly", "주간", "주") if period == "week" else ("Monthly", "월간", "월")
+    if await register_plan(interaction, category, {"type": type_kr, "count": 횟수, "content": 내용, "photo": photo}):
+        await interaction.response.send_message(f"📅 **[{type_kr}] 계획 등록 완료!** ({photo_icon(photo)})\n- **목표:** {unit} {횟수}회\n- **내용:** {내용}")
 
 #요일 계획
 @plan_group.command(name="요일", description="특정 요일에만 반복할 계획을 세웁니다.")
-@app_commands.describe(내용="내용", 요일="예: 월수금, 토일 (원하는 요일을 붙여서 적으세요)", 사진인증="사진 인증 여부 선택")
+@app_commands.describe(내용="내용", 요일="예: 월수금, 토일 (원하는 요일을 붙여서 적으세요)", 사진인증="사진 인증 여부 (기본 X)")
 @app_commands.choices(사진인증=PHOTO_CHOICES)
-async def plan_routine(interaction: discord.Interaction, 내용: PlanText, 요일: str, 사진인증: app_commands.Choice[int]):
+async def plan_routine(interaction: discord.Interaction, 내용: PlanText, 요일: str, 사진인증: app_commands.Choice[int] = None):
     # 입력한 글자에서 요일만 뽑아내기 (예: "월수금" → ["월", "수", "금"])
     selected_days = [day for day in WEEKDAY_NAMES if day in 요일]
     if not selected_days:
         await interaction.response.send_message("❌ 요일을 제대로 인식하지 못했어요! **'월수금'**, **'토일'** 처럼 요일 글자를 포함해서 적어주세요.", ephemeral=True)
         return
 
-    photo = bool(사진인증.value)
+    photo = bool(사진인증 and 사진인증.value)
     plan = {"type": "요일", "content": 내용, "photo": photo, "days": selected_days}
     if await register_plan(interaction, "Routine", plan):
         await interaction.response.send_message(f"✅ **[요일] 계획 등록 완료!** ({photo_icon(photo)})\n- **내용:** {내용}\n- **수행 요일:** {', '.join(selected_days)}요일")
 
-#제한 계획 (정해진 횟수를 넘기면 벌금)
-@plan_group.command(name="제한", description="기간 안에 정해진 횟수를 넘기면 벌금! (예: 몬스터 주 2회 이하)")
-@app_commands.describe(기간="언제마다 횟수를 셀까요?", 최대횟수="이 횟수까지는 괜찮아요 (0이면 한 번만 해도 벌금)", 내용="내용 (예: 몬스터)")
-@app_commands.choices(기간=[
-    app_commands.Choice(name="하루", value="day"),
-    app_commands.Choice(name="주간 (월~일)", value="week"),
-    app_commands.Choice(name="월간", value="month"),
-])
-async def plan_limit(interaction: discord.Interaction, 기간: app_commands.Choice[str], 최대횟수: app_commands.Range[int, 0, 50], 내용: PlanText):
-    plan = {"type": "제한", "content": 내용, "photo": False, "period": 기간.value, "limit": 최대횟수}
-    if await register_plan(interaction, "Limit", plan):
-        period_kr = {"day": "하루", "week": "일주일", "month": "한 달"}[기간.value]
-        await interaction.response.send_message(
-            f"🚫 **[제한] 계획 등록 완료!**\n- **내용:** {내용}\n- **제한:** {period_kr}에 **{최대횟수}회 이하**\n"
-            f"할 때마다 `/인증`으로 기록하세요. {최대횟수}회를 넘기면 정산 때 벌금이에요!"
-        )
+#n일계획
+@plan_group.command(name="n일", description="N일마다 반복하는 계획을 세웁니다")
+@app_commands.describe(간격="며칠마다 할까요? (1~365)", 내용="내용", 사진인증="사진 인증 여부 (기본 X)")
+@app_commands.choices(사진인증=PHOTO_CHOICES)
+async def plan_interval(interaction: discord.Interaction, 간격: app_commands.Range[int, 1, 365], 내용: PlanText, 사진인증: app_commands.Choice[int] = None):
+    photo = bool(사진인증 and 사진인증.value)
+    if await register_plan(interaction, "Interval", {"type": "N일", "interval": 간격, "content": 내용, "photo": photo}):
+        await interaction.response.send_message(f"📅 **[{간격}일마다] 계획 등록!** ({photo_icon(photo)})\n- **내용:** {내용}")
 
-#계획 전체 삭제(초기화)
-@plan_group.command(name="초기화", description="등록된 계획을 삭제합니다.")
-@app_commands.describe(유형="어떤 계획을 비울까요?")
-@app_commands.choices(유형=[
-    app_commands.Choice(name="일일 계획 전체 삭제", value="Daily"),
-    app_commands.Choice(name="요일 계획 전체 삭제", value="Routine"),
-    app_commands.Choice(name="주간 계획 전체 삭제", value="Weekly"),
-    app_commands.Choice(name="월간 계획 전체 삭제", value="Monthly"),
-    app_commands.Choice(name="N일(반복) 계획 전체 삭제", value="Interval"),
-    app_commands.Choice(name="목표(1회성) 전체 삭제", value="OneTime"),
-    app_commands.Choice(name="제한 계획 전체 삭제", value="Limit"),
-    app_commands.Choice(name="모든 계획 삭제", value="All")
-])
-async def plan_reset(interaction: discord.Interaction, 유형: app_commands.Choice[str]):
-    user_id = str(interaction.user.id)
-    target = 유형.value
+#일회성 목표
+@plan_group.command(name="목표", description="특정 날짜까지 완수해야 하는 1회성 목표를 세웁니다.")
+@app_commands.describe(마감일="YYYY-MM-DD 형식 (예: 2026-01-20)", 내용="목표 내용", 사진인증="사진 인증 여부 (기본 X)")
+@app_commands.choices(사진인증=PHOTO_CHOICES)
+async def plan_deadline(interaction: discord.Interaction, 마감일: str, 내용: PlanText, 사진인증: app_commands.Choice[int] = None):
+    try:
+        datetime.strptime(마감일, "%Y-%m-%d")
+    except ValueError:
+        await interaction.response.send_message("❌ 날짜 형식이 틀렸어요! **2026-01-20** 처럼 적어주세요.", ephemeral=True)
+        return
 
-    if user_id not in user_plans:
-        await interaction.response.send_message("❌ 삭제할 계획이 없어요!", ephemeral=True)
-        return 
-    
-    if target == "All":
-        # 계획 카테고리만 골라서 지웁니다.
-        deleted_count = 0
-        
-        for cat in PLAN_CATEGORIES:
-            if cat in user_plans[user_id]:
-                del user_plans[user_id][cat]
-                deleted_count += 1
-        
-        if deleted_count > 0:
-            await save_data(user_plans)
-            await interaction.response.send_message("🗑️ **모든 계획**을 비웠습니다! (벌금과 설정은 유지됩니다)", ephemeral=True)
-        else:
-            await interaction.response.send_message("❓ 삭제할 계획이 없어요.", ephemeral=True)
-    
-    elif target in user_plans[user_id]:
-        del user_plans[user_id][target]
-        await save_data(user_plans)
-        await interaction.response.send_message(f"🗑️ **{유형.name}** 항목을 모두 비웠습니다.", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"❓ **{유형.name}**은 등록된 게 없네요.", ephemeral=True)
+    photo = bool(사진인증 and 사진인증.value)
+    plan = {"type": "목표", "deadline": 마감일, "content": 내용, "photo": photo, "completed": False}
+    if await register_plan(interaction, "OneTime", plan):
+        await interaction.response.send_message(f"🎯 **[목표] 등록 완료!** ({photo_icon(photo)})\n- **마감:** {마감일}까지\n- **내용:** {내용}")
 
 #자동완성 (인증할 수 있는 계획만 보여줌)
 async def plan_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -658,9 +637,8 @@ async def plan_autocomplete(interaction: discord.Interaction, current: str) -> l
     if user_id not in user_plans:
         return []
 
-    base_date = get_base_date()
-    cmd_name = interaction.command.name if interaction.command else "인증"
-    target_date = base_date - timedelta(days=1) if cmd_name == "어제인증" else base_date
+    # 이미 고른 '날짜' 옵션(오늘/어제)에 맞춰 목록을 보여줌
+    target_date = resolve_target_date(getattr(interaction.namespace, "날짜", None))
     target_date_str = target_date.strftime('%Y-%m-%d')
 
     choices = []
@@ -907,7 +885,7 @@ def get_eligible_voters(guild, requester_id):
     return voters
 
 async def start_immunity_vote(interaction: discord.Interaction, dates: list, title: str, color: discord.Color, date_field: tuple, 사유: str):
-    """면책 투표 메시지를 만들고 저장함 (/면책, /면책기간 공통)"""
+    """면책 투표 메시지를 만들고 저장함 (하루/기간 면책 공통)"""
     requester_id = interaction.user.id
     voters = get_eligible_voters(interaction.guild, requester_id)
 
@@ -942,22 +920,18 @@ async def start_immunity_vote(interaction: discord.Interaction, dates: list, tit
     await save_vote_data(active_votes)
 
 # --- 면책 요청 ---
-@bot.tree.command(name="면책", description="개인 사정으로 인한 오늘 벌금 면제를 요청합니다 (참가자 과반수 동의 필요).")
-@app_commands.describe(사유="면책을 요청하는 합당한 사유를 적어주세요.")
+@bot.tree.command(name="면책", description="벌금 면제를 요청합니다. 날짜를 비우면 오늘 하루 (참가자 과반수 동의 필요)")
+@app_commands.describe(
+    사유="면책을 요청하는 합당한 사유를 적어주세요.",
+    시작일="기간 면책 시작일 YYYY-MM-DD (비우면 오늘)",
+    종료일="기간 면책 종료일 YYYY-MM-DD (비우면 시작일 하루만)",
+)
 @app_commands.guild_only()
-async def request_immunity(interaction: discord.Interaction, 사유: LongText):
-    # 새벽 0~5시에 요청하면 전날 기준 (인증/정산과 같은 기준)
-    target_str = get_base_date().strftime('%Y-%m-%d')
-    await start_immunity_vote(interaction, [target_str], "🛡️ 면책 요청합니다!", discord.Color.orange(), ("📅 날짜", target_str), 사유)
-
-#---면책기간---
-@bot.tree.command(name="면책기간", description="특정 기간 동안의 벌금 면제를 요청합니다 (참가자 과반수 동의 필요).")
-@app_commands.describe(시작일="YYYY-MM-DD", 종료일="YYYY-MM-DD", 사유="면책 사유")
-@app_commands.guild_only()
-async def request_immunity_period(interaction: discord.Interaction, 시작일: str, 종료일: str, 사유: LongText):
+async def request_immunity(interaction: discord.Interaction, 사유: LongText, 시작일: str = None, 종료일: str = None):
     try:
-        start_dt = datetime.strptime(시작일, "%Y-%m-%d")
-        end_dt = datetime.strptime(종료일, "%Y-%m-%d")
+        # 새벽 0~5시에 요청하면 전날 기준 (인증/정산과 같은 기준)
+        start_dt = datetime.strptime(시작일, "%Y-%m-%d") if 시작일 else datetime.strptime(get_base_date().strftime('%Y-%m-%d'), "%Y-%m-%d")
+        end_dt = datetime.strptime(종료일, "%Y-%m-%d") if 종료일 else start_dt
     except ValueError:
         await interaction.response.send_message("❌ 날짜 형식이 올바르지 않습니다! **YYYY-MM-DD** (예: 2026-01-22) 형식으로 적어주세요.", ephemeral=True)
         return
@@ -972,136 +946,48 @@ async def request_immunity_period(interaction: discord.Interaction, 시작일: s
         return
 
     date_list = [(start_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
-    period_str = f"{시작일} ~ {종료일} (**총 {days}일**)"
-    await start_immunity_vote(interaction, date_list, "🛡️ 장기 면책 요청합니다!", discord.Color.purple(), ("📅 기간", period_str), 사유)
+    if days == 1:
+        await start_immunity_vote(interaction, date_list, "🛡️ 면책 요청합니다!", discord.Color.orange(), ("📅 날짜", date_list[0]), 사유)
+    else:
+        period_str = f"{date_list[0]} ~ {date_list[-1]} (**총 {days}일**)"
+        await start_immunity_vote(interaction, date_list, "🛡️ 장기 면책 요청합니다!", discord.Color.purple(), ("📅 기간", period_str), 사유)
 
 #휴식 (월 1회)
 @bot.tree.command(name="휴식", description="한 달에 한 번, 오늘을 휴식일로 지정합니다. (벌금 면제)")
-async def take_rest(interaction: discord.Interaction):
+@app_commands.describe(동작="사용하기(기본) / 오늘 쓴 휴식권 취소하기")
+@app_commands.choices(동작=[
+    app_commands.Choice(name="사용하기", value="use"),
+    app_commands.Choice(name="취소하기 (오늘 쓴 휴식권 되돌리기)", value="cancel"),
+])
+async def take_rest(interaction: discord.Interaction, 동작: app_commands.Choice[str] = None):
     user_id = str(interaction.user.id)
-    
-    if user_id not in user_plans:
-        user_plans[user_id] = {}
+    rest_history = user_plans.setdefault(user_id, {}).setdefault('rest_history', [])
 
-    # 1. 날짜 계산 (새벽 0~5시는 전날)
+    # 새벽 0~5시는 전날
     target_date = get_base_date()
-    note = "(새벽🌙)" if get_now().hour < 6 else ""
     target_date_str = target_date.strftime('%Y-%m-%d')
 
-    # 2. 이번 달에 쓴 적 있는지 확인
-    rest_history = user_plans[user_id].setdefault('rest_history', [])
+    # 취소
+    if 동작 and 동작.value == "cancel":
+        if target_date_str not in rest_history:
+            await interaction.response.send_message(f"❓ **{target_date_str}** 날짜로 사용된 휴식권이 없는데요?", ephemeral=True)
+            return
+        rest_history.remove(target_date_str)
+        await save_data(user_plans)
+        await interaction.response.send_message(f"↩️ **{target_date_str}** 날짜의 휴식 사용을 취소했습니다! 다시 횟수가 복구되었어요.", ephemeral=True)
+        return
+
+    # 사용 (이번 달에 쓴 적 있으면 거절)
     if count_in_month(rest_history, target_date) > 0:
         await interaction.response.send_message("❌ **이번 달 휴식권을 이미 사용하셨어요!** (월 1회 제한)", ephemeral=True)
         return
 
-    # 3. 휴식 처리
-    user_plans[user_id]['rest_history'].append(target_date_str)
-    
-    await save_data(user_plans) # 저장 필수
-
-    # 4. 결과 메시지
-    embed = discord.Embed(title="🛌 휴식권 사용!", description=f"**{target_date_str}** {note}\n오늘은 푹 쉬세요! 벌금이 부과되지 않습니다.", color=discord.Color.purple())
-    embed.set_footer(text="⚠️ 월 1회만 가능하니 신중하게 사용하세요!")
-    
-    await interaction.response.send_message(embed=embed)
-
-#휴식취소
-@bot.tree.command(name="휴식취소", description="방금 사용한 휴식권을 취소합니다. (되돌리기)")
-async def cancel_rest(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    
-    if user_id not in user_plans:
-        await interaction.response.send_message("❌ 등록된 데이터가 없습니다.", ephemeral=True)
-        return
-
-    # 1. 취소할 날짜 계산 (휴식 사용과 같은 새벽 기준)
-    target_date_str = get_base_date().strftime('%Y-%m-%d')
-    
-    # 2. 데이터 확인 및 삭제
-    deleted = False
-    
-    # 휴식 기록에서 삭제
-    if 'rest_history' in user_plans[user_id] and target_date_str in user_plans[user_id]['rest_history']:
-        user_plans[user_id]['rest_history'].remove(target_date_str)
-        deleted = True
-    
-    if deleted:
-        await save_data(user_plans)
-        await interaction.response.send_message(f"↩️ **{target_date_str}** 날짜의 휴식 사용을 취소했습니다! 다시 횟수가 복구되었어요.", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"❓ **{target_date_str}** 날짜로 사용된 휴식권이 없는데요?", ephemeral=True)
-
-#관리자 휴식 강제 부여/삭제
-@bot.tree.command(name="관리자_휴식관리", description="[관리자] 특정 유저의 휴식 날짜를 넣거나 뺍니다.")
-@app_commands.describe(동작="추가/삭제", 유저="대상 유저", 날짜="YYYY-MM-DD")
-@app_commands.choices(동작=[
-    app_commands.Choice(name="휴식 부여 (추가)", value="add"),
-    app_commands.Choice(name="휴식 취소 (삭제)", value="remove")
-])
-@app_commands.checks.has_permissions(administrator=True)
-async def admin_manage_rest(interaction: discord.Interaction, 동작: app_commands.Choice[str], 유저: discord.Member, 날짜: str):
-    user_id = str(유저.id)
-    
-    # 날짜 형식 체크
-    try:
-        datetime.strptime(날짜, "%Y-%m-%d")
-    except ValueError:
-        await interaction.response.send_message("❌ 날짜 형식이 틀렸어요! **2026-01-18** 처럼 적어주세요.", ephemeral=True)
-        return
-
-    if user_id not in user_plans: user_plans[user_id] = {}
-    if 'rest_history' not in user_plans[user_id]: user_plans[user_id]['rest_history'] = []
-    if 'exemptions' not in user_plans[user_id]: user_plans[user_id]['exemptions'] = []
-
-    if 동작.value == "add":
-        # 추가 로직
-        if 날짜 not in user_plans[user_id]['rest_history']:
-            user_plans[user_id]['rest_history'].append(날짜)
-        
-        await save_data(user_plans)
-        await interaction.response.send_message(f"🔧 **{유저.display_name}**님에게 **{날짜}** 휴식을 강제로 선물했습니다. 🎁")
-
-    else:
-        # 삭제 로직
-        if 날짜 in user_plans[user_id]['rest_history']:
-            user_plans[user_id]['rest_history'].remove(날짜)
-            
-        await save_data(user_plans)
-        await interaction.response.send_message(f"🔧 **{유저.display_name}**님의 **{날짜}** 휴식 기록을 삭제했습니다. 🗑️")
-
-#주간 목표 수정
-# 자동완성: 주간 계획만 보여줌 (이번 주 목표를 이미 채운 계획도 포함)
-async def weekly_plan_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    user_id = str(interaction.user.id)
-    choices = []
-    for _, plan in iter_plans(user_plans.get(user_id, {}), categories=["Weekly"]):
-        name = f"[주{plan.get('count', 1)}회] {plan['content']}"
-        if current.lower() in name.lower() and len(plan['content']) <= 100:
-            choices.append(app_commands.Choice(name=fit_choice(name), value=plan['content']))
-    return choices[:25]
-
-# 이번 주 한정 목표 수정 명령어
-@bot.tree.command(name="이번주목표", description="이번 주만 적용될 주간 목표 횟수를 수정합니다.")
-@app_commands.describe(계획="수정할 주간 계획 선택", 횟수="이번 주에 적용할 목표 횟수 (0이면 면제)")
-@app_commands.autocomplete(계획=weekly_plan_autocomplete)
-async def set_weekly_override(interaction: discord.Interaction, 계획: str, 횟수: app_commands.Range[int, 0, 7]):
-    user_id = str(interaction.user.id)
-    category, target_plan = find_plan(user_id, 계획)
-
-    if category != "Weekly":
-        await interaction.response.send_message("❌ 해당 주간 계획을 찾을 수 없습니다.", ephemeral=True)
-        return
-
-    # 이번 주 월요일 날짜를 키(Key)로 사용 (새벽 0~5시는 전날 기준)
-    start_of_week_str, _ = week_bounds(get_base_date())
-
-    # 데이터 저장 구조: 'overrides': {'2026-02-09': 3}
-    target_plan.setdefault('overrides', {})[start_of_week_str] = 횟수
+    rest_history.append(target_date_str)
     await save_data(user_plans)
 
-    embed = discord.Embed(title="📅 이번 주 목표 수정 완료", color=discord.Color.orange())
-    embed.description = f"**{계획}**의 이번 주 목표를 **{횟수}회**로 변경했습니다.\n(다음 주가 되면 원래대로 돌아갑니다.)"
-    
+    note = "(새벽🌙)" if get_now().hour < 6 else ""
+    embed = discord.Embed(title="🛌 휴식권 사용!", description=f"**{target_date_str}** {note}\n오늘은 푹 쉬세요! 벌금이 부과되지 않습니다.", color=discord.Color.purple())
+    embed.set_footer(text="⚠️ 월 1회만 가능하니 신중하게 사용하세요! (잘못 썼다면 /휴식 동작:취소하기)")
     await interaction.response.send_message(embed=embed)
 
 #현황
@@ -1225,12 +1111,11 @@ async def process_verification(interaction: discord.Interaction, 계획:str, 내
         await interaction.response.send_message("❌ 사진 파일만 올릴 수 있어요!", ephemeral=True)
         return
 
-    base_date = get_base_date()  # 새벽 0~5시는 전날
+    # 새벽 0~5시는 전날 기준
+    target_date = resolve_target_date("yesterday" if is_yesterday else "today")
     if is_yesterday:
-        target_date = base_date - timedelta(days=1)
         display_note = "(어제 늦은 인증😅)"
     else:
-        target_date = base_date
         display_note = "(새벽🌙)" if get_now().hour < 6 else ""
     target_date_str = target_date.strftime('%Y-%m-%d')
 
@@ -1263,7 +1148,7 @@ async def process_verification(interaction: discord.Interaction, 계획:str, 내
 
     extra_fields = []
     if category == "OneTime":
-        # 달성한 목표는 계획 목록에서 자동으로 빠짐 (/인증초기화로 되돌릴 수 있음)
+        # 달성한 목표는 계획 목록에서 자동으로 빠짐 (/인증취소로 되돌릴 수 있음)
         complete_goal(user_id, plan, target_date_str)
         verified_plan_name = f"🏆 [목표달성] {plan['content']}"
         extra_fields.append(("🎉 목표 달성!", "달성한 목표는 계획 목록에서 자동으로 정리했어요.", False))
@@ -1304,19 +1189,15 @@ async def process_verification(interaction: discord.Interaction, 계획:str, 내
     )
     await respond_embeds(interaction, embeds)
 
-#계획 인증(오늘)
-@bot.tree.command(name="인증", description="한 내용을 인증하세요")
-@app_commands.describe(계획="인증할 계획 선택", 내용="코멘트 (선택)", 사진="인증샷 (선택)")
+#계획 인증
+@bot.tree.command(name="인증", description="한 내용을 인증하세요 (깜빡한 어제 인증은 날짜: 어제)")
+@app_commands.describe(계획="인증할 계획 선택", 내용="코멘트 (선택)", 사진="인증샷 (선택)", 날짜="오늘(기본) / 어제")
+@app_commands.choices(날짜=DATE_CHOICES)
 @app_commands.autocomplete(계획=plan_autocomplete)
-async def verify_study(interaction: discord.Interaction, 계획:str, 내용: LongText=None, 사진: discord.Attachment=None):
-    await process_verification(interaction, 계획, 내용, 사진, is_yesterday=False)
-
-#계획 인증(어제)
-@bot.tree.command(name="어제인증", description="깜빡한 어제 계획을 인증합니다.")
-@app_commands.describe(계획="인증할 계획 선택", 내용="코멘트 (선택)", 사진="인증샷 (선택)")
-@app_commands.autocomplete(계획=plan_autocomplete)
-async def verify_study_yesterday(interaction: discord.Interaction, 계획:str, 내용: LongText=None, 사진: discord.Attachment=None):
-    await process_verification(interaction, 계획, 내용, 사진, is_yesterday=True)
+async def verify_study(interaction: discord.Interaction, 계획: str, 내용: LongText = None, 사진: discord.Attachment = None,
+                       날짜: app_commands.Choice[str] = None):
+    is_yesterday = bool(날짜 and 날짜.value == "yesterday")
+    await process_verification(interaction, 계획, 내용, 사진, is_yesterday=is_yesterday)
 
 #계획표
 CATEGORY_TITLES = {
@@ -1410,7 +1291,7 @@ async def check_my_plans(interaction: discord.Interaction):
             fields.append((CATEGORY_TITLES[category], "\n".join(lines), False))
 
     if not fields:
-        await interaction.response.send_message("📭 등록된 계획이 없어요! `/계획 일일`, `/계획 주간` 같은 명령어로 추가해보세요.", ephemeral=True)
+        await interaction.response.send_message("📭 등록된 계획이 없어요! `/계획 등록` 명령어로 추가해보세요.", ephemeral=True)
         return
 
     rest_cnt = count_in_month(user_data.get('rest_history', []), display_date)
@@ -1424,47 +1305,79 @@ async def check_my_plans(interaction: discord.Interaction):
     )
     await respond_embeds(interaction, embeds)
 
-#인증초기화
-@bot.tree.command(name="인증초기화", description="[테스트용] 오늘의 모든 인증 도장을 지웁니다.")
-async def reset_verification(interaction: discord.Interaction):
+#인증취소 (계획 하나의 기록 한 번만 되돌리기)
+def find_cancelable(user_id, content, date_str):
+    """
+    그 날짜에 기록이 있는 계획 찾기.
+    (계획, 달성해서 목록에서 빠진 목표인지) 를 돌려줌. 없으면 (None, False)
+    """
+    user_data = user_plans.get(user_id, {})
+    for _, plan in iter_plans(user_data):
+        if plan['content'] == content and date_str in plan.get('history', []):
+            return plan, False
+    for goal in user_data.get('completed_goals', []):
+        if goal.get('content') == content and goal.get('completed_at') == date_str:
+            return goal, True
+    return None, False
+
+async def cancel_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     user_id = str(interaction.user.id)
-    if user_id not in user_plans:
-        await interaction.response.send_message("❓ 등록된 계획이 없어서 초기화할 게 없네요.", ephemeral=True)
+    user_data = user_plans.get(user_id, {})
+    date_str = resolve_target_date(getattr(interaction.namespace, "날짜", None)).strftime('%Y-%m-%d')
+
+    names = []
+    for category, plan in iter_plans(user_data):
+        n = plan.get('history', []).count(date_str)
+        if n:
+            names.append((f"[{CATEGORY_KR[category]}] {plan['content']}" + (f" ({n}회 기록)" if category == "Limit" else ""), plan['content']))
+    for goal in user_data.get('completed_goals', []):
+        if goal.get('completed_at') == date_str:
+            names.append((f"[목표달성] {goal['content']}", goal['content']))
+
+    return [app_commands.Choice(name=fit_choice(n), value=v) for n, v in names
+            if current.lower() in n.lower() and len(v) <= 100][:25]
+
+@bot.tree.command(name="인증취소", description="잘못 누른 인증을 한 번 되돌립니다 (제한 계획은 기록 1회만 취소)")
+@app_commands.describe(계획="취소할 계획 선택", 날짜="오늘(기본) / 어제")
+@app_commands.choices(날짜=DATE_CHOICES)
+@app_commands.autocomplete(계획=cancel_autocomplete)
+async def cancel_verification(interaction: discord.Interaction, 계획: str, 날짜: app_commands.Choice[str] = None):
+    user_id = str(interaction.user.id)
+    date_str = resolve_target_date(날짜.value if 날짜 else None).strftime('%Y-%m-%d')
+
+    plan, was_completed_goal = find_cancelable(user_id, 계획, date_str)
+    if not plan:
+        await interaction.response.send_message(f"❓ **{date_str}** 날짜에 **'{계획}'** 인증 기록이 없어요.", ephemeral=True)
         return
 
-    target_date_str = get_base_date().strftime('%Y-%m-%d')  # 새벽이면 어제 거를 지움
+    # 기록 한 번 지우기 (뒤에서부터 하나만)
+    history = plan.get('history', [])
+    if date_str in history:
+        history.reverse()
+        history.remove(date_str)
+        history.reverse()
+    if plan.get('last_verified') == date_str and date_str not in history:
+        del plan['last_verified']
 
-    user_data = user_plans[user_id]
-
-    # 0. 오늘 달성해서 목록에서 빠진 목표는 다시 목록으로 되돌림
-    goals = user_data.get('completed_goals', [])
-    for goal in [g for g in goals if g.get('completed_at') == target_date_str]:
-        goals.remove(goal)
-        goal['completed'] = False
-        goal.pop('completed_at', None)
-        user_data.setdefault("OneTime", []).append(goal)
-    if 'completed_goals' in user_data and not goals:
-        del user_data['completed_goals']
-
-    count = 0
-    for category, plan in iter_plans(user_data):
-        # 1. history에서 오늘 날짜 제거 (제한 계획은 오늘 기록 전부)
-        history = plan.get('history', [])
-        removed = history.count(target_date_str) if category == "Limit" else int(target_date_str in history)
-        if removed:
-            plan['history'] = [d for d in history if d != target_date_str]
-            count += removed
-
-        # 2. last_verified가 오늘이면 삭제 (구버전 호환)
-        if plan.get('last_verified') == target_date_str:
-            del plan['last_verified']
+    # 달성해서 목록에서 빠진 목표는 다시 목록으로
+    if was_completed_goal:
+        user_data = user_plans[user_id]
+        user_data['completed_goals'].remove(plan)
+        if not user_data['completed_goals']:
+            del user_data['completed_goals']
+        plan['completed'] = False
+        plan.pop('completed_at', None)
+        user_data.setdefault("OneTime", []).append(plan)
 
     await save_data(user_plans)
 
-    if count > 0:
-        await interaction.response.send_message(f"🧹 **{target_date_str}** 날짜의 인증 도장 **{count}개**를 지웠습니다! ✨", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"❓ **{target_date_str}** 날짜에 찍힌 도장이 없어요.", ephemeral=True)
+    msg = f"↩️ **{date_str}** **'{계획}'** 인증을 한 번 취소했어요."
+    if was_completed_goal:
+        msg += " 목표를 다시 계획 목록에 넣었어요."
+    remaining = history.count(date_str)
+    if remaining:
+        msg += f" (이 날짜에 아직 {remaining}회 기록이 남아 있어요)"
+    await interaction.response.send_message(msg, ephemeral=True)
 
 #알림 시간 설정
 @bot.tree.command(name="알림시간", description="인증 검사 알림 시간 설정")
@@ -1580,7 +1493,7 @@ def find_missed_plans(user_id, data, now, yesterday_str, is_monday, is_first_day
             last_week_start_str, _ = week_bounds(yesterday)
             if created_at <= last_week_start_str:
                 count = count_in_week(history, yesterday)
-                # 화면에 보여주는 목표와 같은 기준 (휴식/면책 차감, /이번주목표 반영)
+                # 화면에 보여주는 목표와 같은 기준 (휴식/면책 차감 반영)
                 target = get_weekly_target(user_id, plan, yesterday)
                 if count < target:
                     missed_details.append(f"[주간]{plan['content']}({count}/{target}회)")
@@ -1800,30 +1713,32 @@ async def before_check_study_status():
     print(f"⏳ 다음 정각({future.hour}시)까지 {int(seconds_until_next_hour)}초 대기합니다...")
     await asyncio.sleep(seconds_until_next_hour)
 
-#벌금 수정
-@bot.tree.command(name="벌금수정", description="특정 유저의 벌금을 수정합니다.")
-@app_commands.describe(유저="대상 유저", 금액="수정할 최종 금액 (예: 0, 5000)", 사유="수정 사유")
+#벌금 수정 (관리자, 3,000원씩 더하거나 빼기)
+@bot.tree.command(name="벌금수정", description=f"[관리자] 특정 유저의 벌금을 {FINE_AMOUNT:,}원 더하거나 뺍니다.")
+@app_commands.describe(유저="대상 유저", 동작=f"+{FINE_AMOUNT:,}원 / -{FINE_AMOUNT:,}원", 사유="수정 사유 (선택)")
+@app_commands.choices(동작=[
+    app_commands.Choice(name=f"+ {FINE_AMOUNT:,}원 (벌금 추가)", value=1),
+    app_commands.Choice(name=f"- {FINE_AMOUNT:,}원 (벌금 차감, 예: 납부)", value=-1),
+])
 @app_commands.checks.has_permissions(administrator=True)
-async def adjust_fine(interaction: discord.Interaction, 유저: discord.Member, 금액: int, 사유: LongText = "관리자 수정"):
-    user_id = str(유저.id)
-    
-    if user_id not in user_plans:
-        await interaction.response.send_message("❌ 데이터가 없는 유저입니다.", ephemeral=True)
+async def adjust_fine(interaction: discord.Interaction, 유저: discord.Member, 동작: app_commands.Choice[int], 사유: LongText = "관리자 수정"):
+    user_data = user_plans.setdefault(str(유저.id), {})
+    old_fine = user_data.get('fines', 0)
+
+    if 동작.value < 0 and old_fine <= 0:
+        await interaction.response.send_message(f"❌ **{유저.display_name}**님은 남은 벌금이 없어요.", ephemeral=True)
         return
-    
-    # 기존 벌금
-    old_fine = user_plans[user_id].get('fines', 0)
-    
-    # 벌금 수정
-    user_plans[user_id]['fines'] = 금액
+
+    # 0원 아래로는 내려가지 않음
+    new_fine = max(0, old_fine + 동작.value * FINE_AMOUNT)
+    user_data['fines'] = new_fine
     await save_data(user_plans)
-    
+
     embed = discord.Embed(title="🔧 벌금 조정 완료", color=discord.Color.gold())
     embed.add_field(name="대상", value=유저.mention, inline=True)
     embed.add_field(name="변경 전", value=f"{old_fine:,}원", inline=True)
-    embed.add_field(name="변경 후", value=f"**{금액:,}원**", inline=True)
+    embed.add_field(name="변경 후", value=f"**{new_fine:,}원**", inline=True)
     embed.add_field(name="사유", value=사유, inline=False)
-    
     await interaction.response.send_message(embed=embed)
 
 #명령어 오류 공통 처리 (권한 없음, DM 사용, 예상 못 한 오류)
@@ -1894,36 +1809,6 @@ async def on_voice_state_update(member, before, after):
             if alert_channel:
                 await alert_channel.send(msg)
 
-#공지
-@bot.tree.command(name="공지", description="채널에 임베드 공지를 보냅니다.")
-@app_commands.describe(제목="공지 제목", 내용="내용 ('\\n'으로 줄바꿈 가능)")
-@app_commands.checks.has_permissions(administrator=True)
-async def send_notice(interaction: discord.Interaction, 제목: app_commands.Range[str, 1, 256], 내용: app_commands.Range[str, 1, 4000]):
-    
-    target_channel = bot.get_channel(ALERT_CHANNEL)
-
-    if not target_channel:
-        await interaction.response.send_message("❌ 공지 채널을 찾을 수 없어요! .env 파일의 ALERT_CHANNEL ID를 확인해주세요.", ephemeral=True)
-        return
-
-    # 줄바꿈 처리
-    final_content = 내용.replace("\\n", "\n")
-
-    #임베드 만들기
-    embed = discord.Embed(
-        title=제목,
-        description=final_content,
-        color=discord.Color.gold() # 색상 변경 가능 (blue, red, green 등)
-    )
-    
-    # 꾸미기 요소 (선택사항)
-    embed.set_footer(text=f"작성자: {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-    embed.set_thumbnail(url=bot.user.display_avatar.url)
-    
-    #보낸 사람에게 확인 메시지 (나만 보임)
-    await target_channel.send(embed=embed)
-    await interaction.response.send_message(f"✅ {target_channel.mention}에 공지를 등록했습니다!", ephemeral=True)
-
 #칭찬
 @bot.tree.command(name="칭찬", description="무작위 칭찬 멘트로 자존감을 채워줍니다!")
 async def praise_me(interaction: discord.Interaction):
@@ -1939,46 +1824,6 @@ async def praise_me(interaction: discord.Interaction):
         "힘든 순간도 결국 지나갈 거예요. 힘내세요! 🌈",
         "당신은 생각보다 훨씬 더 대단한 사람입니다! 💎"
     ]
-
-    # 랜덤 선택
-    selected = random .choice(messages)
-
-    # 메시지 전송
-    await interaction.response.send_message(f"📢 **{interaction.user.display_name}**님, {selected}")
-
-#데이터청소(면책)
-@bot.tree.command(name="데이터청소_면책", description="[관리자] 잘못 들어가서 깨진(1글자짜리) 면책 데이터를 삭제합니다.")
-@app_commands.checks.has_permissions(administrator=True)
-async def clean_broken_exemptions(interaction: discord.Interaction):
-    cleaned_count = 0
-    target_users = []
-
-    for user_id, data  in user_plans.items():
-        if 'exemptions' in data:
-            original_list = data['exemptions']
-            # 길이가 5보다 작은 것(예: "2", "-", "0")은 잘못된 데이터로 간주하고 삭제
-            # 정상 날짜 "2026-01-21"은 길이가 10임
-            new_list = [d for d in original_list if len(d) > 5]
-            
-            diff = len(original_list) - len(new_list)
-            if diff > 0:
-                data['exemptions'] = new_list
-                cleaned_count += diff
-                target_users.append(f"<@{user_id}>")
-
-    if cleaned_count > 0:
-        await save_data(user_plans)
-        await interaction.response.send_message(f"🧹 **청소 완료!**\n잘못된 면책 데이터 **{cleaned_count}개**를 삭제했습니다.\n대상: {', '.join(target_users)}")
-    else:
-        await interaction.response.send_message("✨ 데이터가 깨끗합니다! 잘못된 기록이 없어요.", ephemeral=True)
-
-@bot.tree.command(name="ping", description="Ping & Pong")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong! 🏓")
-
-@bot.tree.command(name="dice", description="1부터 6까지 주사위를 굴립니다.")
-async def dice(interaction: discord.Interaction):
-    num = random.randrange(1, 7)
-    await interaction.response.send_message(f'🎲 주사위 결과: **{num}**')
+    await interaction.response.send_message(f"📢 **{interaction.user.display_name}**님, {random.choice(messages)}")
 
 bot.run(TOKEN)
