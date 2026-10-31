@@ -199,7 +199,28 @@ sudo systemctl enable --now tonkatsubot   # 켜기 + 재부팅 시 자동 시작
 journalctl -u tonkatsubot -f              # 로그 보기
 ```
 
-### 업데이트
+### 자동 업데이트 (추천)
+
+서버가 5분마다 GitHub(`jihun31/Planer` main)를 확인해서, **봇 코드가 바뀌었으면 알아서 받고 재시작**합니다.
+
+```bash
+cd ~/Planer-eddited && git pull && bash bot/deploy/install_auto_update.sh   # 한 번만
+```
+
+- `requirements.txt`가 바뀌었으면 라이브러리도 설치합니다.
+- **문법 오류**가 있거나 **재시작 후 봇이 바로 꺼지면 이전 버전으로 되돌리고** 다시 켭니다. 실패한 커밋은 다음 커밋이 올라올 때까지 다시 시도하지 않습니다.
+- 서버에서 직접 고친 파일이 있으면 덮어쓰지 않고 멈춥니다. `.env`, 키, 백업은 건드리지 않습니다.
+- 앱 코드만 바뀐 커밋이면 받기만 하고 봇은 재시작하지 않습니다.
+- 봇 재시작 권한만 비밀번호 없이 쓸 수 있게 `/etc/sudoers.d/tonkatsubot-update`를 만듭니다.
+
+| 하고 싶은 것 | 명령어 |
+|---|---|
+| 업데이트 기록 보기 | `journalctl -u tonkatsubot-update -n 50` |
+| 다음 확인 시각 | `systemctl list-timers tonkatsubot-update.timer` |
+| 지금 바로 확인 | `sudo systemctl start tonkatsubot-update` |
+| 자동 업데이트 끄기 | `sudo systemctl disable --now tonkatsubot-update.timer` |
+
+### 직접 업데이트
 
 ```bash
 cd ~/Planer-eddited && git pull && sudo systemctl restart tonkatsubot

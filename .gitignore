@@ -38,6 +38,7 @@ local-data/
 bot/.env
 bot/*.json
 bot/backups/
+bot/.auto-update/
 bot/venv/
 bot/.venv/
 __pycache__/
