@@ -27,7 +27,6 @@ export function LearningSummary({ learning, onOpen }) {
       <span>오늘 {duration(s.todayMinutes)}{s.goal ? ` / 목표 ${duration(s.goal.minutes)}` : ' · 목표 설정하기'}</span>
       {s.goal && <progress aria-label="오늘 학습 목표" value={Math.min(s.todayMinutes,s.goal.minutes)} max={s.goal.minutes} />}
     </>}
-    <span className="learning-summary-link">자세히 보기 →</span>
   </button>;
 }
 

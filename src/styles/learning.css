@@ -1,6 +1,5 @@
 .learning-summary { width:100%; display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding:13px 18px; margin-bottom:18px; border:1px solid #d9e5df; border-radius:12px; background:#f5faf7; color:var(--text); text-align:left; font:inherit; font-size:13px; cursor:pointer; }
 .learning-summary-title { color:#36745e; font-weight:700; }
-.learning-summary-link { margin-left:auto; color:var(--text-muted); font-size:12px; }
 .learning-summary progress { width:100px; height:6px; }
 .learning-page { max-width:1220px; margin:auto; display:grid; grid-template-columns:minmax(0,1fr); gap:22px; padding-bottom:24px; }
 .learning-heading,.learning-card-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
