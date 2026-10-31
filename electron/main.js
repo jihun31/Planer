@@ -177,7 +177,16 @@ ipcMain.on('timer:stop-from-popup', event => {
   timerStopPending = true;
   timerWindow.close();
 });
-app.whenReady().then(createMainWindow);
+app.whenReady().then(() => {
+  createMainWindow();
+  // 설치본에서만 자동 업데이트 (개발 중에는 끔)
+  if (!isDev) {
+    try {
+      const { autoUpdater } = require('electron-updater');
+      require('./auto-update.cjs').setupAutoUpdate({ autoUpdater, ipcMain, isAllowed: fromMain, getWindow: () => mainWindow });
+    } catch (error) { console.warn('[auto-update] 시작 실패', error?.message || error); }
+  }
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => { loginSession?.cancel(); });
 app.on('activate', () => { if (!mainWindow) createMainWindow(); });

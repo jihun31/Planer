@@ -13,6 +13,7 @@ import TodayTab from "./components/tabs/TasksTab";
 import PlannerTab from "./components/tabs/PlannerTab";
 import LearningTab, { LearningSummary } from './components/tabs/LearningTab';
 import HelpDialog from './components/HelpDialog';
+import UpdateBanner from './components/UpdateBanner';
 import NotesTab from './components/tabs/NotesTab';
 import CalendarTab from './components/tabs/CalendarTab';
 import { useLearning } from './features/learning/useLearning';
@@ -175,6 +176,7 @@ function App() {
           <button className="btn-signout" onClick={logout}>로그아웃</button>
         </div>
       </header>
+      <UpdateBanner />
 
       {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
         ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}

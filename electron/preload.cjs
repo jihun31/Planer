@@ -20,4 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTimerStopped: (cb) => listen('timer:stopped', cb),
   onTimerData: (cb) => listen('timer:data', cb),
   minimizeMain: () => ipcRenderer.send('window:minimize-main'),
+  getUpdateState: () => ipcRenderer.invoke('update:get-state'),
+  onUpdateStatus: (cb) => listen('update:status', cb),
+  installUpdate: () => ipcRenderer.send('update:install'),
 });
