@@ -74,6 +74,12 @@ test('build and release settings publish what the updater reads', () => {
   assert.equal(pkg.build.nsis.artifactName, 'Planer-Setup-${version}.${ext}'); // 공백 없는 이름 = latest.yml과 일치
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   assert.match(workflow, /npm version "1\.1\.\$env:GITHUB_RUN_NUMBER"/);
+  // 병합 때 자동 배포: main push + 앱 파일 경로, 봇만 바뀌면 실행 안 함, 직접 실행도 가능
+  assert.match(workflow, /push:\s+branches: \[main\]/);
+  assert.match(workflow, /workflow_dispatch:/);
+  for (const p of ["'src/**'", "'electron/**'", "'package.json'"]) assert.ok(workflow.includes(p), p);
+  assert.ok(!workflow.includes("'bot/**'"));
+  assert.match(workflow, /cancel-in-progress: false/);
   for (const name of ['latest.yml', 'Planer-Setup-$version.exe.blockmap', 'Planer-Setup-$version.exe'])
     assert.ok(workflow.includes(name), name);
   const main = fs.readFileSync(path.join(root, 'electron/main.js'), 'utf8');
