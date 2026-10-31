@@ -267,3 +267,65 @@ test('휴식권: 오늘만, 한 달에 한 번 (문서 ID), 면책은 앱에서 
   await seed(f => setDoc(doc(f, 'offDays', `${ALICE.discordId}_exempt_${TODAY}`), { ownerId: ALICE.discordId, type: 'exempt', date: TODAY, createdAt: Timestamp.now() }));
   await assertFails(deleteDoc(doc(alice, 'offDays', `${ALICE.discordId}_exempt_${TODAY}`)));
 });
+
+test('앱이 실제로 쓰는 문서(tonkatsuWrites.mjs)가 규칙을 통과함', async () => {
+  const W = await import('../src/features/tonkatsu/tonkatsuWrites.mjs');
+  const C = await import('../src/features/tonkatsu/tonkatsuCore.mjs');
+  const alice = db(ALICE.uid), ts = serverTimestamp();
+  assert.equal(C.baseDate(), TODAY); // 앱의 '오늘'과 규칙의 '오늘'이 같음
+
+  const inputs = [
+    { category: 'Daily', content: ' 앱 운동 ', photo: true },
+    { category: 'Weekly', content: '앱 코딩', count: 3 },
+    { category: 'Monthly', content: '앱 등산', count: 4 },
+    { category: 'Routine', content: '앱 요가', days: ['금', '월'] },
+    { category: 'Interval', content: '앱 청소', interval: 3 },
+    { category: 'OneTime', content: '앱 목표', deadline: TOMORROW },
+    { category: 'Limit', content: '앱 몬스터', period: 'week', limit: 2, photo: true },
+  ];
+  const ids = {};
+  for (const input of inputs) {
+    assert.equal(W.planInputError(input), null, input.category);
+    ids[input.category] = `tk-app-${input.category}`;
+    await assertSucceeds(setDoc(doc(alice, 'plans', ids[input.category]), W.planDoc(ALICE.discordId, input, C.baseDate(), ts)));
+  }
+  const saved = (await getDoc(doc(alice, 'plans', ids.Routine))).data();
+  assert.deepEqual(saved.days, ['월', '금']);
+  assert.equal((await getDoc(doc(alice, 'plans', ids.Limit))).data().photo, false);
+  for (const bad of [{ category: 'Weekly', content: 'x', count: 8 }, { category: 'Daily', content: '  ' }, { category: 'Routine', content: 'x', days: [] }])
+    assert.notEqual(W.planInputError(bad), null);
+
+  // 일반 인증 (사진 필수인 앱 운동은 거부)
+  const plan = (category) => ({ id: ids[category], category });
+  for (const category of ['Weekly', 'Monthly', 'Routine', 'Interval']) {
+    const { id, data } = W.checkInDoc(plan(category), ALICE.discordId, TODAY, ts);
+    await assertSucceeds(setDoc(doc(alice, 'checkIns', id), data));
+  }
+  const photo = W.checkInDoc(plan('Daily'), ALICE.discordId, TODAY, ts);
+  await assertFails(setDoc(doc(alice, 'checkIns', photo.id), photo.data));
+  // 제한 계획은 자동 ID로 여러 번
+  for (let i = 0; i < 2; i++) {
+    const { id, data } = W.checkInDoc(plan('Limit'), ALICE.discordId, TODAY, ts);
+    assert.equal(id, null);
+    await assertSucceeds(setDoc(doc(collection(alice, 'checkIns')), data));
+  }
+  // 목표 달성 + 되돌리기
+  const goal = W.checkInDoc(plan('OneTime'), ALICE.discordId, TODAY, ts);
+  const done = writeBatch(alice);
+  done.set(doc(alice, 'checkIns', goal.id), goal.data);
+  done.update(doc(alice, 'plans', ids.OneTime), W.goalCompleteUpdate(TODAY, ts));
+  await assertSucceeds(done.commit());
+  const undo = writeBatch(alice);
+  undo.delete(doc(alice, 'checkIns', goal.id));
+  undo.update(doc(alice, 'plans', ids.OneTime), W.goalUndoUpdate(ts, deleteField()));
+  await assertSucceeds(undo.commit());
+  // 삭제, 휴식권
+  await assertSucceeds(updateDoc(doc(alice, 'plans', ids.Interval), W.planDeleteUpdate(ts)));
+  const rest = W.restDoc(BOB.discordId, TODAY, ts);
+  await assertSucceeds(setDoc(doc(db(BOB.uid), 'offDays', rest.id), rest.data));
+  await assertSucceeds(deleteDoc(doc(db(BOB.uid), 'offDays', rest.id)));
+  // 앱이 쓰는 조회 (최근 인증, 내 벌금 내역)
+  await assertSucceeds(getDocs(query(collection(alice, 'checkIns'), where('date', '>=', C.addDays(TODAY, -62)))));
+  await assertSucceeds(getDocs(query(collection(alice, 'offDays'), where('date', '>=', C.addDays(TODAY, -62)))));
+  await assertSucceeds(getDocs(query(collection(alice, 'fineEvents'), where('discordId', '==', ALICE.discordId))));
+});
