@@ -13,6 +13,7 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
   const [deleteBusyId, setDeleteBusyId] = useState(null);
   const [localIds, setLocalIds]     = useState([]);
   const [actionError, setActionError] = useState('');
+  const addDisabled = reordering || changingGroups || submitting;
 
   useEffect(() => {
     if (!reordering) setLocalIds(activities.map(a => a.id));
@@ -33,7 +34,7 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
 
   const handleDone = async () => {
     setReordering(false);
-    try { await onUpdateOrder(localIds); }
+    try { await onUpdateOrder(localIds.filter(id => activities.some(activity => activity.id === id))); }
     catch { setActionError('활동 순서를 저장하지 못했습니다. 다시 시도해 주세요.'); }
   };
 
@@ -59,7 +60,7 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!name.trim() || (control && !group)) return;
+    if (addDisabled || !name.trim() || (control && !group)) return;
     setSubmitting(true);
     setActionError('');
     try {
@@ -104,30 +105,30 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
           )}
         </div>
         <div className="act-manager-actions">
-          {activities.length > 0 && (
+          {(activities.length > 0 || reordering) && (
             <button type="button"
               className={`act-reorder-btn${reordering ? ' act-reorder-active' : ''}`}
-              onClick={reordering ? handleDone : () => setReordering(true)} disabled={changingGroups || !!deleteBusyId}
+              onClick={reordering ? handleDone : () => setReordering(true)} disabled={changingGroups || !!deleteBusyId || submitting}
               title={reordering ? '순서 변경 완료' : '활동 순서 수정'}
             >
               {reordering ? '완료' : '✎'}
             </button>
           )}
-          {control && activities.length > 0 && <button type="button"
+          {control && (activities.length > 0 || changingGroups) && <button type="button"
             className={`act-reorder-btn${changingGroups ? ' act-reorder-active' : ''}`}
-            onClick={() => setChangingGroups(value => !value)} disabled={reordering || !!groupBusyId}
+            onClick={() => setChangingGroups(value => !value)} disabled={reordering || !!groupBusyId || submitting}
             title={changingGroups ? '그룹 변경 완료' : '활동 그룹 변경'}>
             {changingGroups ? '완료' : '그룹 변경'}
           </button>}
         </div>
       </div>
       <form className="act-add-form" onSubmit={handleAdd}>
-        {control && <select className="form-select-sm" value={group} onChange={e => setGroup(e.target.value)} required>
+        {control && <select className="form-select-sm" value={group} onChange={e => setGroup(e.target.value)} required disabled={addDisabled}>
           <option value="">그룹 선택</option><option value="controlled">통제</option><option value="foolish">어리석음</option>
         </select>}
         {!control && <div className="color-palette">
           {COLORS.map(c => (
-            <button key={c} type="button"
+            <button key={c} type="button" disabled={addDisabled}
               className={`color-dot ${c === color ? 'color-selected' : ''}`}
               style={{ background: c }}
               onClick={() => setColor(c)}
@@ -139,10 +140,11 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
           style={{ flex: 1, minWidth: '120px' }}
           placeholder="활동 이름 (예: 독서, 기타, 운동, 휴식)"
           value={name}
+          disabled={addDisabled}
           onChange={(e) => setName(e.target.value)}
           required
         />
-        <button className="btn btn-login" type="submit" disabled={submitting}>
+        <button className="btn btn-login" type="submit" disabled={addDisabled}>
           {submitting ? '...' : '+ 추가'}
         </button>
       </form>

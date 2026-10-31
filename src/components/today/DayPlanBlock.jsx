@@ -23,6 +23,7 @@ export function DayPlanBlock({date,onDateChange,data,activities=[],allActivities
   currentDate.current=date;
   const unavailable=data.loading || !!data.error || busy || !settingsReady || !activitiesReady || !!activitiesError;
   const active=data.plans.filter(plan=>!plan.skipped).map(plan=>planActivity(plan,allActivities)),skipped=data.plans.filter(plan=>plan.skipped).map(plan=>planActivity(plan,allActivities));
+  const routines=data.routines.map(routine=>planActivity(routine,allActivities));
   const effectiveDate=date<planToday() ? planToday() : date;
   const previousDate=shiftPlanDate(date,-1),nextDate=shiftPlanDate(date,1);
   useEffect(()=>{setEditing(null);setForm(defaults(date));setSelection(null);setFailure('');},[date]);
@@ -52,6 +53,10 @@ export function DayPlanBlock({date,onDateChange,data,activities=[],allActivities
     try {input=planInput({title:linked?.name||form.title,activityId:linked?.id||form.activityId,
       activityColor:linked?.color||form.activityColor,startMinute:selection.startMinute,endMinute:selection.endMinute});}
     catch(error) {setFailure(error.message);return;}
+    const overlaps=active.some(plan=>plan.key!==editing?.key
+      && !(editing?.routineId&&plan.routineId===editing.routineId)
+      && input.startMinute<plan.endMinute&&plan.startMinute<input.endMinute);
+    if(overlaps){setFailure('선택한 시간대에 이미 계획이 있습니다. 빈 시간대를 선택해 주세요.');return;}
     if (form.scope==='weekly' && !form.weekdays.length) {setFailure('반복할 요일을 하나 이상 선택해 주세요.');return;}
     if (form.scope==='weekly') {
       const clearEntryId=editing?.source==='single' ? editing.entryId
@@ -65,6 +70,10 @@ export function DayPlanBlock({date,onDateChange,data,activities=[],allActivities
   function remove(plan) {
     if (plan.routineId) void run(()=>data.saveEntry({...plan,date,routineId:plan.routineId,skipped:true}),reset);
     else void run(()=>data.removeEntry(plan.entryId),reset);
+  }
+  function updateRoutine(routine,remove=false) {
+    void run(()=>data.saveRoutine({...routine,effectiveDate,deleted:remove||!routine.deleted,
+      ...(remove?{removed:true}:{})},{routineId:routine.routineId}),reset);
   }
   return <section className="day-plan-block" aria-labelledby={`${scopeId}-heading`}>
     <div className="day-plan-heading">
@@ -114,6 +123,24 @@ export function DayPlanBlock({date,onDateChange,data,activities=[],allActivities
     {skipped.length>0 && <details className="day-plan-skipped"><summary>이번 날짜에서 제외한 루틴 {skipped.length}개</summary>{skipped.map(plan=><div key={plan.key}>
       <span>{clockTime(plan.startMinute)} · {plan.title}</span><button type="button" disabled={unavailable} onClick={()=>void run(()=>data.removeEntry(plan.entryId),reset)}>되돌리기</button>
     </div>)}</details>}
+    <details className="day-plan-routines">
+      <summary>반복 루틴 관리 <span>{routines.length}개</span></summary>
+      <p className="day-plan-routine-help">변경은 {shortDate(effectiveDate)}부터 적용되며, 이전 날짜의 계획은 유지됩니다.</p>
+      {data.loading?<p className="day-plan-empty" role="status">반복 루틴을 불러오는 중…</p>
+        :!data.error&&!routines.length&&<p className="day-plan-empty">등록된 반복 루틴이 없습니다. 계획을 등록할 때 ‘매주 반복’을 선택해 주세요.</p>}
+      {routines.map(routine=><div className="day-plan-routine" key={routine.routineId}>
+        <div className="day-plan-routine-info">
+          <strong style={{color:routine.color}}>{routine.title}</strong>
+          <span>{daysLabel(routine.weekdays)} · {planTime(routine.startMinute)} ~ {planTime(routine.endMinute)}</span>
+          <span>{routine.deleted?'중단됨':'반복 중'}{routine.effectiveDate>date?` · ${shortDate(routine.effectiveDate)}부터`:''}</span>
+        </div>
+        <div className="day-plan-routine-actions">
+          <button type="button" disabled={unavailable} aria-label={`${routine.title} 반복 수정`} onClick={()=>edit(routine,'weekly')}>수정</button>
+          <button type="button" disabled={unavailable} aria-label={`${routine.title} 반복 ${routine.deleted?'재개':'중단'}`} onClick={()=>updateRoutine(routine)}>{routine.deleted?'재개':'중단'}</button>
+          <button type="button" disabled={unavailable} className="day-plan-delete" aria-label={`${routine.title} 반복 삭제`} onClick={()=>updateRoutine(routine,true)}>삭제</button>
+        </div>
+      </div>)}
+    </details>
   </section>;
 }
 export default function ConnectedDayPlanBlock({uid,date,onDateChange,scheduleHistory=[],settingsReady=true,settingsError=null}) {

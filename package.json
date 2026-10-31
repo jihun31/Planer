@@ -18,6 +18,7 @@
     "test:rules": "firebase emulators:exec --only firestore --project demo-planer-security \"node --test tests/firestore.rules.test.mjs tests/tonkatsu.rules.test.mjs\"",
     "test:notes:dom": "node tests/note-drag-dom.test.cjs",
     "test:notes:checklist": "node tests/note-checklist-dom.test.cjs",
+    "test:notes:lists": "node tests/note-lists-dom.test.cjs",
     "test:notes:workspace": "node tests/note-workspace-dom.test.cjs"
   },
   "dependencies": {

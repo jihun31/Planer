@@ -9,7 +9,7 @@ import { toggledNoteColor, rememberNoteColor } from '../../features/notes/noteEd
 import { startNoteTextDrag, noteTextDropAllowed, noteTextDropIndicator, prepareNoteTextMove, applyNoteTextMove } from '../../features/notes/noteTextDrag.mjs';
 import { insertNextNoteToggle } from '../../features/notes/noteToggleEditor.mjs';
 import { noteSlashShortcut } from '../../features/notes/noteSlashCommands.mjs';
-import { changeNoteListDepth } from '../../features/notes/noteListEditing.mjs';
+import { changeNoteListDepth, editNoteListKey } from '../../features/notes/noteListEditing.mjs';
 import { applyNoteChecklist, clearNoteChecklists, editNoteChecklistKey, repairNoteChecklists, toggleNoteChecklist } from '../../features/notes/noteChecklistEditing.mjs';
 
 function selectedFormats() {
@@ -34,6 +34,36 @@ function popupPosition(anchor,height,width) {
 function slashOptions(query) {
   const search = query.replace(/\s/g,'').toLowerCase();
   return NOTE_BLOCKS.filter(block => !block.toolbarOnly && block.search.replace(/\s/g,'').toLowerCase().includes(search));
+}
+
+function caretPoint(root,range) {
+  const element=range.endContainer.nodeType===1?range.endContainer:range.endContainer.parentElement;
+  const item=element?.closest('li'),scope=item&&root.contains(item)?item:root;
+  const before=range.cloneRange();before.selectNodeContents(scope);before.setEnd(range.endContainer,range.endOffset);
+  return {item:scope===root?null:[...root.querySelectorAll('li')].indexOf(scope),offset:before.toString().length};
+}
+
+function restoreCaretPoint(root,point) {
+  const scope=point.item===null?root:root.querySelectorAll('li')[point.item];
+  if(!scope)return;
+  const doc=root.ownerDocument,walker=doc.createTreeWalker(scope,4),range=doc.createRange();
+  let remaining=point.offset,node,found=false;
+  while((node=walker.nextNode())){
+    if(remaining<=node.length){range.setStart(node,remaining);range.collapse(true);found=true;break;}
+    remaining-=node.length;
+  }
+  if(!found){range.selectNodeContents(scope);range.collapse(point.offset===0);}
+  const selection=doc.getSelection();selection.removeAllRanges();selection.addRange(range);
+}
+
+function autoNumberedUndo(root,range) {
+  // Snapshot the typed space without letting it trigger another conversion.
+  const clone=root.cloneNode(true),path=[];
+  for(let node=range.endContainer;node!==root;node=node.parentNode)path.unshift([...node.parentNode.childNodes].indexOf(node));
+  const end=path.reduce((node,index)=>node.childNodes[index],clone),caret=root.ownerDocument.createRange();
+  caret.setStart(end,range.endOffset);caret.collapse(true);caret.insertNode(root.ownerDocument.createTextNode(' '));
+  const point=caretPoint(root,range);point.offset++;
+  return {before:readNoteEditor(clone),beforeCaret:point};
 }
 
 export function NoteTextEditor({text,edit,loading,readOnly}) {
@@ -145,9 +175,10 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
     if (selection.rangeCount) selectionRange.current = selection.getRangeAt(0).cloneRange();
     setMenu(null);inspectSelection();
   }
-  function applyBlock(type,fromSlash = false,shortcutRange = null) {
+  function applyBlock(type,fromSlash = false,shortcutRange = null,autoNumbered = false) {
     if (loading || readOnly) return;
     const selection = restoreSelection(shortcutRange || (fromSlash ? slashRange.current : selectionRange.current));
+    const autoUndo=autoNumbered?autoNumberedUndo(editor.current,selection.getRangeAt(0)):null;
     if (type === 'toggle') {
       const range = selection.getRangeAt(0).cloneRange();
       const element = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
@@ -188,14 +219,25 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
       setSlash(null);setMenu(null);inspectSelection();return;
     }
     clearNoteChecklists(editor.current,selection);
-    const inList = document.queryCommandState('insertUnorderedList');
-    if (type === 'bullet') {
-      if (!inList) {document.execCommand('formatBlock',false,'div');document.execCommand('insertUnorderedList');}
+    const inBullet = document.queryCommandState('insertUnorderedList');
+    const inNumbered = document.queryCommandState('insertOrderedList');
+    if (type === 'bullet'||type === 'numbered') {
+      const command=type==='numbered'?'insertOrderedList':'insertUnorderedList';
+      if (!(type==='numbered'?inNumbered:inBullet)) {
+        if(!inBullet&&!inNumbered)document.execCommand('formatBlock',false,'div');
+        document.execCommand(command);
+      }
     } else {
-      if (inList) document.execCommand('insertUnorderedList');
+      if (inBullet) document.execCommand('insertUnorderedList');
+      else if(inNumbered)document.execCommand('insertOrderedList');
       document.execCommand('formatBlock',false,type === 'quote' ? 'blockquote' : type === 'text' ? 'div' : type);
     }
-    setSlash(null);setMenu(null);commit();inspectSelection();
+    setSlash(null);setMenu(null);
+    if(commit()&&autoUndo){
+      toggleHistory.current.undo.push({...autoUndo,after:saved.current,afterCaret:caretPoint(editor.current,selection.getRangeAt(0))});
+      toggleHistory.current.redo=[];
+    }
+    inspectSelection();
   }
   function focusToggleBody(details) {
     const body = details.querySelector('.notes-toggle-body');
@@ -422,13 +464,16 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
               const value=redo?entry.after:entry.before;
               editor.current.innerHTML=noteHtml(value,true);saved.current=value;edit(value);
               selectionRange.current=null;setAnchor(null);setMenu(null);setSlash(null);
-              restoreSelection();inspectSelection();return;
+              restoreSelection();
+              const point=redo?entry.afterCaret:entry.beforeCaret;
+              if(point)restoreCaretPoint(editor.current,point);
+              inspectSelection();return;
             }
           }
         }
         if (['Enter','Backspace'].includes(event.key) && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !loading && !readOnly) {
           const before=readNoteEditor(editor.current);
-          if (editNoteChecklistKey(editor.current,window.getSelection(),event.key)) {
+          if (editNoteListKey(editor.current,window.getSelection(),event.key)||editNoteChecklistKey(editor.current,window.getSelection(),event.key)) {
             event.preventDefault();
             if (commit()) {toggleHistory.current.undo.push({before,after:saved.current});toggleHistory.current.redo=[];}
             inspectSelection();return;
@@ -468,6 +513,9 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
               }
               if (['[]','[ ]'].includes(prefix.toString())) {
                 event.preventDefault();applyBlock('checklist',false,prefix);return;
+              }
+              if (prefix.toString()==='1.'&&block?.parentElement?.nodeName!=='OL') {
+                event.preventDefault();applyBlock('numbered',false,prefix,true);return;
               }
               if (prefix.toString() === '-' && block?.nodeName !== 'LI') {
                 event.preventDefault();

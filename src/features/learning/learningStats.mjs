@@ -12,7 +12,7 @@ export function weekStart(date) {
   return dateShift(date, -((new Date(`${date}T12:00:00`).getDay()+6)%7));
 }
 export const validGoal = minutes => Number.isInteger(minutes) && minutes >= 5 && minutes <= 1440;
-export const WEEKLY_HOUR_BADGES = Object.freeze([10,20,30,40,50,60,70,80]);
+export const WEEKLY_HOUR_BADGES = Object.freeze([5,10,20,30,40,50,60,70]);
 export const STREAK_DAY_BADGES = Object.freeze([3,7,14,30,60,100,200,365]);
 const goalChangedAt = goal => Number.isFinite(goal.changedAt)
   ? goal.changedAt : goal.createdAt?.toMillis?.() ?? 0;
