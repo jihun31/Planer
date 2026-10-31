@@ -1,10 +1,28 @@
 name: Windows installer
 
+# main에 병합될 때 앱 파일이 바뀌었으면 자동으로 설치본을 만들어 릴리스 (설치된 앱은 자동 업데이트)
+# 봇(bot/)·문서만 바뀐 경우에는 실행하지 않음. 필요하면 Run workflow로 직접 실행
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'electron/**'
+      - 'public/**'
+      - 'index.html'
+      - 'vite.config.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# 한 번에 하나씩. 빌드 중에 병합이 여러 번 되면 가장 마지막 것만 이어서 빌드 (진행 중인 빌드는 끊지 않음)
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
 
 jobs:
   release:
