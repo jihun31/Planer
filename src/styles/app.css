@@ -353,3 +353,7 @@ body {
 .discord-link-note { font-size: 0.85rem; color: var(--text-muted, #64748b); }
 .discord-link-code { display: grid; gap: 6px; margin: 8px 0; }
 .discord-link-code > code { font-size: 1.6rem; font-weight: 800; letter-spacing: 0.12em; }
+
+/* 자동 업데이트 안내 */
+.update-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 24px; background: var(--primary-light); color: var(--primary-dark); font-weight: 600; border-bottom: 1px solid var(--border); }
+.update-banner span { flex: 1; min-width: 200px; }
