@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && node electron/run-dev.cjs\"",
     "electron:build": "npm run build && electron-builder --publish never",
-    "test": "node --test tests/planner-reads.test.mjs tests/google-auth.test.cjs tests/account-isolation.test.mjs tests/activity-history.test.mjs tests/schedule-time.test.mjs tests/control-time.test.mjs tests/control-colors.test.mjs tests/learning.test.mjs tests/notepad.test.mjs tests/note-library.test.mjs tests/note-subscriptions.test.mjs tests/youtube-links.test.mjs tests/site-links.test.mjs tests/tab-visibility.test.mjs tests/note-rich-text.test.mjs tests/calendar.test.mjs tests/day-plans.test.mjs tests/study-gap.test.mjs tests/ui-text.test.mjs",
+    "test": "node --test tests/planner-reads.test.mjs tests/google-auth.test.cjs tests/account-isolation.test.mjs tests/activity-history.test.mjs tests/schedule-time.test.mjs tests/control-time.test.mjs tests/control-colors.test.mjs tests/learning.test.mjs tests/notepad.test.mjs tests/note-library.test.mjs tests/note-subscriptions.test.mjs tests/youtube-links.test.mjs tests/site-links.test.mjs tests/tab-visibility.test.mjs tests/note-rich-text.test.mjs tests/calendar.test.mjs tests/day-plans.test.mjs tests/study-gap.test.mjs tests/ui-text.test.mjs tests/discord-link.test.mjs",
     "test:plans": "node --test tests/day-plans.test.mjs",
     "test:plans:ui": "node tests/day-plans-dom.test.cjs",
     "test:planner:ui": "node tests/planner-integration-dom.test.cjs",

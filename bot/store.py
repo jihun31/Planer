@@ -382,6 +382,80 @@ class Store:
         await self.db.collection("votes").document(str(message_id)).delete()
         self._local_delete("votes", str(message_id))
 
+    # ---------- 계정 연동 ----------
+
+    async def link_account(self, discord_id, code, max_age_seconds=600):
+        """
+        앱에서 만든 연동 코드로 디스코드 계정과 앱 계정(Firebase uid)을 연결.
+        결과: ('linked', uid) / ('invalid', None) / ('expired', None)
+        - 이 디스코드 계정이 다른 앱 계정과 연결돼 있었으면 그 연결은 끊고 새 계정으로 옮김
+        - 이 앱 계정이 다른 디스코드 계정과 연결돼 있었으면 그 연결도 끊음
+        """
+        discord_id = str(discord_id)
+        code_ref = self.db.collection("linkCodes").document(code)
+        member_ref = self.db.collection("members").document(discord_id)
+        transaction = self.db.transaction()
+
+        @firestore.async_transactional
+        async def run(tx):
+            code_snap = await code_ref.get(transaction=tx)
+            if not code_snap.exists:
+                return "invalid", None, None
+            data = code_snap.to_dict()
+            uid, created = data.get("uid"), data.get("createdAt")
+            if not isinstance(uid, str) or not isinstance(created, datetime) \
+                    or (datetime.now(timezone.utc) - created).total_seconds() > max_age_seconds:
+                tx.delete(code_ref)
+                return "expired", None, None
+
+            link_ref = self.db.collection("links").document(uid)
+            link_snap = await link_ref.get(transaction=tx)
+            member_snap = await member_ref.get(transaction=tx)
+            old_uid = (member_snap.to_dict() or {}).get("uid") if member_snap.exists else None
+            other_discord = (link_snap.to_dict() or {}).get("discordId") if link_snap.exists else None
+
+            if old_uid and old_uid != uid:
+                tx.delete(self.db.collection("links").document(old_uid))
+            if other_discord and other_discord != discord_id:
+                tx.set(self.db.collection("members").document(other_discord), {"uid": None}, merge=True)
+            tx.set(link_ref, {"uid": uid, "discordId": discord_id, "linkedAt": firestore.SERVER_TIMESTAMP})
+            tx.set(member_ref, {"discordId": discord_id, "uid": uid}, merge=True)
+            tx.delete(code_ref)
+            return "linked", uid, other_discord
+
+        result, uid, other_discord = await run(transaction)
+        if result == "linked":
+            if other_discord and other_discord != discord_id:
+                self._local_set("members", other_discord, {"uid": None}, merge=True)
+            self._local_set("members", discord_id, {"discordId": discord_id, "uid": uid}, merge=True)
+        return result, uid
+
+    async def unlink_account(self, discord_id):
+        """연동 해제. 연결된 앱 계정이 없었으면 False"""
+        discord_id = str(discord_id)
+        member = self.data["members"].get(discord_id) or {}
+        snap = await self.db.collection("members").document(discord_id).get()
+        uid = (snap.to_dict() or {}).get("uid") if snap.exists else member.get("uid")
+        if not uid:
+            return False
+        batch = self.db.batch()
+        batch.delete(self.db.collection("links").document(uid))
+        batch.set(self.db.collection("members").document(discord_id), {"uid": None}, merge=True)
+        await batch.commit()
+        self._local_set("members", discord_id, {"uid": None}, merge=True)
+        return True
+
+    async def cleanup_link_codes(self, max_age_seconds=3600):
+        """만든 지 오래된(쓰지 않은) 연동 코드 삭제"""
+        now = datetime.now(timezone.utc)
+        removed = 0
+        async for snap in self.db.collection("linkCodes").stream():
+            created = (snap.to_dict() or {}).get("createdAt")
+            if not isinstance(created, datetime) or (now - created).total_seconds() > max_age_seconds:
+                await snap.reference.delete()
+                removed += 1
+        return removed
+
     # ---------- 봇 상태·백업 ----------
 
     async def get_state(self):

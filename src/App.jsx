@@ -16,6 +16,7 @@ import HelpDialog from './components/HelpDialog';
 import NotesTab from './components/tabs/NotesTab';
 import CalendarTab from './components/tabs/CalendarTab';
 import { useLearning } from './features/learning/useLearning';
+import { useDiscordLink, useServerInfo } from './features/discord/useDiscord';
 import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
 import { useTabVisibility } from './features/navigation/useTabVisibility';
 import { visibleAppTabs } from './features/navigation/tabVisibility.mjs';
@@ -52,6 +53,10 @@ function App() {
   const todosData   = useTodos(user?.uid);
   const priorityData = usePriorityNotes(user?.uid);
   const blockMigration = useLegacyBlockMigration(user?.uid);
+  const discord = useDiscordLink(user?.uid);
+  const serverInfo = useServerInfo(!!discord.link);
+  // 디스코드와 연동되면 창 제목도 서버 이름으로
+  useEffect(() => { document.title = serverInfo?.name ? `${serverInfo.name} · Planer` : 'Planer'; }, [serverInfo?.name]);
   const [settingsUser, setSettingsUser] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [scheduleHistory, settingsReady, settingsError] = useCollection(user?.uid, subscribeScheduleSettings);
@@ -147,8 +152,16 @@ function App() {
     <div className="app">
       <header className="header">
         <div className="header-brand">
-          <span className="brand-icon">🗓</span>
-          <span className="brand-name">Planer</span>
+          {serverInfo?.name ? <>
+            {serverInfo.iconUrl?.startsWith('https://cdn.discordapp.com/')
+              ? <img src={serverInfo.iconUrl} alt="" className="brand-server-icon" />
+              : <span className="brand-icon">🍖</span>}
+            <span className="brand-name" title="연동된 디스코드 서버">{serverInfo.name}</span>
+            <span className="brand-sub">Planer</span>
+          </> : <>
+            <span className="brand-icon">🗓</span>
+            <span className="brand-name">Planer</span>
+          </>}
         </div>
         <div className="header-user">
           {user.photoURL && (
@@ -163,7 +176,7 @@ function App() {
       </header>
 
       {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
-        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} />}
+        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
       <nav className="tab-nav">
         {visibleTabs.map((tab) => (
