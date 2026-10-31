@@ -15,6 +15,7 @@ export const NOTE_BLOCKS = [
   {value:'h3',label:'제목',icon:'H',search:'h3 heading title 제목'},
   {value:'quote',label:'인용',icon:'❝',search:'quote blockquote 인용'},
   {value:'bullet',label:'글머리 기호 목록',icon:'•',search:'bullet list ul 글머리 기호 목록'},
+  {value:'numbered',label:'숫자 목록',icon:'1.',search:'number numbered ordered list ol 숫자 번호 목록 리스트'},
   {value:'checklist',label:'체크리스트',icon:'☑',search:'checklist checkbox todo to-do 할 일 체크리스트 체크박스'},
   {value:'divider',label:'구분선',icon:'—',search:'divider hr separator 구분선'},
   {value:'toggle',label:'토글',icon:'▸',search:'toggle 토글',toolbarOnly:true},
@@ -43,7 +44,7 @@ function validRun(run,depth = 0) {
     && (!('color' in run) || (typeof run.color === 'string' && noteColor(run.color) === run.color))
     && (!('block' in run) || blockTypes.includes(run.block))
     && (!('checked' in run) || (run.block === 'checklist' && typeof run.checked === 'boolean'))
-    && (!('listDepth' in run) || (['bullet','checklist'].includes(run.block) && Number.isInteger(run.listDepth)
+    && (!('listDepth' in run) || (['bullet','numbered','checklist'].includes(run.block) && Number.isInteger(run.listDepth)
       && run.listDepth >= 0 && run.listDepth <= MAX_NOTE_LIST_DEPTH));
 }
 
@@ -67,14 +68,14 @@ function normalizeRuns(runs,depth = 0) {
       continue;
     }
     if (item.block === 'divider') {normalized.push({text:'',block:'divider'});continue;}
-    if (!item.text && !['bullet','checklist'].includes(item.block)) continue;
+    if (!item.text && !['bullet','numbered','checklist'].includes(item.block)) continue;
     const run = {text:item.text};
     for (const flag of flags) if (item[flag]) run[flag] = true;
     const color = noteColor(item.color);
     if (color && color !== NOTE_TEXT_COLORS[0].value) run.color = color;
     if (blockTypes.includes(item.block)) run.block = item.block;
     if (run.block === 'checklist') run.checked = item.checked === true;
-    if (['bullet','checklist'].includes(run.block) && Number.isInteger(item.listDepth) && item.listDepth > 0) run.listDepth = Math.min(item.listDepth,MAX_NOTE_LIST_DEPTH);
+    if (['bullet','numbered','checklist'].includes(run.block) && Number.isInteger(item.listDepth) && item.listDepth > 0) run.listDepth = Math.min(item.listDepth,MAX_NOTE_LIST_DEPTH);
     if (item.url && webLink(item.url)) {
       run.url = item.url;if (item.author) run.author = item.author;
       if (item.icon && webLink(item.icon)) run.icon = item.icon;
@@ -143,13 +144,13 @@ function renderRuns(runs,blockMode,textColor) {
       const parts = run.text.split('\n');
       parts.forEach((part,index) => {
         let line = lines.at(-1);
-        if (part || (!run.text && ['bullet','checklist'].includes(run.block))) {
+        if (part || (!run.text && ['bullet','numbered','checklist'].includes(run.block))) {
           if (line.block === 'divider' || line.block === 'toggle') {
             line = {runs:[],block:null};lines.push(line);
           }
           if (part) line.runs.push({...run,text:part});
           if (run.block) line.block = run.block;
-          if (['bullet','checklist'].includes(run.block)) line.listDepth = run.listDepth || 0;
+          if (['bullet','numbered','checklist'].includes(run.block)) line.listDepth = run.listDepth || 0;
           if (run.block === 'checklist') line.checked = run.checked === true;
         }
         if (index < parts.length - 1) {
@@ -158,17 +159,21 @@ function renderRuns(runs,blockMode,textColor) {
         }
       });
     }
-    let html = '', listLevel = 0, listBase = 0;
-    const closeLists = () => {while (listLevel) {html += '</li></ul>';listLevel--;}};
+    let html = '', listBase = 0;
+    const listTags=[];
+    const closeList=()=>{html+=`</li></${listTags.pop()}>`;};
+    const closeLists = () => {while (listTags.length) closeList();};
     for (const line of lines) {
       const content = (line.runs.map(inlineHtml).join('') + (line.runs.at(-1)?.url ? ' ' : '')) || '<br>';
-      if (['bullet','checklist'].includes(line.block)) {
-        if (!listLevel) listBase = line.listDepth || 0;
-        const level = Math.min(Math.max(1,(line.listDepth || 0)-listBase+1),listLevel+1);
-        if (level > listLevel) {html += '<ul>';listLevel++;}
+      if (['bullet','numbered','checklist'].includes(line.block)) {
+        if (!listTags.length) listBase = line.listDepth || 0;
+        const level = Math.min(Math.max(1,(line.listDepth || 0)-listBase+1),listTags.length+1);
+        const tag=line.block==='numbered'?'ol':'ul';
+        if (level > listTags.length) {html += `<${tag}>`;listTags.push(tag);}
         else {
-          while (listLevel > level) {html += '</li></ul>';listLevel--;}
-          html += '</li>';
+          while (listTags.length > level) closeList();
+          if(listTags.at(-1)!==tag){closeList();html+=`<${tag}>`;listTags.push(tag);}
+          else html += '</li>';
         }
         html += line.block === 'checklist'
           ? `<li class="notes-checklist-item" data-note-checked="${line.checked}"><button type="button" class="notes-checkbox" data-note-checkbox="true" role="checkbox" aria-label="체크리스트 완료" aria-checked="${line.checked}" contenteditable="false"></button><span class="notes-checklist-text">${content}</span>`

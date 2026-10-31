@@ -60,23 +60,25 @@ test('weekly badges include old history, use Monday weeks and recalculate on del
   assert.equal(s.qualifiedCount,0);
   assert.equal(learningStats(blocks.slice(0,1),[],now).badges.find(b=>b.id==='week-10').earnedDate,undefined);
 });
-test('weekly milestones keep ten-hour intervals through eighty hours', () => {
+test('weekly milestones start at five and ten hours and end at seventy hours', () => {
   const blocks = Array.from({length:7},(_,i) => block(`2026-10-${12+i}`,0,600));
   const s = learningStats(blocks,[goal],new Date('2026-10-18T22:00:00'));
-  assert.deepEqual(s.badges.filter(b => b.type === 'week').map(b => b.target/60),[10,20,30,40,50,60,70,80]);
+  assert.deepEqual(s.badges.filter(b => b.type === 'week').map(b => b.target/60),[5,10,20,30,40,50,60,70]);
   assert.equal(s.badges.find(b => b.id === 'week-70').earnedDate,'2026-10-12');
   assert.equal(s.badges.find(b => b.id === 'week-70').lastEarnedDate,'2026-10-18');
   assert.equal(s.weekHighlights.find(b => b.type === 'week').id,'week-70');
-  assert.equal(s.weekHighlights.find(b => b.type === 'week').remaining,600);
+  assert.equal(s.weekHighlights.find(b => b.type === 'week').remaining,null);
   assert.equal(s.weekHighlights.find(b => b.type === 'week').repeated,false);
   assert.equal(s.weekHighlights.find(b => b.type === 'streak').id,'streak-7');
 });
 
-test('eighty-hour badge is awarded on the threshold-crossing day and is the highest weekly target', () => {
-  const records = Array.from({length:6},(_,i) => block(dateShift('2026-10-12',i),0,840));
+test('seventy-hour badge is awarded on the threshold-crossing day and is the highest weekly target', () => {
+  const records = Array.from({length:7},(_,i) => block(dateShift('2026-10-12',i),0,600));
+  const before = learningStats([...records.slice(0,-1),block('2026-10-18',0,599)],[goal],new Date('2026-10-18T22:00:00'));
+  assert.equal(before.badges.find(b => b.id === 'week-70').earnedDate,undefined);
   const stats = learningStats(records,[goal],new Date('2026-10-18T22:00:00'));
-  assert.equal(stats.badges.find(b => b.id === 'week-80').lastEarnedDate,'2026-10-17');
-  assert.equal(stats.weekHighlights.find(b => b.type === 'week').id,'week-80');
+  assert.equal(stats.badges.find(b => b.id === 'week-70').lastEarnedDate,'2026-10-18');
+  assert.equal(stats.weekHighlights.find(b => b.type === 'week').id,'week-70');
   assert.equal(stats.weekHighlights.find(b => b.type === 'week').remaining,null);
 });
 
@@ -145,7 +147,8 @@ test('weekly badges show the latest threshold-crossing day and time to the next 
   assert.equal(stats.weekHighlights.find(b => b.type === 'week').repeated,true);
   const afterDeletion = learningStats(records.slice(0,2),[goal],now);
   assert.equal(afterDeletion.badges.find(b => b.id === 'week-10').lastEarnedDate,'2026-10-05');
-  assert.equal(afterDeletion.weekHighlights.some(b => b.type === 'week'),false);
+  assert.equal(afterDeletion.weekHighlights.find(b => b.type === 'week').id,'week-5');
+  assert.equal(afterDeletion.weekHighlights.find(b => b.type === 'week').remaining,300);
 });
 
 test('streak badges show the latest repeated milestone date without moving it as the streak grows', () => {

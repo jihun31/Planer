@@ -39,7 +39,10 @@
 .notes-text-editor h3 { font-size:1.1em; }
 .notes-text-editor blockquote { margin:8px 0; padding:1px 0 1px 14px; border-left:3px solid #9ca3af; color:#475569; }
 .notes-text-editor hr { border:0; border-top:1px solid var(--border,#e2e8f0); margin:14px 0; }
-.notes-text-editor ul { margin:4px 0; padding-left:24px; list-style:disc; }
+.notes-text-editor ul,.notes-text-editor ol { margin:4px 0; padding-left:24px; }
+.notes-text-editor ul { list-style:disc; }
+.notes-text-editor ol { list-style:decimal; }
+.notes-text-editor ol ul,.notes-text-editor ul ol,.notes-text-editor ol ol { margin:0; }
 .notes-text-editor ul ul { margin:0; list-style:circle; }
 .notes-text-editor ul ul ul { list-style:square; }
 .notes-text-editor li { padding-left:2px; }

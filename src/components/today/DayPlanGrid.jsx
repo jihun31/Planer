@@ -16,6 +16,7 @@ export default function DayPlanGrid({plans,selection,onSelect,onEdit,onRemove,di
   function choose(minute,plan){
     if(disabled)return;
     if(selection?.pending){
+      if(plan)return;
       if(minute===selection.startMinute){onSelect(null);return;}
       onSelect({startMinute:Math.min(selection.startMinute,minute),endMinute:Math.max(selection.startMinute,minute)+1,pending:false});
     }else if(plan)onEdit(plan);
@@ -39,10 +40,10 @@ export default function DayPlanGrid({plans,selection,onSelect,onEdit,onRemove,di
         <div className="ds-td-time">{fmtHour(hour)}</div>
         {MINUTES_ARR.map(offset=>{
           const minute=hour*60+offset,items=cellPlans.get(minute)||[],plan=items.at(-1);
-          const selected=minute>=previewStart&&minute<previewEnd;
-          const editing=plan&&selection?.editingKey===plan.key;
+          const selected=!plan&&minute>=previewStart&&minute<previewEnd;
+          const state=selected?(selection.pending?(minute===selection.startMinute?'ds-td-pending':'ds-td-preview'):'ds-td-confirmed'):'';
           const sameRight=plan&&cellPlans.get(minute+1)?.at(-1)?.key===plan.key;
-          const cls=['ds-td',plan?'ds-td-filled':'',selected?(selection.pending?'ds-td-preview':'ds-td-confirmed'):'',editing?'day-plan-cell-editing':'',
+          const cls=['ds-td',plan?'ds-td-filled':'',state,
             [14,29,44].includes(offset)&&!sameRight?'ds-td-quarter-end':'',offset%5===4&&!sameRight?'ds-td-five-end':'',items.length>1?'day-plan-cell-overlap':''].filter(Boolean).join(' ');
           const label=`${planTime(minute%1440)}${items.length?` ${items.map(item=>item.title).join(' / ')}`:' 빈칸'}`;
           return <div key={offset} className={cls} style={plan?{background:plan.color+'30'}:undefined}>

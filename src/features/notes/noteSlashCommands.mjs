@@ -1,4 +1,4 @@
-const commands = {제목:'h3',인용:'quote',체크리스트:'checklist',체크박스:'checklist',할일:'checklist',todo:'checklist',checklist:'checklist'};
+const commands = {제목:'h3',인용:'quote',체크리스트:'checklist',체크박스:'checklist',할일:'checklist',todo:'checklist',checklist:'checklist',숫자목록:'numbered',번호목록:'numbered',numbered:'numbered',number:'numbered'};
 
 export function noteSlashShortcut(editor,selection,afterSpace = false) {
   if (!selection?.isCollapsed || !selection.rangeCount) return null;

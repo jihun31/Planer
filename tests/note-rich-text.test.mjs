@@ -231,6 +231,23 @@ test('nested bullet depth, formatting and empty child items survive storage and 
   assert.equal(noteHtml(readNoteEditor(emptyParent),true),'<ul><li><br><ul><li>하위</li></ul></li></ul>');
 });
 
+test('numbered and mixed list types, empty rows and nesting survive DOM storage and reopening',()=>{
+  const root=element('DIV',[element('OL',[
+    element('LI',[element('B',[text('첫째')]),element('UL',[element('LI',[text('보충')])])]),
+    element('LI',[text('둘째'),element('OL',[element('LI',[element('BR')]),element('LI',[text('하위 숫자')])])]),
+  ])]);
+  const stored=readNoteEditor(root),runs=noteRuns(stored);
+  assert.ok(runs.some(run=>run.text.includes('첫째')&&run.block==='numbered'&&run.bold));
+  assert.ok(runs.some(run=>run.text.includes('보충')&&run.block==='bullet'&&run.listDepth===1));
+  assert.ok(runs.some(run=>run.text.includes('하위 숫자')&&run.block==='numbered'&&run.listDepth===1));
+  assert.equal(noteHtml(stored,true),'<ol><li><strong>첫째</strong><ul><li>보충</li></ul></li><li>둘째<ol><li><br></li><li>하위 숫자</li></ol></li></ol>');
+  assert.equal(serializeNoteRuns(runs),stored);
+  const transitions=serializeNoteRuns([{text:'점\n',block:'bullet'},{text:'숫자\n',block:'numbered'},{text:'체크',block:'checklist',checked:true}]);
+  const html=noteHtml(transitions,true);
+  assert.ok(html.startsWith('<ul><li>점</li></ul><ol><li>숫자</li></ol><ul>'));
+  assert.equal(noteHtml(serializeNoteRuns([{text:'',block:'numbered'}]),true),'<ol><li><br></li></ol>');
+});
+
 test('checklist completion, empty items, nested lists and formatting survive safe storage', () => {
   const runs=[{text:'진행 중\n',block:'checklist',checked:false,bold:true},
     {text:'완료 항목\n',block:'checklist',checked:true,listDepth:1,color:'#337ea9'},

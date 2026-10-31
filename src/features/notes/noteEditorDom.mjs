@@ -18,6 +18,7 @@ function nodeFormat(node,inherited) {
   const blocks = {H1:'h1',H2:'h2',H3:'h3',BLOCKQUOTE:'quote',LI:'bullet'};
   if (blocks[node.nodeName]) format.block = blocks[node.nodeName];
   if (node.nodeName === 'LI') {
+    if(node.parentNode?.nodeName==='OL') format.block='numbered';
     if (node.getAttribute?.('data-note-checked') != null) {
       format.block = 'checklist';format.checked = node.getAttribute('data-note-checked') === 'true';
     } else delete format.checked;
@@ -28,7 +29,7 @@ function nodeFormat(node,inherited) {
     if (lists > 1) format.listDepth = Math.min(lists-1,MAX_NOTE_LIST_DEPTH);
     else if (lists === 1) delete format.listDepth;
   }
-  if (!['bullet','checklist'].includes(format.block)) {delete format.listDepth;delete format.checked;}
+  if (!['bullet','numbered','checklist'].includes(format.block)) {delete format.listDepth;delete format.checked;}
   const decoration = style?.textDecorationLine || style?.textDecoration;
   if (decoration) {format.underline = decoration.includes('underline');format.strike = decoration.includes('line-through');}
   if (node.nodeName === 'MARK') format.highlight = true;
