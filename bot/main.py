@@ -64,6 +64,7 @@ class TonkatsuBot(commands.Bot):
         global store, bot_state
         sync_client, async_client = make_clients()
         store = Store(sync_client, async_client)
+        install_store_hooks(store)
         await store.start()
         print(f"🔥 Firestore 연결 완료: 계획 {len(store.data['plans'])}개, 멤버 {len(store.data['members'])}명")
         bot_state = await load_state()
@@ -517,6 +518,87 @@ async def plan_delete(interaction: discord.Interaction, 계획: str):
 
     await store.delete_plan(plan['id'])
     await interaction.response.send_message(f"🗑️ **[{CATEGORY_KR[category]}] {plan['content']}** 계획을 시원하게 삭제했습니다! 👋")
+
+def install_store_hooks(s):
+    """앱에서 계획 조건을 바꾸면 디스코드에 알림"""
+    s.on_plan_edit = lambda old, new: asyncio.create_task(
+        announce_plan_edit(new.get("ownerId"), new.get("content"), core.describe_plan_changes(old, new), "앱"))
+
+async def announce_plan_edit(owner_id, content, changes, where):
+    """계획 조건이 바뀌면 알림 채널에 공개 (벌금 피하려는 수정을 서로 볼 수 있게)"""
+    channel = bot.get_channel(ALERT_CHANNEL)
+    if not channel or not changes:
+        return
+    name = (store.data["members"].get(str(owner_id)) or {}).get("displayName") or f"<@{owner_id}>"
+    try:
+        await channel.send(f"✏️ **{name}**님이 **'{content}'** 계획을 바꿨어요 ({where}): " + ", ".join(changes),
+                           allowed_mentions=discord.AllowedMentions.none())
+    except Exception:
+        traceback.print_exc()
+
+#계획 수정
+@plan_group.command(name="수정", description="등록한 계획의 이름·사진 필수 여부·횟수·요일·간격·마감일을 바꿉니다.")
+@app_commands.describe(
+    계획="수정할 계획", 내용="새 이름", 사진인증="사진 필수 여부 (제한 계획은 해당 없음)",
+    횟수="주간·월간: 목표 횟수 / 제한: 최대 횟수", 요일="요일 계획: 예) 월수금", 간격="N일 계획: 며칠마다", 마감일="목표: YYYY-MM-DD",
+)
+@app_commands.choices(사진인증=PHOTO_CHOICES)
+@app_commands.autocomplete(계획=plan_autocomplete_delete)
+async def plan_edit(interaction: discord.Interaction, 계획: str, 내용: PlanText = None, 사진인증: app_commands.Choice[int] = None,
+                    횟수: app_commands.Range[int, 0, 50] = None, 요일: str = None,
+                    간격: app_commands.Range[int, 1, 365] = None, 마감일: str = None):
+    category, plan = Store.find_plan(store.view(interaction.user.id), 계획)
+    if not plan:
+        await interaction.response.send_message(f"❓ **'{계획}'** 계획을 못 찾겠어요.", ephemeral=True)
+        return
+
+    async def reject(msg):
+        await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+    changes = {}
+    if 내용 is not None and 내용.strip() != plan["content"]:
+        if Store.find_plan(store.view(interaction.user.id), 내용.strip())[1]:
+            return await reject(f"**'{내용}'** 이름의 계획이 이미 있어요.")
+        changes["content"] = 내용.strip()
+    if 사진인증 is not None:
+        if category == "Limit":
+            return await reject("제한 계획은 사진 인증을 쓰지 않아요.")
+        changes["photo"] = bool(사진인증.value)
+    if 횟수 is not None:
+        if category == "Weekly" and 1 <= 횟수 <= 7: changes["count"] = 횟수
+        elif category == "Monthly" and 1 <= 횟수 <= 31: changes["count"] = 횟수
+        elif category == "Limit": changes["limit"] = 횟수
+        else:
+            return await reject("횟수는 주간(1~7)·월간(1~31)·제한(0~50) 계획에서만 바꿀 수 있어요.")
+    if 요일 is not None:
+        days = [d for d in WEEKDAY_NAMES if d in 요일]
+        if category != "Routine" or not days:
+            return await reject("요일은 요일 계획에서만, '월수금'처럼 적어주세요.")
+        changes["days"] = days
+    if 간격 is not None:
+        if category != "Interval":
+            return await reject("간격은 N일 계획에서만 바꿀 수 있어요.")
+        changes["interval"] = 간격
+    if 마감일 is not None:
+        try:
+            deadline = day_str(datetime.strptime(마감일, "%Y-%m-%d"))
+        except ValueError:
+            return await reject("마감일은 **2026-01-20** 처럼 적어주세요.")
+        if category != "OneTime":
+            return await reject("마감일은 목표 계획에서만 바꿀 수 있어요.")
+        changes["deadline"] = deadline
+
+    changes = {k: v for k, v in changes.items() if plan.get(k) != v}
+    if not changes:
+        await interaction.response.send_message("🤔 바뀐 내용이 없어요. 바꿀 항목을 입력해주세요.", ephemeral=True)
+        return
+
+    old = dict(plan)
+    await store.edit_plan(plan["id"], changes)
+    new = {**old, **changes}
+    await interaction.response.send_message(
+        f"✏️ **[{CATEGORY_KR[category]}] {new['content']}** 계획을 수정했어요. ({core.condition_text(new)}, 사진 {'필수' if new.get('photo') else 'X'})")
+    await announce_plan_edit(interaction.user.id, new["content"], core.describe_plan_changes(old, new), "디스코드")
 
 bot.tree.add_command(plan_group)
 

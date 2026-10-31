@@ -43,6 +43,32 @@ export function checkInDoc(plan, ownerId, date, ts) {
   };
 }
 
+/** 계획마다 고칠 수 있는 항목 (종류·제한 기간·등록일은 못 바꿈) */
+export function editableKeys(category) {
+  return ['content', ...(category === 'Limit' ? [] : ['photo']), ...EXTRA_KEYS[category].filter((k) => k !== 'period')];
+}
+
+/** 수정 내용 확인. 문제가 있으면 안내 문구, 없으면 null */
+export function planEditError(plan, changes) {
+  const merged = { ...plan, ...changes };
+  if (plan.category === 'Limit') merged.period = plan.period;
+  return planInputError(merged);
+}
+
+/** 수정 요청 (바뀐 항목만) */
+export function planEditUpdate(plan, changes, ts) {
+  const update = { updatedAt: ts };
+  for (const key of editableKeys(plan.category)) {
+    if (!(key in changes)) continue;
+    let value = changes[key];
+    if (key === 'content') value = value.trim();
+    if (key === 'photo') value = !!value;
+    if (key === 'days') value = ['월', '화', '수', '목', '금', '토', '일'].filter((d) => value.includes(d));
+    update[key] = value;
+  }
+  return update;
+}
+
 export const goalCompleteUpdate = (date, ts) => ({ status: 'completed', completedAt: date, updatedAt: ts });
 export const goalUndoUpdate = (ts, del) => ({ status: 'active', completedAt: del, updatedAt: ts });
 export const planDeleteUpdate = (ts) => ({ status: 'deleted', updatedAt: ts });

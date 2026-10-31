@@ -1,28 +1,30 @@
 import { addDoc, collection, deleteDoc, deleteField, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { checkInDoc, goalCompleteUpdate, goalUndoUpdate, planDeleteUpdate, planDoc, restDoc } from './tonkatsuWrites.mjs';
-
-const RECENT_DAYS = 62; // 지난달 정산·N일 간격 계산에 충분한 기간만 읽음 (읽기 사용량 절약)
+import { checkInDoc, goalCompleteUpdate, goalUndoUpdate, planDeleteUpdate, planDoc, planEditUpdate, restDoc } from './tonkatsuWrites.mjs';
 
 const docs = (snap) => snap.docs.map((d) => ({ ...d.data(), id: d.id }));
 
-/** 공용 데이터 실시간 구독. onData(name, docs), onError(error). 해제 함수를 돌려줌 */
-export function subscribeTonkatsu(myDiscordId, sinceDate, onData, onError) {
+/** 내 데이터만 실시간 구독. onData(name, docs), onError(error). 해제 함수를 돌려줌 */
+export function subscribeTonkatsu(myDiscordId, onData, onError) {
+  const mine = (name) => query(collection(db, name), where('ownerId', '==', myDiscordId));
   const sources = {
-    members: collection(db, 'members'),
-    plans: collection(db, 'plans'),
-    checkIns: query(collection(db, 'checkIns'), where('date', '>=', sinceDate)),
-    offDays: query(collection(db, 'offDays'), where('date', '>=', sinceDate)),
-    votes: collection(db, 'votes'),
+    plans: mine('plans'),
+    checkIns: mine('checkIns'),
+    offDays: mine('offDays'),
     myFines: query(collection(db, 'fineEvents'), where('discordId', '==', myDiscordId)),
   };
   const stops = Object.entries(sources).map(([name, ref]) => onSnapshot(ref, (snap) => onData(name, docs(snap)), onError));
+  stops.push(onSnapshot(doc(db, 'members', myDiscordId),
+    (snap) => onData('members', snap.exists() ? [{ ...snap.data(), id: snap.id }] : []), onError));
   return () => stops.forEach((stop) => stop());
 }
-export { RECENT_DAYS };
 
 export function addPlan(ownerId, input, startDate) {
   return addDoc(collection(db, 'plans'), planDoc(ownerId, input, startDate, serverTimestamp()));
+}
+
+export function editPlan(plan, changes) {
+  return updateDoc(doc(db, 'plans', plan.id), planEditUpdate(plan, changes, serverTimestamp()));
 }
 
 export function deletePlan(planId) {

@@ -31,7 +31,6 @@ export const resolveTarget = (value, nowMs = Date.now()) => (value === 'yesterda
 export function* iterPlans(view, categories = PLAN_CATEGORIES) {
   for (const category of categories) for (const plan of view[category] || []) yield [category, plan];
 }
-export const hasActivePlans = (view) => !iterPlans(view).next().done;
 
 export function weekBounds(date) {
   const start = addDays(date, -weekday(date));
@@ -121,25 +120,6 @@ export function checkInTag(view, category, plan, date) {
     return `${interval}일장/D+${diff - interval}`;
   }
   return plan.completed ? null : `~${plan.deadline || '날짜미정'}`;
-}
-
-/** 멤버 탭 요약: 오늘 해야 할 일(일일·오늘 요일 계획) 중 완료 수, 주간·월간 목표 달성 수, 제한 초과 수 */
-export function memberSummary(view, date) {
-  const today = WEEKDAY_NAMES[weekday(date)];
-  let todayDone = 0, todayTotal = 0, goalsDone = 0, goalsTotal = 0, limitsOver = 0;
-  for (const [category, plan] of iterPlans(view)) {
-    const history = plan.history || [];
-    if (category === 'Daily' || (category === 'Routine' && (!(plan.days || []).length || plan.days.includes(today)))) {
-      if (date >= (plan.created_at || '2000-01-01')) { todayTotal++; if (history.includes(date)) todayDone++; }
-    } else if (category === 'Weekly' || category === 'Monthly') {
-      goalsTotal++;
-      if (progressLine(view, category, plan, date)[0] === '✅') goalsDone++;
-    } else if (category === 'Limit') {
-      const { count, limit } = limitStatus(plan, date);
-      if (count > limit) limitsOver++;
-    }
-  }
-  return { todayDone, todayTotal, goalsDone, goalsTotal, limitsOver };
 }
 
 /** Firestore 문서 → 멤버별 뷰 (bot/store.py all_views와 같은 형식) */

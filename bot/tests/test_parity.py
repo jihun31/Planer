@@ -6,7 +6,7 @@ core.py 규칙을 바꿨다면: TONKATSU_REGEN=1 로 이 테스트를 실행해 
 """
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest

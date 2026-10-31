@@ -169,14 +169,25 @@ test('계획 등록: 본인 계획만, 카테고리별 형식 검사, 등록일�
   await assertFails(setDoc(doc(alice, 'plans', 'tk-bob-daily'), planData(ALICE)));
 });
 
-test('계획 수정: 이름 변경과 삭제만 가능, 조건(횟수·제한)은 못 바꿈', async () => {
+test('계획 수정: 이름·사진·조건은 바꿀 수 있고, 종류·기간·등록일·주인은 못 바꿈', async () => {
   const alice = db(ALICE.uid);
-  await seed(f => setDoc(doc(f, 'plans', 'tk-edit'), seededPlan(ALICE, { category: 'Weekly', count: 3 })));
+  await seed(async f => {
+    await setDoc(doc(f, 'plans', 'tk-edit'), seededPlan(ALICE, { category: 'Weekly', count: 3, photo: true }));
+    await setDoc(doc(f, 'plans', 'tk-edit-limit'), seededPlan(ALICE, { category: 'Limit', period: 'week', limit: 2 }));
+    await setDoc(doc(f, 'plans', 'tk-edit-routine'), seededPlan(ALICE, { category: 'Routine', days: ['월'] }));
+  });
   const ref = doc(alice, 'plans', 'tk-edit');
   await assertSucceeds(updateDoc(ref, { content: '코딩 공부', updatedAt: serverTimestamp() }));
-  for (const change of [{ count: 1 }, { category: 'Daily' }, { ownerId: BOB.discordId }, { photo: true },
-    { startDate: TODAY }, { status: 'completed', completedAt: TODAY }, { content: '' }])
+  await assertSucceeds(updateDoc(ref, { photo: false, count: 5, updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(alice, 'plans', 'tk-edit-limit'), { limit: 0, updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(alice, 'plans', 'tk-edit-routine'), { days: ['화', '목'], updatedAt: serverTimestamp() }));
+  for (const change of [{ count: 8 }, { count: 0 }, { category: 'Daily' }, { ownerId: BOB.discordId },
+    { startDate: TODAY }, { status: 'completed', completedAt: TODAY }, { content: '' }, { interval: 3 },
+    { status: 'deleted', content: '삭제하며 변경' }, { extra: true }])
     await assertFails(updateDoc(ref, { ...change, updatedAt: serverTimestamp() }));
+  for (const change of [{ period: 'day' }, { photo: true }, { limit: 51 }])
+    await assertFails(updateDoc(doc(alice, 'plans', 'tk-edit-limit'), { ...change, updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(alice, 'plans', 'tk-edit-routine'), { days: [], updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(ref, { content: '시각 누락' })); // updatedAt 필수
   await assertFails(updateDoc(doc(db(BOB.uid), 'plans', 'tk-edit'), { content: '침입', updatedAt: serverTimestamp() }));
   await assertFails(deleteDoc(ref)); // 실제 삭제 대신 status
@@ -319,13 +330,17 @@ test('앱이 실제로 쓰는 문서(tonkatsuWrites.mjs)가 규칙을 통과함'
   undo.delete(doc(alice, 'checkIns', goal.id));
   undo.update(doc(alice, 'plans', ids.OneTime), W.goalUndoUpdate(ts, deleteField()));
   await assertSucceeds(undo.commit());
+  // 수정 (사진 필요 해제, 횟수 변경)
+  await assertSucceeds(updateDoc(doc(alice, 'plans', ids.Daily), W.planEditUpdate({ category: 'Daily' }, { content: '앱 운동2', photo: false }, ts)));
+  await assertSucceeds(updateDoc(doc(alice, 'plans', ids.Weekly), W.planEditUpdate({ category: 'Weekly' }, { count: 2 }, ts)));
   // 삭제, 휴식권
   await assertSucceeds(updateDoc(doc(alice, 'plans', ids.Interval), W.planDeleteUpdate(ts)));
   const rest = W.restDoc(BOB.discordId, TODAY, ts);
   await assertSucceeds(setDoc(doc(db(BOB.uid), 'offDays', rest.id), rest.data));
   await assertSucceeds(deleteDoc(doc(db(BOB.uid), 'offDays', rest.id)));
   // 앱이 쓰는 조회 (최근 인증, 내 벌금 내역)
-  await assertSucceeds(getDocs(query(collection(alice, 'checkIns'), where('date', '>=', C.addDays(TODAY, -62)))));
-  await assertSucceeds(getDocs(query(collection(alice, 'offDays'), where('date', '>=', C.addDays(TODAY, -62)))));
+  for (const name of ['plans', 'checkIns', 'offDays'])
+    await assertSucceeds(getDocs(query(collection(alice, name), where('ownerId', '==', ALICE.discordId))));
+  await assertSucceeds(getDoc(doc(alice, 'members', ALICE.discordId)));
   await assertSucceeds(getDocs(query(collection(alice, 'fineEvents'), where('discordId', '==', ALICE.discordId))));
 });

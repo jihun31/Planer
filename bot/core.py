@@ -236,6 +236,28 @@ def autocomplete_tag(view, category, plan, target_date):
     # OneTime
     return None if plan.get('completed') else f"~{plan.get('deadline', '날짜미정')}"
 
+# ---------- 계획 수정 ----------
+
+def condition_text(plan):
+    """계획 조건을 짧게 (예: '주 3회', '이번 주 2회 이하')"""
+    c = plan.get("category")
+    if c == "Weekly": return f"주 {plan.get('count')}회"
+    if c == "Monthly": return f"월 {plan.get('count')}회"
+    if c == "Routine": return f"{''.join(plan.get('days', []))}요일"
+    if c == "Interval": return f"{plan.get('interval')}일마다"
+    if c == "OneTime": return f"{plan.get('deadline')}까지"
+    if c == "Limit": return f"{LIMIT_PERIOD_KR.get(plan.get('period'), '')} {plan.get('limit')}회 이하"
+    return "매일"
+
+def describe_plan_changes(old, new):
+    """조건이 바뀐 부분을 사람이 읽을 수 있게. 이름만 바뀌었으면 빈 목록"""
+    changes = []
+    if condition_text(old) != condition_text(new):
+        changes.append(f"{condition_text(old)} → {condition_text(new)}")
+    if bool(old.get("photo")) != bool(new.get("photo")):
+        changes.append(f"사진 필수 {'O' if old.get('photo') else 'X'} → {'O' if new.get('photo') else 'X'}")
+    return changes
+
 # ---------- 정산 ----------
 
 def find_missed_plans(view, now, is_monday, is_first_day):

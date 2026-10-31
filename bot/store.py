@@ -62,6 +62,8 @@ class Store:
         self._loop = None
         self._version = 0
         self._views_cache = None
+        # 앱에서 계획 조건을 바꿨을 때 호출: on_plan_edit(이전 문서, 새 문서)
+        self.on_plan_edit = None
 
     # ---------- 실시간 복사 ----------
 
@@ -89,7 +91,12 @@ class Store:
             if change_type == ChangeType.REMOVED:
                 target.pop(doc_id, None)
             else:
+                old = target.get(doc_id)
                 target[doc_id] = doc
+                # 다른 곳(앱)에서 활성 계획의 조건을 바꿈. 봇이 직접 바꾼 건 이미 메모리에 반영돼 있어 여기 안 옴
+                if name == "plans" and old and self.on_plan_edit and old.get("status") == doc.get("status") == "active" \
+                        and core.describe_plan_changes(old, doc):
+                    self.on_plan_edit(dict(old), dict(doc))
         self._changed()
         if ready_event is not None:
             ready_event.set()
@@ -252,6 +259,12 @@ class Store:
         await ref.set(data)
         self._local_set("plans", ref.id, data)
         return ref.id
+
+    async def edit_plan(self, plan_id, changes):
+        """계획 수정. changes: 바꿀 항목만 (content, photo, count, limit, days, interval, deadline)"""
+        update = {**changes, "updatedAt": firestore.SERVER_TIMESTAMP}
+        await self.db.collection("plans").document(plan_id).update(update)
+        self._local_set("plans", plan_id, update, merge=True)
 
     async def delete_plan(self, plan_id):
         """실제로 지우지 않고 status를 deleted로 (과거 인증·벌금 기록 보존)"""

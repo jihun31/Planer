@@ -276,16 +276,22 @@ service cloud.firestore {
         && todayDay(request.resource.data.startDate)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
-      // 이름 변경, 삭제, 목표 달성/달성 취소만 가능. 횟수·제한 같은 조건은 바꿀 수 없음
+      // 수정: 이름·사진 필요 여부·횟수·제한·요일·간격·마감일. 종류(category)·기간(period)·등록일·주인은 못 바꿈.
+      // 조건을 바꾸면 봇이 디스코드 알림 채널에 공개함. 삭제, 목표 달성/달성 취소는 따로 허용
       allow update: if linked() && resource.data.ownerId == myDiscordId()
         && validPlan(request.resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'status', 'completedAt', 'updatedAt'])
         && request.resource.data.updatedAt == request.time
         && (
-          (resource.data.status == 'active' && request.resource.data.status in ['active', 'deleted'])
+          (resource.data.status == 'active' && request.resource.data.status == 'active'
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['content', 'photo', 'count', 'limit', 'days', 'interval', 'deadline', 'updatedAt']))
+          || (resource.data.status == 'active' && request.resource.data.status == 'deleted'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']))
           || (resource.data.status == 'active' && request.resource.data.status == 'completed'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt', 'updatedAt'])
               && goalCheckInAfter(planId, request.resource.data.completedAt))
           || (resource.data.status == 'completed' && request.resource.data.status == 'active'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt', 'updatedAt'])
               && !goalCheckInAfter(planId, resource.data.completedAt))
         );
     }
