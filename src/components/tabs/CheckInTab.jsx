@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { LIMIT_PERIOD_KR, PLAN_CATEGORIES, WEEKDAY_NAMES, addDays, checkInTag, countInMonth, isDawn, progressLine } from '../../features/tonkatsu/tonkatsuCore.mjs';
-import { planInputError } from '../../features/tonkatsu/tonkatsuWrites.mjs';
-import { addPlan, cancelCheckIn, cancelRest, checkIn, deletePlan, setAlertHour, takeRest } from '../../features/tonkatsu/tonkatsuService';
+import { editableKeys, planEditError, planInputError } from '../../features/tonkatsu/tonkatsuWrites.mjs';
+import { addPlan, cancelCheckIn, cancelRest, checkIn, deletePlan, editPlan, setAlertHour, takeRest } from '../../features/tonkatsu/tonkatsuService';
 import '../../styles/tonkatsu.css';
 
 const TITLES = { Daily: '🌞 매일', Routine: '🔄 요일', Weekly: '📅 주간', Monthly: '🗓️ 월간', Interval: '🔁 반복', OneTime: '🎯 목표', Limit: '🚫 제한' };
@@ -60,11 +60,54 @@ function AddPlanForm({ discordId, today, onDone, run }) {
   </form>;
 }
 
+function EditPlanForm({ plan, run, onDone }) {
+  const keys = editableKeys(plan.category);
+  const [form, setForm] = useState(() => Object.fromEntries(keys.map((k) => [k, plan[k] ?? (k === 'days' ? [] : '')])));
+  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  const changes = {};
+  for (const k of keys) {
+    const value = ['count', 'limit', 'interval'].includes(k) ? Number(form[k]) : k === 'content' ? form[k].trim() : form[k];
+    const before = plan[k];
+    if (JSON.stringify(k === 'days' ? WEEKDAY_NAMES.filter((d) => value.includes(d)) : value) !== JSON.stringify(before ?? (k === 'photo' ? false : before))) changes[k] = value;
+  }
+  const changed = Object.keys(changes).length > 0;
+  const error = changed ? planEditError(plan, changes) : null;
+  const conditionChanged = Object.keys(changes).some((k) => k !== 'content');
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!changed || error) return;
+    run(plan.id, () => editPlan(plan, changes), '계획을 수정했어요.').then((ok) => ok && onDone());
+  };
+
+  return <form className="tk-add tk-edit" onSubmit={submit}>
+    <div className="tk-add-row">
+      <input value={form.content} maxLength={80} onChange={(e) => set('content', e.target.value)} aria-label="내용" />
+    </div>
+    <div className="tk-add-row">
+      {keys.includes('count') && <label>목표 <input type="number" min={1} max={plan.category === 'Weekly' ? 7 : 31} value={form.count} onChange={(e) => set('count', e.target.value)} />회</label>}
+      {keys.includes('limit') && <label>{LIMIT_PERIOD_KR[plan.period]} 최대 <input type="number" min={0} max={50} value={form.limit} onChange={(e) => set('limit', e.target.value)} />회</label>}
+      {keys.includes('days') && <span className="tk-days">{WEEKDAY_NAMES.map((d) =>
+        <label key={d}><input type="checkbox" checked={form.days.includes(d)} onChange={(e) => set('days', e.target.checked ? [...form.days, d] : form.days.filter((x) => x !== d))} />{d}</label>)}</span>}
+      {keys.includes('interval') && <label><input type="number" min={1} max={365} value={form.interval} onChange={(e) => set('interval', e.target.value)} />일마다</label>}
+      {keys.includes('deadline') && <label>마감 <input type="date" value={form.deadline} onChange={(e) => set('deadline', e.target.value)} /></label>}
+      {keys.includes('photo') && <label><input type="checkbox" checked={!!form.photo} onChange={(e) => set('photo', e.target.checked)} /> 사진 필수</label>}
+    </div>
+    <div className="tk-add-row">
+      {error && <span className="tk-note">{error}</span>}
+      {!error && conditionChanged && <span className="tk-muted">조건을 바꾸면 디스코드 알림 채널에 알려요.</span>}
+      <button type="submit" className="btn btn-login" disabled={!changed || !!error}>저장</button>
+      <button type="button" className="btn-signout" onClick={onDone}>취소</button>
+    </div>
+  </form>;
+}
+
 export default function CheckInTab({ tonkatsu: t, discordId }) {
   const [dateValue, setDateValue] = useState('today');
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
   const { me, today } = t;
   const date = dateValue === 'yesterday' ? addDays(today, -1) : today;
 
@@ -101,9 +144,12 @@ export default function CheckInTab({ tonkatsu: t, discordId }) {
         {tag !== null && plan.photo && <span className="tk-note">📸 디스코드에서 사진과 함께 인증</span>}
         {records.length > 0 && <button type="button" className="btn-signout" disabled={!!busy}
           onClick={() => run(plan.id, () => cancelCheckIn(plan, records.at(-1).id), '인증을 한 번 취소했어요.')}>취소</button>}
+        <button type="button" className="tk-icon" title="계획 수정" disabled={!!busy}
+          onClick={() => setEditing(editing === plan.id ? null : plan.id)}>✏️</button>
         <button type="button" className="tk-icon" title="계획 삭제" disabled={!!busy}
           onClick={() => window.confirm(`'${plan.content}' 계획을 삭제할까요? 지금까지의 기록은 남아요.`) && run(plan.id, () => deletePlan(plan.id), '계획을 삭제했어요.')}>🗑</button>
       </span>
+      {editing === plan.id && <EditPlanForm plan={plan} run={run} onDone={() => setEditing(null)} />}
     </li>;
   };
 

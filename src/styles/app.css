@@ -161,9 +161,6 @@ body {
   letter-spacing: -0.02em;
 }
 
-.brand-server-icon { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
-.brand-sub { font-size: 0.75rem; font-weight: 600; color: var(--text-muted, #64748b); align-self: flex-end; padding-bottom: 3px; }
-
 .header-user { display: flex; align-items: center; gap: 12px; }
 
 .header-help {

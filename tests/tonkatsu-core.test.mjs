@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { baseDate, buildViews, checkInTag, iterPlans, memberSummary, monthlyTarget, progressLine, weeklyTarget, addDays, weekday, lastDayOfMonth } from '../src/features/tonkatsu/tonkatsuCore.mjs';
+import { baseDate, buildViews, checkInTag, iterPlans, monthlyTarget, progressLine, weeklyTarget, addDays, weekday, lastDayOfMonth } from '../src/features/tonkatsu/tonkatsuCore.mjs';
 
 // bot/tests/test_parity.py가 bot/core.py로 만든 기준 결과
 const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/tonkatsu-parity.json', import.meta.url), 'utf8'));
@@ -53,8 +53,17 @@ test('buildViews groups Firestore docs like the bot', () => {
   assert.equal(views['2'].display_name, undefined); // 멤버 문서 없음
 });
 
-test('memberSummary counts today items, weekly/monthly goals and exceeded limits', () => {
-  const s = memberSummary(fixture.view, '2026-11-04'); // 수요일
-  // 오늘 할 일: 운동(완료) + 요가(수요일) + 매일요가(요일 미지정). 휴식 1일 차감으로 코딩 2/2, 등산 2/2 달성
-  assert.deepEqual(s, { todayDone: 1, todayTotal: 3, goalsDone: 2, goalsTotal: 3, limitsOver: 1 });
+test('plan edit helpers: allowed fields, validation, normalization', async () => {
+  const W = await import('../src/features/tonkatsu/tonkatsuWrites.mjs');
+  assert.deepEqual(W.editableKeys('Daily'), ['content', 'photo']);
+  assert.deepEqual(W.editableKeys('Weekly'), ['content', 'photo', 'count']);
+  assert.deepEqual(W.editableKeys('Limit'), ['content', 'limit']); // 제한 기간·사진은 못 바꿈
+  const weekly = { id: 'p', category: 'Weekly', content: '코딩', count: 3, photo: true };
+  assert.equal(W.planEditError(weekly, { photo: false }), null);
+  assert.equal(W.planEditError(weekly, { count: 8 }), '주간 목표는 1~7회로 정해 주세요.');
+  assert.equal(W.planEditError({ id: 'l', category: 'Limit', content: '몬스터', period: 'week', limit: 2 }, { limit: 0 }), null);
+  assert.deepEqual(W.planEditUpdate(weekly, { content: ' 코딩2 ', photo: 0, category: 'Daily', ownerId: 'x' }, 'TS'),
+    { updatedAt: 'TS', content: '코딩2', photo: false });
+  assert.deepEqual(W.planEditUpdate({ category: 'Routine' }, { days: ['금', '월'] }, 'TS'), { updatedAt: 'TS', days: ['월', '금'] });
+  assert.deepEqual(W.planEditUpdate({ category: 'Limit' }, { photo: true, period: 'day', limit: 1 }, 'TS'), { updatedAt: 'TS', limit: 1 });
 });

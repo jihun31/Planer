@@ -1,6 +1,5 @@
-/* 🔥 인증 탭, 👥 멤버 탭 */
+/* 🔥 인증 탭 */
 .tk { display: grid; gap: 14px; }
-.tk-title { font-size: 1.15rem; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .tk-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tk-date { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .tk-muted { color: var(--text-muted, #64748b); font-size: 0.85rem; }
@@ -10,13 +9,12 @@
 
 .tk-section h3, .tk-card h3 { margin: 0 0 6px; font-size: 1rem; }
 .tk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.tk-plan { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; background: var(--surface, #fff); }
+.tk-plan { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; background: var(--surface, #fff); }
 .tk-mark { width: 1.6em; text-align: center; font-size: 1.1rem; }
 .tk-plan-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .tk-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .tk-icon { background: none; border: none; cursor: pointer; font-size: 1rem; opacity: 0.6; }
 .tk-icon:hover { opacity: 1; }
-.tk-link { font-size: 0.85rem; white-space: nowrap; }
 
 .tk-side { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .tk-card { border: 1px solid var(--border, #e2e8f0); border-radius: 10px; padding: 12px 14px; background: var(--surface, #fff); }
@@ -30,14 +28,4 @@
 .tk-add-row input[type="number"] { width: 4.5em; }
 .tk-add-row input:not([type]) { flex: 1; min-width: 180px; }
 .tk-days { display: flex; gap: 6px; }
-
-.tk-members { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.tk-member { border: 1px solid var(--border, #e2e8f0); border-radius: 10px; background: var(--surface, #fff); padding: 4px; }
-.tk-member-me { border-color: var(--primary, #6366f1); }
-.tk-member-head { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: none; border: none; padding: 8px; text-align: left; cursor: pointer; font: inherit; color: inherit; }
-.tk-member-head progress { width: 90px; }
-.tk-member .tk-list { padding: 0 8px 8px; }
-.tk-chip { font-size: 0.8rem; padding: 2px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3; }
-.tk-chip-muted { background: #f1f5f9; color: #475569; }
-.tk-chip-bad { background: #fee2e2; color: #b91c1c; }
-.tk-rank { margin: 0; padding-left: 1.4em; display: grid; gap: 2px; }
+.tk-edit { flex-basis: 100%; margin-top: 6px; }
