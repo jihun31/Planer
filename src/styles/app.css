@@ -348,3 +348,8 @@ body {
 .copy-edit-notice button { margin-top:8px; }
 .copy-edit-error,.schedule-settings .copy-edit-error { font-size:12px; color:#b91c1c; margin:12px 0; }
 .copy-option-editor { display:grid; gap:6px; padding:10px; border:1px solid var(--border); border-radius:8px; }
+
+/* 설정 → 디스코드 연동 */
+.discord-link-note { font-size: 0.85rem; color: var(--text-muted, #64748b); }
+.discord-link-code { display: grid; gap: 6px; margin: 8px 0; }
+.discord-link-code > code { font-size: 1.6rem; font-weight: 800; letter-spacing: 0.12em; }

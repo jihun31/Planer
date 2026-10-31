@@ -16,6 +16,9 @@ import HelpDialog from './components/HelpDialog';
 import NotesTab from './components/tabs/NotesTab';
 import CalendarTab from './components/tabs/CalendarTab';
 import { useLearning } from './features/learning/useLearning';
+import { useDiscordLink, useServerInfo } from './features/discord/useDiscord';
+import { useTonkatsu } from './features/tonkatsu/useTonkatsu';
+import CheckInTab from './components/tabs/CheckInTab';
 import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
 import { useTabVisibility } from './features/navigation/useTabVisibility';
 import { visibleAppTabs } from './features/navigation/tabVisibility.mjs';
@@ -31,6 +34,10 @@ const TABS = [
   { id: "notes", label: "📝 메모" },
   { id: "calendar", label: "📅 캘린더" },
 ];
+// 디스코드와 연동했을 때만 보이는 탭
+const TONKATSU_TABS = [
+  { id: "checkin", label: "🔥 인증" },
+];
 
 function BlockMigrationNotice({ error, retry }) {
   if (error) return <div role="alert">
@@ -44,7 +51,10 @@ function App() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState("today");
   const [{control:controlVisible,calendar:calendarVisible,notes:notesVisible}] = useTabVisibility(user?.uid);
-  const visibleTabs = useMemo(() => visibleAppTabs(TABS,{control:controlVisible,calendar:calendarVisible,notes:notesVisible}),[controlVisible,calendarVisible,notesVisible]);
+  const discord = useDiscordLink(user?.uid);
+  const discordId = discord.link?.discordId || null;
+  const visibleTabs = useMemo(() => [...visibleAppTabs(TABS,{control:controlVisible,calendar:calendarVisible,notes:notesVisible}),
+    ...(discordId ? TONKATSU_TABS : [])],[controlVisible,calendarVisible,notesVisible,discordId]);
   const currentTab = visibleTabs.some(tab => tab.id === activeTab) ? activeTab : 'today';
   useEffect(() => {if (activeTab !== currentTab) setActiveTab(currentTab);},[activeTab,currentTab]);
   const goalsData   = useGoals(user?.uid);
@@ -52,6 +62,7 @@ function App() {
   const todosData   = useTodos(user?.uid);
   const priorityData = usePriorityNotes(user?.uid);
   const blockMigration = useLegacyBlockMigration(user?.uid);
+  const serverInfo = useServerInfo(!!discord.link);
   const [settingsUser, setSettingsUser] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [scheduleHistory, settingsReady, settingsError] = useCollection(user?.uid, subscribeScheduleSettings);
@@ -60,6 +71,8 @@ function App() {
   const [learningOpened, setLearningOpened] = useState(false);
   const [notesOpened, setNotesOpened] = useState(false);
   const [calendarOpened, setCalendarOpened] = useState(false);
+  const [tonkatsuOpened, setTonkatsuOpened] = useState(false);
+  const tonkatsu = useTonkatsu(discordId, tonkatsuOpened);
   const learning = useLearning(plannerOpened || learningOpened ? user?.uid : null);
   const activateTab = useCallback(tabId => {
     setActiveTab(tabId);
@@ -68,6 +81,7 @@ function App() {
     if (tabId === 'learning') setLearningOpened(true);
     if (tabId === 'notes') setNotesOpened(true);
     if (tabId === 'calendar') setCalendarOpened(true);
+    if (tabId === 'checkin') setTonkatsuOpened(true);
   }, []);
   const openLearning = () => activateTab('learning');
 
@@ -163,7 +177,7 @@ function App() {
       </header>
 
       {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
-        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} />}
+        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
       <nav className="tab-nav">
         {visibleTabs.map((tab) => (
@@ -202,6 +216,9 @@ function App() {
         <div hidden={currentTab !== 'calendar'}>
           {calendarOpened && <CalendarTab key={user.uid} uid={user.uid} active={currentTab === 'calendar'} />}
         </div>
+        {discordId && <div hidden={currentTab !== 'checkin'}>
+          {tonkatsuOpened && <CheckInTab tonkatsu={tonkatsu} discordId={discordId} />}
+        </div>}
         <div hidden={currentTab !== 'notes'}>
           {notesOpened && <NotesTab key={user.uid} uid={user.uid} />}
         </div>
