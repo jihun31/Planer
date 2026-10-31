@@ -5,7 +5,8 @@ import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.
 import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition } from '../features/planner/timerPreferences';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
 import { useEditableCopy } from '../features/copy/useEditableCopy';
-export default function ScheduleSettings({ uid, history, ready, error, onClose }) {
+import DiscordLinkSection from './DiscordLinkSection';
+export default function ScheduleSettings({ uid, history, ready, error, onClose, discord, serverInfo }) {
   const copy = useEditableCopy('settings');
   const close = () => {if (!saving && copy.canClose()) onClose();};
   const [timerPopupEnabled, setTimerPopupEnabled] = useTimerPopupPreference(uid);
@@ -37,6 +38,7 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose }
   return <dialog ref={dialog} className="schedule-settings" onCancel={e => {e.preventDefault();close();}}>
     <div className="settings-dialog-heading"><h2>{copy.field('title')}</h2><div inert={saving ? true : undefined}>{copy.actions}</div></div>
     {copy.status}
+    {discord && <DiscordLinkSection uid={uid} discord={discord} serverInfo={serverInfo} />}
     <section className="schedule-settings-timer">
       <h3>{copy.field('timerHeading')}</h3>
       <label>{copy.field('timerPopup')}<input type="checkbox" disabled={copy.editing} checked={timerPopupEnabled} onChange={e => {
