@@ -42,6 +42,8 @@
 .notes-text-editor ul,.notes-text-editor ol { margin:4px 0; padding-left:24px; }
 .notes-text-editor ul { list-style:disc; }
 .notes-text-editor ol { list-style:decimal; }
+.notes-text-editor ol ol { list-style:lower-alpha; }
+.notes-text-editor ol ol ol { list-style:lower-roman; }
 .notes-text-editor ol ul,.notes-text-editor ul ol,.notes-text-editor ol ol { margin:0; }
 .notes-text-editor ul ul { margin:0; list-style:circle; }
 .notes-text-editor ul ul ul { list-style:square; }
