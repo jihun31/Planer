@@ -14,6 +14,7 @@ function MonthlyStats({ year, month, blocks, activities, control = false,loading
   });
 
   const stats = useMemo(() => summarizeBlocks(monthBlocks, actMap), [monthBlocks, actMap]);
+  const totalMinutes = stats.reduce((total, stat) => total + stat.mins, 0);
   const grouped = useMemo(() => {
     const groups = { controlled: { key: 'controlled', name: '통제', mins: 0, items: [] }, foolish: { key: 'foolish', name: '어리석음', mins: 0, items: [] } };
     for (const block of monthBlocks) {
@@ -37,6 +38,9 @@ function MonthlyStats({ year, month, blocks, activities, control = false,loading
         <p className="stats-empty">이번 달 기록이 없습니다.</p>
       ) : (
         <div className="stats-list">
+          {!control && <div className="stats-group">
+            <strong>총 시간</strong><span>{fmtMins(totalMinutes)}</span>
+          </div>}
           {(control ? grouped.flatMap(group => [
             <div className="stats-group" key={`group-${group.name}`} style={{ color: controlColor(group.key) }}>
               <strong>{group.name}</strong><span>{fmtMins(group.mins)}</span>
