@@ -65,7 +65,7 @@ function timerHarness(enabled,prepare,control = false) {
     useState(initial){const index = cursor++;if (!(index in slots)) slots[index] = initial;return [slots[index],value=>{slots[index]=typeof value==='function'?value(slots[index]):value;}];},
     useRef(initial){const index = cursor++;return slots[index] ??= {current:initial};},useMemo:fn=>fn(),useEffect:()=>{},
   });
-  vm.runInContext(body + '\nreturn {actId,setActId,handleStart,handleStop,continueStart,running,starting,gap};}\nglobalThis.render = TimerBlock;',context);
+  vm.runInContext(body + '\nreturn {actId,setActId,handleStart,handleStop,continueStart,cancelStart,running,starting,gap,activeTimerOwner};}\nglobalThis.render = TimerBlock;',context);
   const activity = {id:'a',name:'독서',color:'#6366f1'};
   const secondActivity = {id:'b',name:'운동',color:'#ef4444',group:'controlled'};
   const render = () => {cursor=0;return context.render({uid:'alice',activities:[activity,secondActivity],allActivities:[activity,secondActivity],control,onSaveTimer:async data=>writes.push(data)});};
@@ -133,6 +133,26 @@ test('gap dialog and fetch failures can be skipped, prevent double starts and re
     harness.advance(8);await harness.render().handleStop();
     assert.equal(harness.writes[0].startTs,ts(22,12));
     assert.equal(harness.writes[0].segments[0].endMin - harness.writes[0].segments[0].startMin,10);
+  }
+});
+
+test('canceling gap setup stops the start request and ignores late responses',async () => {
+  for (const state of ['ready','error','pending']) {
+    let finish;
+    const harness = timerHarness(true,()=>new Promise((resolve,reject)=>{finish=state==='error'?()=>reject(Error('offline')):resolve;}));
+    harness.render().handleStart();
+    if (state !== 'pending') {finish(studyGap([row(0,60)],ts(22,12)));await flush();}
+    harness.render().cancelStart();
+    if (state === 'pending') {finish(studyGap([row(0,60)],ts(22,12)));await flush();}
+    assert.equal(harness.render().running,false);
+    assert.equal(harness.render().starting,false);
+    assert.equal(harness.render().gap,null);
+    assert.equal(harness.render().activeTimerOwner,null);
+    assert.equal(harness.writes.length,0);
+    harness.render().handleStart('b');
+    assert.equal(harness.render().starting,true);
+    harness.render().cancelStart();finish(null);await flush();
+    assert.equal(harness.render().running,false);
   }
 });
 

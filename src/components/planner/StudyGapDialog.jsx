@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { gapClock } from '../../features/planner/studyGap.mjs';
 import { saveStudyGap } from '../../features/planner/studyGapService';
 
-export default function StudyGapDialog({uid,gap,onContinue,onRetry}) {
+export default function StudyGapDialog({uid,gap,onContinue,onRetry,onCancel}) {
   const dialog = useRef(null), busyRef = useRef(false);
   const [activityId,setActivityId] = useState('');
   const [name,setName] = useState('');
@@ -26,12 +26,13 @@ export default function StudyGapDialog({uid,gap,onContinue,onRetry}) {
     finally {busyRef.current = false;setBusy(false);}
   }
   return <dialog ref={dialog} className="study-gap-dialog" aria-labelledby="study-gap-title"
-    onCancel={event => {event.preventDefault();if (!busyRef.current) onContinue();}}>
+    onCancel={event => {event.preventDefault();if (!busyRef.current) onCancel();}}>
     <h2 id="study-gap-title">학습 사이 빈 시간 기록</h2>
     <p>시작 버튼을 누른 시각부터 학습 시간을 계산합니다.</p>
     {gap.error ? <>
       <p role="alert">이전 기록을 확인하지 못했습니다. 다시 확인하거나 빈 시간 기록을 건너뛸 수 있습니다.</p>
-      <div className="study-gap-actions"><button type="button" onClick={onContinue}>건너뛰고 시작</button>
+      <div className="study-gap-actions"><button type="button" className="study-gap-cancel" onClick={onCancel}>취소</button>
+        <button type="button" onClick={onContinue}>건너뛰고 시작</button>
         <button type="button" onClick={onRetry}>다시 확인</button></div>
     </> : <form onSubmit={save}>
       <div className="study-gap-ranges">{gap.segments.map(segment => <span key={segment.startMin}>
@@ -45,7 +46,8 @@ export default function StudyGapDialog({uid,gap,onContinue,onRetry}) {
       {custom && <div className="study-gap-custom"><label>활동명<input maxLength={120} value={name} disabled={busy} onChange={event => setName(event.target.value)} required /></label>
         <label>그룹<select value={group} disabled={busy} onChange={event => setGroup(event.target.value)}><option value="controlled">통제</option><option value="foolish">어리석음</option></select></label></div>}
       {error && <p role="alert">{error}</p>}
-      <div className="study-gap-actions"><button type="button" disabled={busy} onClick={onContinue}>건너뛰고 시작</button>
+      <div className="study-gap-actions"><button type="button" className="study-gap-cancel" disabled={busy} onClick={onCancel}>취소</button>
+        <button type="button" disabled={busy} onClick={onContinue}>건너뛰고 시작</button>
         <button type="submit" className="study-gap-primary" disabled={busy || !activityId || custom && !name.trim()}>{busy ? '저장 중…' : '기록하고 시작'}</button></div>
     </form>}
   </dialog>;

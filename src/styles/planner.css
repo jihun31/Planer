@@ -316,6 +316,7 @@
 .study-gap-custom { display:grid; grid-template-columns:minmax(0,1fr) 110px; gap:12px; }
 .study-gap-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:22px; }
 .study-gap-actions button { padding:9px 12px; border:1px solid var(--border); border-radius:8px; background:white; color:var(--text); font:inherit; font-size:.82rem; cursor:pointer; }
+.study-gap-actions .study-gap-cancel { margin-right:auto; }
 .study-gap-actions .study-gap-primary { background:var(--primary); border-color:var(--primary); color:white; }
 .study-gap-actions button:disabled { opacity:.5; cursor:default; }
 .study-gap-dialog [role="alert"] { color:#b91c1c; }

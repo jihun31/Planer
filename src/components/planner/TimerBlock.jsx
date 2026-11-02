@@ -123,6 +123,10 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     }
   };
 
+  const cancelStart = () => {
+    startRequest.current = null;setGap(null);setStarting(false);
+    if (activeTimerOwner === timerOwner.current) activeTimerOwner = null;
+  };
   const continueStart = () => {
     const request = startRequest.current;
     if (!request) return;
@@ -330,7 +334,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       {starting && !gap && <div><p role="status">오늘의 이전 기록을 확인하는 중…</p>
         <button type="button" className="btn-signout" onClick={continueStart}>빈 시간 기록 건너뛰고 시작</button></div>}
       {gap && <StudyGapDialog key={`${gap.startTs}-${gap.error ? 'error' : 'ready'}`} uid={uid} gap={gap}
-        onContinue={continueStart} onRetry={() => checkGap(startRequest.current)} />}
+        onContinue={continueStart} onRetry={() => checkGap(startRequest.current)} onCancel={cancelStart} />}
 
       {running && sessionPopupEnabled && !popupWin && !electronPopupOpen && createPortal(
         <div className={`float-timer${popupPosition === 'left' ? ' float-timer-left' : ''}`} style={{ '--ft-color': timerColor }}>
