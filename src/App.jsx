@@ -11,6 +11,7 @@ import { useLegacyBlockMigration } from './features/planner/useLegacyBlockMigrat
 import { loginWithGoogle, logout, cancelLogin, loginErrorMessage } from "./features/auth/authService";
 import TodayTab from "./components/tabs/TasksTab";
 import PlannerTab from "./components/tabs/PlannerTab";
+import { restTimer } from './components/planner/restTimer';
 import LearningTab, { LearningSummary } from './components/tabs/LearningTab';
 import HelpDialog from './components/HelpDialog';
 import UpdateBanner from './components/UpdateBanner';
@@ -85,6 +86,16 @@ function App() {
     if (tabId === 'checkin') setTonkatsuOpened(true);
   }, []);
   const openLearning = () => activateTab('learning');
+  const [restTarget, setRestTarget] = useState(null);
+  useEffect(() => { setRestTarget(null); }, [user?.uid]);
+  useEffect(() => {
+    if (user?.uid && controlVisible && restTimer.read(user.uid).session) activateTab('control');
+  }, [user?.uid, controlVisible, activateTab]);
+
+  const resumeAfterRest = activityId => {
+    setRestTarget({ uid: user.uid, activityId });
+    activateTab('planner');
+  };
 
   useEffect(() => {
     if (loading || !user || settingsUser === user.uid) return;
@@ -204,12 +215,14 @@ function App() {
         <div hidden={currentTab !== "planner"}>
           {plannerOpened && <LearningSummary learning={learning} onOpen={openLearning} />}
           {plannerOpened && (blockMigration.ready
-            ? <PlannerTab key={user.uid} uid={user.uid} active={currentTab === 'planner'} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
+            ? <PlannerTab key={user.uid} uid={user.uid} active={currentTab === 'planner'} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError}
+                restTarget={restTarget?.uid === user.uid ? restTarget : null} />
             : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />)}
         </div>
         <div hidden={currentTab !== "control"}>
           {controlOpened && (blockMigration.ready
-            ? <PlannerTab key={`${user.uid}-control`} uid={user.uid} control active={currentTab === 'control'} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
+            ? <PlannerTab key={`${user.uid}-control`} uid={user.uid} control active={currentTab === 'control'} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError}
+                onRestReturn={resumeAfterRest} />
             : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />)}
         </div>
         <div hidden={currentTab !== "learning"}>

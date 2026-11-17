@@ -96,6 +96,7 @@
       0%, 100% { opacity: 1; transform: scale(1); }
       50%       { opacity: 0.3; transform: scale(0.6); }
     }
+    body[data-mode="rest"] .start-label { display: none; }
   </style>
 </head>
 <body>
@@ -110,6 +111,7 @@
 
   <script>
     let startTs = null;
+    let restSession = null;
     let intervalId = null;
 
     function fmtElapsed(s) {
@@ -131,6 +133,18 @@
 
     function startTick() {
       if (intervalId) clearInterval(intervalId);
+      if (restSession) {
+        const tick = () => {
+          const seconds = Math.max(0, Math.ceil((restSession.endTs - Date.now()) / 1000));
+          document.getElementById('time').textContent = fmtElapsed(seconds);
+          if (seconds > 0) return;
+          clearInterval(intervalId);
+          window.electronAPI.sendRestPopupCommand({ type: 'expire', key: restSession.key });
+        };
+        intervalId = setInterval(tick, 250);
+        tick();
+        return;
+      }
       intervalId = setInterval(() => {
         if (startTs !== null) {
           document.getElementById('time').textContent =
@@ -140,6 +154,10 @@
     }
 
     window.electronAPI.onTimerData((data) => {
+      restSession = data.mode === 'rest' ? data : null;
+      document.body.dataset.mode = restSession ? 'rest' : 'elapsed';
+      document.getElementById('close-btn').title = restSession ? '숨기기' : '닫기';
+      document.getElementById('stop-btn').textContent = restSession ? '휴식 마치기' : '■ 정지 & 기록';
       document.getElementById('name').textContent = data.actName;
       document.getElementById('start-label').textContent =
         data.startLabel ? data.startLabel + ' 시작' : '';
@@ -149,11 +167,19 @@
     });
 
     document.getElementById('stop-btn').addEventListener('click', () => {
+      if (restSession) {
+        window.electronAPI.sendRestPopupCommand({ type: 'end', key: restSession.key });
+        return;
+      }
       clearInterval(intervalId);
       window.electronAPI.stopTimerFromPopup();
     });
 
     document.getElementById('close-btn').addEventListener('click', () => {
+      if (restSession) {
+        window.electronAPI.sendRestPopupCommand({ type: 'hide', key: restSession.key });
+        return;
+      }
       clearInterval(intervalId);
       window.electronAPI.stopTimerFromPopup();
     });

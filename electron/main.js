@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, screen, Notification, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -9,6 +9,20 @@ const mainUrl = isDev ? 'http://localhost:5173/' : pathToFileURL(path.join(__dir
 const timerUrl = pathToFileURL(path.join(__dirname, 'timer-popup.html')).href;
 let mainWindow = null, timerWindow = null, loginSession = null;
 let timerStopPending = false;
+let timerMode = 'elapsed';
+let timerState = null;
+let clearRestReminder = () => {};
+
+function revealMain() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+}
+
+function sendRestCommand(type, key) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rest:command', { type, key });
+}
 
 function fromWindow(event, win, expectedUrl) {
   let samePage = false;
@@ -73,6 +87,7 @@ function createMainWindow() {
     loginSession?.cancel();
     mainWindow = null;
     timerStopPending = false;
+    clearRestReminder();
     if (timerWindow && !timerWindow.isDestroyed()) timerWindow.close();
   });
 }
@@ -81,17 +96,25 @@ function createTimerWindow(data) {
   if (!data || typeof data.actName !== 'string' || data.actName.length > 500 ||
       !Number.isFinite(data.startTs) || typeof data.color !== 'string' ||
       !/^#[0-9a-f]{6}$/i.test(data.color)) return false;
+  const isRest = data.mode === 'rest';
+  if (isRest && (!Number.isSafeInteger(data.startTs) || !Number.isSafeInteger(data.endTs) ||
+      data.endTs < data.startTs)) return false;
+  if (timerWindow && !timerWindow.isDestroyed() && isRest !== (timerMode === 'rest')) return false;
+  timerMode = isRest ? 'rest' : 'elapsed';
   const safeData = {
+    ...(isRest ? { mode: 'rest', endTs: data.endTs, key: data.startTs + ':' + data.endTs } : {}),
     actName: data.actName, startTs: data.startTs, color: data.color,
     startLabel: typeof data.startLabel === 'string' ? data.startLabel.slice(0, 30) : '',
   };
+  timerState = safeData;
   if (timerWindow && !timerWindow.isDestroyed()) {
-    timerWindow.focus();
+    if (!isRest) timerWindow.focus();
+    else if (data.reveal && !timerWindow.webContents.isLoading()) timerWindow.show();
     timerWindow.webContents.send('timer:data', safeData);
     return true;
   }
   const win = new BrowserWindow({
-    width: 200, height: 128, resizable: false,
+    width: 176, height: isRest ? 112 : 128, resizable: false, show: !isRest,
     alwaysOnTop: true, frame: false, backgroundColor: '#ffffff', skipTaskbar: true,
     webPreferences: {
       nodeIntegration: false, contextIsolation: true, sandbox: true,
@@ -102,8 +125,9 @@ function createTimerWindow(data) {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
   win.webContents.once('did-finish-load', () => {
-    if (!win.isDestroyed()) win.webContents.send('timer:data', safeData);
+    if (!win.isDestroyed()) win.webContents.send('timer:data', timerState);
   });
+  if (isRest) win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive(); });
   win.loadURL(timerUrl);
   win.on('close', () => {
     if (timerStopPending && mainWindow && !mainWindow.isDestroyed()) {
@@ -115,7 +139,12 @@ function createTimerWindow(data) {
   });
   win.on('closed', () => { if (timerWindow === win) timerWindow = null; });
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
-  win.setPosition(data.position === 'left' ? x + 16 : x + width - 216, y + height - 144);
+  const position = data.position === 'left' ? 'left' : 'right';
+  const [popupWidth, popupHeight] = win.getSize();
+  // Keep the center fixed by trimming both sides of each popup equally.
+  const previousWidth = isRest ? 184 : 200;
+  const sideMargin = 16 + (previousWidth - popupWidth) / 2;
+  win.setPosition(position === 'left' ? x + sideMargin : x + width - popupWidth - sideMargin, y + height - popupHeight - 16);
   return true;
 }
 
@@ -172,12 +201,36 @@ ipcMain.on('timer:close', event => {
   timerStopPending = false;
   if (timerWindow && !timerWindow.isDestroyed()) timerWindow.close();
 });
+ipcMain.handle('rest:open-popup', (event, data) => {
+  if (!fromMain(event)) return { ok: false };
+  return { ok: createTimerWindow({ ...data, mode: 'rest' }) };
+});
+ipcMain.on('rest:close-popup', (event, restore) => {
+  if (!fromMain(event)) return;
+  if (restore === true) revealMain();
+  if (timerMode === 'rest' && timerWindow && !timerWindow.isDestroyed()) {
+    timerWindow.destroy();
+    timerWindow = null;
+  }
+});
+ipcMain.on('rest:popup-command', (event, command) => {
+  if (!fromTimer(event) || timerMode !== 'rest' || !timerState || command?.key !== timerState.key) return;
+  const { type, key } = command;
+  if (type === 'hide') { timerWindow.hide(); return; }
+  if (type === 'end' || (type === 'expire' && timerState.endTs <= Date.now())) sendRestCommand(type, key);
+});
 ipcMain.on('timer:stop-from-popup', event => {
-  if (!fromTimer(event)) return;
+  if (!fromTimer(event) || timerMode === 'rest') return;
   timerStopPending = true;
   timerWindow.close();
 });
 app.whenReady().then(() => {
+  const { registerRestReminder } = require('./rest-reminder.cjs');
+  if (process.platform === 'win32') app.setAppUserModelId('com.planer.app');
+  clearRestReminder = registerRestReminder({
+    ipcMain, powerMonitor, Notification, fromMain, revealMain,
+    onElapsed: key => sendRestCommand('expire', key),
+  });
   createMainWindow();
   // 설치본에서만 자동 업데이트 (개발 중에는 끔)
   if (!isDev) {

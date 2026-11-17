@@ -1,0 +1,129 @@
+.act-chip.planer-rest-shortcut {
+  color: #6366f1;
+  border-color: #6366f180;
+  background: #6366f120;
+}
+
+.planer-rest-shortcut .act-chip-dot {
+  background: currentColor;
+}
+
+.planer-rest-dialog h2 {
+  overflow-wrap: anywhere;
+}
+
+.planer-rest-field {
+  display: grid;
+  gap: 7px;
+  margin-top: 14px;
+  font-size: .85rem;
+}
+
+.planer-rest-dialog .planer-rest-field > label {
+  display: block;
+  margin: 0;
+}
+
+.study-gap-actions.planer-rest-row {
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  margin: 0;
+}
+
+.planer-rest-row > :is(input, select) {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.planer-rest-row > button {
+  flex: 0 0 auto;
+}
+
+.study-gap-actions.planer-rest-field-heading {
+  justify-content: space-between;
+}
+
+.planer-rest-field-heading .planer-rest-text-button {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+}
+
+.planer-rest-field-heading .planer-rest-text-button:hover {
+  text-decoration: underline;
+}
+
+.planer-rest-badge-label {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: .78rem;
+}
+
+.act-chip.planer-rest-badge {
+  max-width: 100%;
+  padding: 5px 9px;
+  border-color: color-mix(in srgb, var(--rest-badge-color) 30%, var(--border));
+  background: color-mix(in srgb, var(--rest-badge-color) 8%, var(--surface));
+  color: var(--text);
+  font: inherit;
+  font-size: .82rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.planer-rest-badge .act-chip-dot {
+  background: var(--rest-badge-color);
+}
+
+.act-chip.planer-rest-activity-badge[aria-pressed="false"] {
+  border-color: transparent;
+}
+
+.act-chip.planer-rest-badge:hover,
+.act-chip.planer-rest-badge[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--rest-badge-color) 16%, var(--surface));
+}
+
+.act-chip.planer-rest-badge[aria-pressed="true"] {
+  border-color: var(--rest-badge-color);
+  box-shadow: 0 0 0 1px var(--rest-badge-color);
+}
+
+.study-gap-ranges.planer-rest-times {
+  justify-content: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 9px;
+}
+
+.planer-rest-times > button {
+  padding: 6px 9px;
+}
+
+.planer-rest-times > button[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.planer-rest-feedback {
+  color: var(--text-muted);
+}
+
+.planer-rest-action {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.planer-rest-extend {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.planer-rest-extend > .study-gap-actions {
+  margin-top: 6px;
+}

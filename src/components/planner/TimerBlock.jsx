@@ -6,10 +6,12 @@ import { COLORS, CUSTOM_ID, fmtElapsed } from './plannerDisplay.mjs';
 import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition } from '../../features/planner/timerPreferences';
 import { prepareStudyGap } from '../../features/planner/studyGapService';
 import StudyGapDialog from './StudyGapDialog';
+import { restTimer } from './restTimer';
 
 let activeTimerOwner = null;
 
-function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivityRef, control = false }) {
+function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivityRef, control = false,
+  restAvailable, returnActivities, onRestReturn, restTarget }) {
   const [popupEnabled] = useTimerPopupPreference(uid);
   const [popupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled] = useStudyGapPreference(uid);
@@ -37,6 +39,12 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   const [desktopError, setDesktopError] = useState('');
   const isCustom = actId === CUSTOM_ID;
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
+  const rest = restTimer.useTimer({
+    uid, enabled: control, popupPosition, returnActivities, onReturn: onRestReturn,
+    lock: () => { activeTimerOwner = timerOwner.current; },
+    unlock: () => { if (activeTimerOwner === timerOwner.current) activeTimerOwner = null; },
+  });
+  const defaultRest = restAvailable && !restTimer.findRest(activities);
   useEffect(() => () => {
     startRequest.current = null;
     if (activeTimerOwner === timerOwner.current) activeTimerOwner = null;
@@ -44,8 +52,9 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
 
   const actMap    = useMemo(() => Object.fromEntries(allActivities.map(a => [a.id, a])), [allActivities]);
   useEffect(() => {
-    if (!running && actId && actId !== CUSTOM_ID && !activities.some(a => a.id === actId)) setActId('');
-  }, [activities, actId, running]);
+    if (!running && actId && actId !== CUSTOM_ID && !(defaultRest && actId === restTimer.optionId) &&
+      !activities.some(a => a.id === actId)) setActId('');
+  }, [activities, actId, running, defaultRest]);
   const curAct    = actMap[actId];
   const timerColor = isCustom ? (control ? controlColor(customGroup) : customColor) : (curAct?.color ?? '#6366f1');
 
@@ -147,14 +156,17 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   };
   const handleStart = (selectedActId = actId) => {
     const selectedIsCustom = selectedActId === CUSTOM_ID;
-    if (startRequest.current || running || saving || pendingSave.current || (sessionRef.current && !stoppingRef.current) || !selectedActId
-      || (!selectedIsCustom && !activities.some(activity => activity.id === selectedActId))
+    const isRest = control && ((defaultRest && selectedActId === restTimer.optionId) || restTimer.isRestName(actMap[selectedActId]?.name));
+    if (rest.active && isRest) { rest.open(); return; }
+    if (rest.busy || startRequest.current || running || saving || pendingSave.current || (sessionRef.current && !stoppingRef.current) || !selectedActId
+      || (!selectedIsCustom && !isRest && !activities.some(activity => activity.id === selectedActId))
       || (selectedIsCustom && (!customName.trim() || (control && !customGroup)))) return;
     if (activeTimerOwner && activeTimerOwner !== timerOwner.current) {
       alert('다른 탭의 타이머를 먼저 정지해 주세요.');return;
     }
     setActId(selectedActId);
     if (!selectedIsCustom) setCustomLearning(false);
+    if (isRest) { rest.open(); return; }
     if (control || !studyGapEnabled) {beginTimer(Date.now(),selectedActId);return;}
     const ts = Date.now();
     const request = {startTs:ts,begin:() => beginTimer(ts,selectedActId),checking:false};
@@ -253,6 +265,11 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   });
 
   const startLabel = running && startTs !== null ? clockLabel(startTs) : null;
+  restTimer.useReturnTimer(restTarget, activities, activityId => {
+    setActId(activityId);
+    setCustomLearning(false);
+    beginTimer(Date.now(), activityId);
+  });
 
   return (
     <div
@@ -269,9 +286,10 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
         style={{ width: '100%', ...(control && curAct ? { color: timerColor, fontWeight: 700 } : {}) }}
         value={actId}
         onChange={(e) => { setActId(e.target.value); if (e.target.value !== CUSTOM_ID) setCustomLearning(false); }}
-        disabled={running || starting}
+        disabled={running || starting || rest.busy}
       >
         <option value="">활동 선택</option>
+        {defaultRest && <option value={restTimer.optionId}>{restTimer.restName}</option>}
         {activities.map(a => <option key={a.id} value={a.id} style={control ? { color: a.color } : undefined}>{a.name}</option>)}
         <option value={CUSTOM_ID}>✏️ 직접 입력</option>
       </select>
@@ -323,10 +341,10 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
               ? { background: timerColor, borderColor: timerColor, color: '#fff' }
               : {}
         }
-        disabled={starting || saving || !!saveError || (!running && (!actId || (isCustom && (!customName.trim() || (control && !customGroup)))))}
-        onClick={running ? handleStop : () => handleStart()}
+        disabled={!rest.active && (rest.busy || starting || saving || !!saveError || (!running && (!actId || (isCustom && (!customName.trim() || (control && !customGroup))))))}
+        onClick={rest.active ? rest.open : running ? handleStop : () => handleStart()}
       >
-        {starting ? '시작 준비 중…' : saving ? '저장 중...' : running ? '■ 정지 & 기록' : '▶ 시작'}
+        {rest.active ? '휴식 타이머 보기' : starting ? '시작 준비 중…' : saving ? '저장 중...' : running ? '■ 정지 & 기록' : '▶ 시작'}
       </button>
 
       {saveError && <p role="alert">{saveError}<button disabled={saving} onClick={savePending}>다시 저장</button></p>}
@@ -369,6 +387,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
         </div>,
         popupWin.document.body
       )}
+      {rest.panel}
     </div>
   );
 }

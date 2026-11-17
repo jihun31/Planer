@@ -207,13 +207,15 @@ test('timer is not clamped to grid and respects actual day, 05:00 boundary, mont
   assert.equal(plannerDate(ts(5,5)),'2026-10-05');
   assert.deepEqual(timerSegments(new Date(2026,0,1,4,55).getTime(),new Date(2026,0,1,5,5).getTime()).map(b=>b.date),['2025-12-31','2026-01-01']);
 });
+const inactiveRestTimer = { useTimer:()=>({busy:false,active:false}), useReturnTimer(){} };
+
 test('real TimerBlock ignores past/future calendar selection, snapshots metadata, stops once and retries unchanged data', async () => {
   const source=fs.readFileSync('src/components/planner/TimerBlock.jsx','utf8');
   const body=source.slice(source.indexOf('function TimerBlock('),source.indexOf('\n  return (',source.indexOf('function TimerBlock(')));
   const slots=[];let cursor=0, now=ts(5,12),fail=true;const calls=[];
   class Clock extends Date { static now(){ return now; } }
   const context=vm.createContext({Date:Clock,clockLabel,timerSegments,COLORS:['#123456'],CUSTOM_ID:'__custom__',activeTimerOwner:null,
-    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],
+    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],restTimer:inactiveRestTimer,
     useState(initial){const i=cursor++;if(!(i in slots))slots[i]=initial;return [slots[i],v=>slots[i]=v];},
     useRef(initial){const i=cursor++;return slots[i]??=( {current:initial} );},
     useMemo:fn=>fn(),useEffect:()=>{},
@@ -236,7 +238,7 @@ test('desktop timer waits for popup confirmation and reports connection failure'
   const slots = []; let cursor = 0, reply, popupData;
   const api = { startTimerPopup: data => {popupData=data;return reply;}, closeTimerPopup() {}, onTimerStopped: () => () => {} };
   const context = vm.createContext({ Date, clockLabel, timerSegments, COLORS: ['#123456'], CUSTOM_ID: '__custom__', activeTimerOwner: null,
-    useTimerPopupPreference:()=>[true],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['left'],
+    useTimerPopupPreference:()=>[true],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['left'],restTimer:inactiveRestTimer,
     window: { electronAPI: api },
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], value => slots[i] = value]; },
     useRef(initial) { const i = cursor++; return slots[i] ??= { current: initial }; },
@@ -268,7 +270,7 @@ test('direct-entry timer stores the learning choice with its saved segments', as
   const body = source.slice(source.indexOf('function TimerBlock('),source.indexOf('\n  return (',source.indexOf('function TimerBlock(')));
   const slots = []; let cursor = 0, saved;
   const context = vm.createContext({Date,clockLabel,timerSegments,COLORS:['#123456'],CUSTOM_ID:'__custom__',activeTimerOwner:null,
-    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],
+    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],restTimer:inactiveRestTimer,
     useState(initial) { const i=cursor++; if (!(i in slots)) slots[i]=initial; return [slots[i],value=>slots[i]=value]; },
     useRef(initial) { const i=cursor++; return slots[i]??={current:initial}; },
     useMemo:fn=>fn(),useEffect:()=>{},

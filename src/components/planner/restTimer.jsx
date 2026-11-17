@@ -1,0 +1,365 @@
+import React from 'react';
+import { createPortal } from 'react-dom';
+import '../../styles/rest-timer.css';
+
+function createPlanerRest(React, createPortal) {
+  const { useEffect, useRef, useState } = React;
+  const optionId = '__planer_builtin_rest__';
+  const restName = '휴식';
+  const color = '#6366f1';
+  const presets = [5, 10, 15, 30];
+  const minute = 60_000;
+  const keyFor = uid => `planer:rest-plan:v1:${uid}`;
+  const isRestName = name => typeof name === 'string' && name.normalize('NFKC').trim() === restName;
+  const findRest = activities => activities.find(activity => isRestName(activity.name));
+  const isMinutes = value => Number.isInteger(value) && value >= 1 && value <= 1440;
+  const sessionKey = session => `${session.startTs}:${session.endTs}`;
+
+  function read(uid) {
+    let data;
+    try { data = JSON.parse(localStorage.getItem(keyFor(uid))); } catch { /* Use defaults. */ }
+    const activities = Array.isArray(data?.activities)
+      ? data.activities.filter(item => typeof item?.id === 'string' && typeof item.name === 'string' && item.name.trim())
+      : [];
+    const session = data?.session;
+    const validSession = session && Number.isFinite(session.startTs) && Number.isFinite(session.endTs)
+      && session.endTs >= session.startTs && typeof session.name === 'string' && typeof session.action === 'string';
+    return {
+      activities,
+      minutes: isMinutes(data?.minutes) ? data.minutes : 10,
+      session: validSession ? session : null,
+    };
+  }
+
+  function useReturnTimer(target, activities, start) {
+    const applied = useRef(null);
+    useEffect(() => {
+      if (!target || applied.current === target || !activities.some(item => item.id === target.activityId)) return;
+      applied.current = target;
+      start(target.activityId);
+    }, [target, activities, start]);
+  }
+
+  function Shortcut({ onClick }) {
+    return <span className="act-chip planer-rest-shortcut">
+      <span className="act-chip-dot" />
+      <button type="button" className="act-chip-start" title="휴식 타이머 시작" onClick={onClick}>{restName}</button>
+    </span>;
+  }
+
+  function ActivityBadges({ activities, selected, onSelect, label, rest = false }) {
+    return <div className="act-chips" role="group" aria-label={label}>
+      {activities.map(activity => (
+        <button type="button" key={activity.id} className={`act-chip planer-rest-badge${rest ? ' planer-rest-activity-badge' : ''}`}
+          aria-pressed={selected === activity.id} onClick={() => onSelect(activity)}
+          style={{ '--rest-badge-color': /^#[0-9a-f]{6}$/i.test(activity.color) ? activity.color : color }}>
+          <span className="act-chip-dot" aria-hidden="true" />
+          <span>{activity.name}</span>
+        </button>
+      ))}
+    </div>;
+  }
+
+  function DurationPicker({ value, onChange }) {
+    const [custom, setCustom] = useState(!presets.includes(value) && value !== '');
+    return <div className="study-gap-actions study-gap-ranges planer-rest-times" role="group" aria-label="시간 선택">
+      {presets.map(minutes => <button type="button" key={minutes} aria-pressed={!custom && value === minutes}
+        onClick={() => { setCustom(false); onChange(minutes); }}>{minutes}분</button>)}
+      <button type="button" aria-pressed={custom} onClick={() => { setCustom(true); onChange(''); }}>직접 입력</button>
+      {custom && <input autoFocus type="number" min="1" max="1440"
+        aria-label="분 직접 입력" placeholder="분" value={value}
+        onChange={event => onChange(event.target.value === '' ? '' : Number(event.target.value))} />}
+    </div>;
+  }
+
+  function ActivityPicker({ activities, selected, onSelect, onSave }) {
+    const [managing, setManaging] = useState(false);
+    const [editing, setEditing] = useState(null);
+    const [name, setName] = useState('');
+    const field = useRef(null);
+    const current = activities.find(item => item.id === selected);
+    const cleanName = name.trim().normalize('NFC');
+    const duplicate = activities.some(item => item.id !== editing && item.name === cleanName);
+
+    function submit() {
+      if (!managing || !cleanName || duplicate) return;
+      const id = editing ?? crypto.randomUUID();
+      const next = editing
+        ? activities.map(item => item.id === editing ? { id, name: cleanName } : item)
+        : [...activities, { id, name: cleanName }];
+      if (!onSave(next)) return;
+      setEditing(null);
+      setName('');
+    }
+
+    function cancelRename() {
+      if (!editing) return;
+      setEditing(null);
+      setName('');
+    }
+
+    return <div className="planer-rest-field">
+      <div className="study-gap-actions planer-rest-row planer-rest-field-heading">
+        <span>휴식 활동</span>
+        <button type="button" className="planer-rest-text-button" aria-expanded={managing} onClick={() => {
+          setManaging(!managing);
+          setEditing(null);
+          setName('');
+        }}>{managing ? '관리 완료' : '활동 관리'}</button>
+      </div>
+      {!!activities.length && <ActivityBadges rest activities={activities} selected={selected} label="휴식 활동 선택"
+        onSelect={item => {
+          if (item.id !== selected) cancelRename();
+          onSelect(item.id);
+        }} />}
+      {managing && <div className="study-gap-actions planer-rest-row">
+        <input id="planer-rest-activity" ref={field}
+          autoFocus aria-label={editing ? '휴식 활동 이름 수정' : '새 휴식 활동 이름'}
+          placeholder="활동 이름" value={name} maxLength={80} onChange={event => setName(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
+          }} />
+        <button type="button" disabled={!cleanName || duplicate} onClick={submit}>
+          {editing ? '저장' : '+ 활동 추가'}
+        </button>
+      </div>}
+      {duplicate && <span className="planer-rest-feedback" role="status">이미 등록된 활동이에요.</span>}
+      {managing && current && <div className="study-gap-actions planer-rest-row">
+          <button type="button" aria-label={`${current.name} 수정`} onClick={() => {
+            setEditing(current.id);
+            setName(current.name);
+            field.current?.focus();
+          }}>수정</button>
+          <button type="button" aria-label={`${current.name} 삭제`} onClick={() => {
+            const next = activities.filter(activity => activity.id !== current.id);
+            if (!onSave(next)) return;
+            onSelect('');
+            cancelRename();
+          }}>삭제</button>
+      </div>}
+    </div>;
+  }
+
+  function RestSetup({ store, onSaveActivities, onStart, onCancel, returnActivities }) {
+    const [activityId, setActivityId] = useState('');
+    const [minutes, setMinutes] = useState(store.minutes);
+    const [action, setAction] = useState('');
+    const [returnActivityId, setReturnActivityId] = useState('');
+    const activity = store.activities.find(item => item.id === activityId);
+    const returnActivity = returnActivities.find(item => item.id === returnActivityId);
+    const ready = activity && isMinutes(minutes) && action.trim() && (returnActivity || !returnActivities.length);
+    return <form onSubmit={event => {
+      event.preventDefault();
+      if (ready) onStart({ activity, minutes, action: action.trim(), returnActivityId: returnActivity?.id });
+    }}>
+      <ActivityPicker activities={store.activities} selected={activityId} onSelect={setActivityId} onSave={onSaveActivities} />
+      <div className="planer-rest-field">
+        <span>휴식 시간</span>
+        <DurationPicker value={minutes} onChange={setMinutes} />
+      </div>
+      <div className="planer-rest-field">
+        <label htmlFor="planer-rest-action">복귀 후 첫 행동</label>
+        <input id="planer-rest-action" data-rest-focus={store.activities.length ? '' : undefined}
+          value={action} maxLength={150} placeholder="예: 보고서 파일 열기" onChange={event => setAction(event.target.value)} />
+        {!!returnActivities.length && <>
+          <span className="planer-rest-badge-label">시간 관리 활동</span>
+          <ActivityBadges activities={returnActivities} selected={returnActivityId} label="시간 관리 활동 선택"
+            onSelect={item => setReturnActivityId(returnActivityId === item.id ? '' : item.id)} />
+        </>}
+      </div>
+      <div className="study-gap-actions">
+        <button type="button" className="study-gap-cancel" onClick={onCancel}>취소</button>
+        <button type="submit" className="study-gap-primary"
+          disabled={!ready}>휴식 시작</button>
+      </div>
+    </form>;
+  }
+
+  function RestReview({ action, onReturn, onExtend }) {
+    const [extending, setExtending] = useState(false);
+    const [minutes, setMinutes] = useState('');
+    return <>
+      <div className="study-gap-ranges planer-rest-action">{action}</div>
+      <div className="study-gap-actions">
+        <button type="button" aria-expanded={extending} onClick={() => setExtending(!extending)}>휴식 연장</button>
+        <button type="button" className="study-gap-primary" data-rest-focus onClick={onReturn}>업무 복귀</button>
+      </div>
+      {extending && <form className="planer-rest-field planer-rest-extend" onSubmit={event => {
+        event.preventDefault();
+        if (isMinutes(minutes)) onExtend(minutes);
+      }}>
+        <span>추가로 쉴 시간</span>
+        <DurationPicker value={minutes} onChange={setMinutes} />
+        <div className="study-gap-actions">
+          <button type="submit" className="study-gap-primary" disabled={!isMinutes(minutes)}>연장 시작</button>
+        </div>
+      </form>}
+    </>;
+  }
+
+  function RestDialog({ title, mode, error, onCancel, children }) {
+    const dialog = useRef(null);
+    useEffect(() => {
+      const node = dialog.current;
+      node.showModal();
+      node.querySelector('[data-rest-focus]')?.focus();
+      if (mode === 'review') window.electronAPI?.closeRestPopup?.(true);
+      return () => node.close();
+    }, [mode]);
+    return createPortal(<dialog ref={dialog} className={`study-gap-dialog planer-rest-dialog planer-rest-${mode}`}
+      aria-labelledby="planer-rest-title" onCancel={event => { event.preventDefault(); onCancel?.(); }}>
+      <h2 id="planer-rest-title">{title}</h2>
+      {children}
+      {error && <p className="planer-rest-feedback" role="alert">{error}</p>}
+    </dialog>, document.body);
+  }
+
+  function useTimer({ uid, enabled, popupPosition, lock, unlock, returnActivities = [], onReturn }) {
+    const [store, setStore] = useState(() => enabled ? read(uid) : null);
+    const [editing, setEditing] = useState(false);
+    const [observedTime, setObservedTime] = useState(Date.now);
+    const [error, setError] = useState('');
+    const [popupError, setPopupError] = useState('');
+    const current = useRef(store);
+    const editingRef = useRef(false);
+    const ownership = useRef({ lock, unlock });
+    ownership.current = { lock, unlock };
+    const session = store?.session;
+    const reviewing = Boolean(session && session.endTs <= observedTime);
+    const availableActivities = returnActivities.filter(item => !item.archived);
+    const reminderKey = session ? sessionKey(session) : null;
+
+    useEffect(() => {
+      if (!enabled) return;
+      if (current.current.session) ownership.current.lock();
+      return () => {
+        ownership.current.unlock();
+        window.electronAPI?.closeRestPopup?.();
+      };
+    }, [enabled]);
+
+    useEffect(() => {
+      if (!session || session.endTs <= Date.now()) return;
+      const api = window.electronAPI;
+      api?.scheduleRestReminder?.({ key: reminderKey, endTs: session.endTs });
+      return () => api?.clearRestReminder?.(reminderKey);
+    }, [reminderKey]);
+
+    useEffect(() => {
+      if (!session || reviewing) return;
+      let timeout;
+      function checkDeadline() {
+        const now = Date.now();
+        clearTimeout(timeout);
+        if (session.endTs <= now) setObservedTime(now);
+        else timeout = setTimeout(checkDeadline, session.endTs - now);
+      }
+      checkDeadline();
+      window.addEventListener('focus', checkDeadline);
+      return () => {
+        clearTimeout(timeout);
+        window.removeEventListener('focus', checkDeadline);
+      };
+    }, [session, reviewing]);
+
+    useEffect(() => {
+      if (session && !reviewing) void showPopup(false);
+    }, [session, reviewing, popupPosition]);
+
+    useEffect(() => {
+      if (!enabled) return;
+      return window.electronAPI?.onRestPopupCommand?.(command => {
+        const active = current.current.session;
+        if (!active || command?.key !== sessionKey(active)) return;
+        if (command.type === 'end') endEarly();
+        if (command.type === 'expire') setObservedTime(Date.now());
+      });
+    });
+
+    async function showPopup(reveal = true) {
+      const active = current.current.session;
+      if (!active) return;
+      const now = Date.now();
+      if (active.endTs <= now) { setObservedTime(now); return; }
+      let result;
+      try {
+        result = await window.electronAPI?.openRestPopup?.({
+          actName: active.name, color, startTs: active.startTs, endTs: active.endTs,
+          position: popupPosition, reveal,
+        });
+      } catch { /* The timer card can reopen the window. */ }
+      if (current.current.session === active) setPopupError(result?.ok ? '' : '휴식 타이머를 열지 못했어요. 다시 시도해 주세요.');
+    }
+
+    function save(next) {
+      try { localStorage.setItem(keyFor(uid), JSON.stringify(next)); }
+      catch { setError('휴식 계획을 저장하지 못했어요. 다시 시도해 주세요.'); return false; }
+      setError('');
+      current.current = next;
+      setStore(next);
+      return true;
+    }
+
+    function open() {
+      if (!enabled || editingRef.current) return;
+      if (current.current.session) { void showPopup(); return; }
+      lock();
+      editingRef.current = true;
+      setEditing(true);
+    }
+
+    function cancel() {
+      editingRef.current = false;
+      setEditing(false);
+      setError('');
+      unlock();
+    }
+
+    function start({ activity, minutes, action, returnActivityId }) {
+      if (!editingRef.current || current.current.session) return;
+      const startTs = Date.now();
+      if (!save({ ...current.current, minutes,
+        session: { startTs, endTs: startTs + minutes * minute, name: activity.name, action, returnActivityId } })) return;
+      setObservedTime(startTs);
+      editingRef.current = false;
+      setEditing(false);
+    }
+
+    function extend(minutes) {
+      const active = current.current.session;
+      const timestamp = Date.now();
+      if (!active || active.endTs > timestamp || !isMinutes(minutes)) return;
+      if (save({ ...current.current, session: { ...active, endTs: timestamp + minutes * minute } })) setObservedTime(timestamp);
+    }
+
+    function endEarly() {
+      const active = current.current.session;
+      if (!active) return;
+      const timestamp = Math.max(active.startTs, Date.now());
+      if (active.endTs <= timestamp || save({ ...current.current, session: { ...active, endTs: timestamp } })) {
+        setObservedTime(timestamp);
+      }
+    }
+
+    function finish() {
+      const active = current.current.session;
+      if (!active) return;
+      if (!save({ ...current.current, session: null })) return;
+      unlock();
+      onReturn?.(active.returnActivityId);
+    }
+
+    const panel = editing ? <RestDialog key="setup" mode="setup" title="휴식 계획" error={error} onCancel={cancel}>
+      <RestSetup store={store} returnActivities={availableActivities} onStart={start} onCancel={cancel}
+        onSaveActivities={activities => save({ ...current.current, activities })} />
+    </RestDialog> : reviewing ? <RestDialog key="review" mode="review" title="복귀 후 첫 행동" error={error}>
+      <RestReview action={session.action} onReturn={finish} onExtend={extend} />
+    </RestDialog> : session && (popupError || error) ? <p role="alert">{popupError || error}</p> : null;
+
+    return { open, busy: Boolean(editing || session), active: Boolean(session), panel };
+  }
+
+  return { optionId, restName, findRest, isRestName, read, useReturnTimer, Shortcut, useTimer };
+}
+
+export const restTimer = createPlanerRest(React, createPortal);

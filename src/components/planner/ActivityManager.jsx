@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { controlColor } from '../../features/planner/controlColors.mjs';
 import { COLORS } from './plannerDisplay.mjs';
+import { restTimer } from './restTimer';
 
-function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateGroup, onStart, control = false }) {
+function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateGroup, onStart, control = false, showRestShortcut = false }) {
   const [name, setName]             = useState('');
   const [color, setColor]           = useState(COLORS[0]);
   const [group, setGroup]           = useState('');
@@ -74,7 +75,7 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
     <div className="act-manager">
       <div className="act-chips-row">
         <div className="act-chips">
-          {activities.length === 0 ? (
+          {activities.length === 0 && !showRestShortcut ? (
             <span className="act-empty">활동을 추가하면 표에서 기록할 수 있어요</span>
           ) : (
             displayActivities.map((a, idx) => (
@@ -103,6 +104,8 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
               </span>
             ))
           )}
+          {showRestShortcut && !reordering && !changingGroups && onStart &&
+            <restTimer.Shortcut onClick={() => onStart(restTimer.optionId)} />}
         </div>
         <div className="act-manager-actions">
           {(activities.length > 0 || reordering) && (

@@ -8,6 +8,7 @@ import { oppositeDisplayFromHistory } from '../../features/planner/oppositeDispl
 import { plannerDate, rangeForDate, shiftPlannerDate } from '../../features/planner/scheduleTime.mjs';
 import { hasVisibleModal, isEditingTarget } from '../../features/navigation/keyboardShortcuts.mjs';
 import TimerBlock from '../planner/TimerBlock';
+import { restTimer } from '../planner/restTimer';
 import ActivityManager from '../planner/ActivityManager';
 import PlannerCalendar from '../planner/PlannerCalendar';
 import MonthlyStats from '../planner/MonthlyStats';
@@ -21,7 +22,7 @@ const effectiveNow = () => {
 };
 const nowDateStr = plannerDate;
 
-function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, control = false, active = false }) {
+function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, control = false, active = false, restTarget, onRestReturn }) {
   const today = nowDateStr();
   const now   = effectiveNow();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -77,13 +78,16 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
         <button type="button" onClick={retryLoading}>다시 시도</button>
       </div> : loading && <div className="planner-updating" role="status">불러오는 중…</div>}
       <ActivityManager activities={activities} onAdd={addActivity} onDelete={deleteActivity} onUpdateOrder={updateActivityOrder}
+        showRestShortcut={control && !loading && !error && !restTimer.findRest(activities)}
         onUpdateGroup={updateActivityGroup} onStart={id => {
+          if (id === restTimer.optionId) { timerStart.current?.(id); return; }
           if(loading||error||!settingsReady)return;
           if (!recordSelection.current?.(id)) timerStart.current?.(id);
         }} control={control} />
       <div className="planner-main">
         <div className="planner-left">
-          <TimerBlock uid={uid} activities={activities} allActivities={allActivities} onSaveTimer={saveTimer} startActivityRef={timerStart} control={control} />
+          <TimerBlock uid={uid} activities={activities} allActivities={allActivities} onSaveTimer={saveTimer} startActivityRef={timerStart} control={control}
+            restAvailable={control && !loading && !error} returnActivities={control ? oppositeActivities : undefined} onRestReturn={onRestReturn} restTarget={restTarget} />
           <PlannerCalendar
             year={calYear} month={calMonth} selectedDate={selectedDate}
             blocks={blocks} oppositeBlocks={oppositeBlocks} oppositeActivities={oppositeActivities} oppositeMode={oppositeMode}
