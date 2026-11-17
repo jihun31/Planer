@@ -83,8 +83,9 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   const handlers = new Map(), invokes = new Map(), windows = [];
   const titleRequests = [];
   class FakeWindow {
-    constructor() {
+    constructor({ width, height }) {
       this.events = new Map(); this.dead = false; this.sent = [];
+      this.size = [width, height];
       this.webContents = {
         mainFrame: { url: '' },
         on() {}, once() {}, setWindowOpenHandler() {},
@@ -93,27 +94,33 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
       windows.push(this);
     }
     on(name, cb) { this.events.set(name, cb); }
+    once(name, cb) { this.events.set(name, cb); }
     loadURL(url) { this.webContents.mainFrame.url = url; }
+    getSize() { return this.size; }
     isDestroyed() { return this.dead; }
     close() { this.events.get('close')?.(); this.dead = true; this.events.get('closed')?.(); }
+    destroy() { this.dead = true; this.events.get('closed')?.(); }
     focus() {} restore() {} minimize() { this.minimized = true; } setPosition(x,y) { this.position = [x,y]; }
   }
   const pathModule = await import('node:path');
   const urlModule = await import('node:url');
+  const { default: restReminder } = await import('../electron/rest-reminder.cjs');
   const context = {
     __dirname: pathModule.resolve('electron'),
     require(name) {
       if (name === 'electron') return {
-        app: { isPackaged: false, whenReady: () => ({ then: fn => fn() }), on() {} },
+        app: { isPackaged: false, whenReady: () => ({ then: fn => fn() }), on() {}, setAppUserModelId() {} },
         BrowserWindow: FakeWindow,
         shell: { openExternal: () => Promise.resolve() },
         ipcMain: { on: (key, cb) => handlers.set(key, cb), handle: (key, cb) => invokes.set(key, cb) },
+        powerMonitor: { on() {} },
         screen: { getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1000, height: 800 } }) },
       };
       if (name === 'node:path') return pathModule;
       if (name === 'node:url') return urlModule;
       if (name === 'node:fs') return { readFileSync() { throw Error('No OAuth config'); } };
       if (name === './google-auth.cjs') return {};
+      if (name === './rest-reminder.cjs') return restReminder;
       throw Error('Unexpected require ' + name);
     },
     URL, AbortSignal, encodeURIComponent, process: { platform: 'win32' },
@@ -144,7 +151,8 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal((await invokes.get('timer:start')(eventFor(main), data)).code, 'desktop/forbidden');
   main.webContents.mainFrame.url = 'http://localhost:5173/';
   const timer = windows[1];
-  assert.deepEqual(timer.position,[784,656]);
+  assert.deepEqual(timer.getSize(), [176, 128]);
+  assert.deepEqual(timer.position, [796, 656]);
   assert.equal((await invokes.get('notes:youtube-title')(eventFor(timer),'jNQXAC9IVRw')).code,'desktop/forbidden');
   assert.equal((await invokes.get('auth:google')(eventFor(timer))).code, 'desktop/forbidden');
   assert.equal((await invokes.get('notes:link-preview')(eventFor(timer),'https://example.com')).code,'desktop/forbidden');
@@ -155,6 +163,16 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   handlers.get('timer:stop-from-popup')(timerEvent);
   assert.equal(main.sent.filter(x => x.name === 'timer:stopped').length, 1);
   assert.equal((await invokes.get('timer:start')(eventFor(main),{...data,position:'left'})).ok,true);
-  assert.deepEqual(windows[2].position,[16,656]);
+  assert.deepEqual(windows[2].position, [28, 656]);
   handlers.get('timer:close')(eventFor(main));
+  const rest = { ...data, endTs: 60100 };
+  assert.equal((await invokes.get('rest:open-popup')(maliciousFrame, rest)).ok, false);
+  assert.equal((await invokes.get('rest:open-popup')(eventFor(main), rest)).ok, true);
+  const restWindow = windows[3];
+  assert.deepEqual(restWindow.getSize(), [176, 112]);
+  assert.deepEqual(restWindow.position, [804, 672]);
+  handlers.get('timer:stop-from-popup')(eventFor(restWindow));
+  assert.equal(restWindow.dead, false);
+  handlers.get('rest:close-popup')(eventFor(main));
+  assert.equal(restWindow.dead, true);
 });
