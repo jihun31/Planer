@@ -21,6 +21,8 @@ import { useLearning } from './features/learning/useLearning';
 import { useDiscordLink, useServerInfo } from './features/discord/useDiscord';
 import { useTonkatsu } from './features/tonkatsu/useTonkatsu';
 import CheckInTab from './components/tabs/CheckInTab';
+import HabitsTab from './components/tabs/HabitsTab';
+import { useHabits } from './features/habits/useHabits';
 import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
 import { useTabVisibility } from './features/navigation/useTabVisibility';
 import { HOME_VIEW, availableViews, resolveView, stepView, tabOfView, viewForTab, visibleTabs } from './features/navigation/appTabs.mjs';
@@ -50,6 +52,7 @@ function App() {
   const tasksData   = useTasks(user?.uid);
   const todosData   = useTodos(user?.uid);
   const priorityData = usePriorityNotes(user?.uid);
+  const habitsData = useHabits(user?.uid);
   const blockMigration = useLegacyBlockMigration(user?.uid);
   const serverInfo = useServerInfo(!!discord.link);
   const [settingsUser, setSettingsUser] = useState(null);
@@ -157,7 +160,8 @@ function App() {
   // 보기 id(appTabs.mjs)마다 그릴 화면
   const panels = {
     today: () => <TodayTab key={user.uid} uid={user.uid} tasks={tasksData} todos={todosData} goalsData={goalsData}
-      priorityData={priorityData} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />,
+      priorityData={priorityData} habitsData={habitsData} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError}
+      onOpenHabits={tabOfView(tabs, 'habits') ? () => activateView('habits') : null} />,
     planner: () => <>
       <LearningSummary learning={learning} onOpen={() => activateView('learning')} />
       {afterBlockMigration(<PlannerTab key={user.uid} {...plannerProps} active={currentView === 'planner'}
@@ -166,6 +170,7 @@ function App() {
     control: () => afterBlockMigration(<PlannerTab key={`${user.uid}-control`} {...plannerProps} control
       active={currentView === 'control'} onRestReturn={resumeAfterRest} />),
     learning: () => <LearningTab key={user.uid} learning={learning} active={currentView === 'learning'} />,
+    habits: () => <HabitsTab key={user.uid} habitsData={habitsData} />,
     notes: () => <NotesTab key={user.uid} uid={user.uid} />,
     calendar: () => <CalendarTab key={user.uid} uid={user.uid} active={currentView === 'calendar'} />,
     checkin: () => <CheckInTab tonkatsu={tonkatsu} discordId={discordId} />,

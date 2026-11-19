@@ -5,9 +5,10 @@ import { TaskPopup, AllTasksBlock } from "../today/TasksPanel";
 import PriorityNotesBlock from "../today/PriorityNotesBlock";
 import TodayMain from "../today/TodayMain";
 import DayPlanBlock from '../today/DayPlanBlock';
+import TodayHabitsBlock from '../today/TodayHabitsBlock';
 
 /* ── 탭 루트 ── */
-function TodayTab({ uid, tasks: tasksData, todos: todosData, goalsData, priorityData, scheduleHistory, settingsReady, settingsError }) {
+function TodayTab({ uid, tasks: tasksData, todos: todosData, goalsData, priorityData, habitsData, onOpenHabits, scheduleHistory, settingsReady, settingsError }) {
   const { tasks, addTask, toggleTask, deleteTask } = tasksData;
   const { todos, addTodo, deleteTodo } = todosData;
   const { goals = [], subGoals = [], addGoal, deleteGoal, updateGoalColor, updateGoalTitle, addSubGoal, deleteSubGoal, toggleSubGoal } = goalsData;
@@ -29,6 +30,7 @@ function TodayTab({ uid, tasks: tasksData, todos: todosData, goalsData, priority
       </div>
 
       <div className="today-right">
+        {habitsData && <TodayHabitsBlock habitsData={habitsData} onOpen={onOpenHabits} />}
         <PriorityNotesBlock data={priorityData} />
         <DeadlineGoalsBlock goals={goals} subGoals={subGoals} onManage={() => setGoalPopup(true)} />
       </div>

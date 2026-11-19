@@ -1,0 +1,116 @@
+/* ===== 습관 ===== */
+.habits-tab { display: flex; flex-direction: column; gap: 16px; }
+.habits-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.habits-title { font-size: 1.15rem; font-weight: 700; }
+.habits-intro { font-size: 0.82rem; color: var(--text-muted); margin-top: 2px; }
+.habits-empty {
+  background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius);
+  padding: 28px 20px; text-align: center; color: var(--text-muted); font-size: 0.88rem;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.habits-empty strong { color: var(--text); }
+.habits-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+
+.habit-card {
+  position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+}
+.habit-card-hdr { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.habit-card-title { font-size: 0.98rem; font-weight: 700; display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.habit-emoji { font-size: 1.1rem; }
+.habit-badge {
+  font-size: 0.7rem; font-weight: 600; color: var(--primary-dark); background: var(--primary-light);
+  border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+}
+.habit-streak { font-size: 0.75rem; font-weight: 700; color: #c2410c; white-space: nowrap; }
+.habit-card-menu { margin-left: auto; display: flex; gap: 4px; }
+.habit-anchor { font-size: 0.82rem; color: var(--text); overflow-wrap: anywhere; }
+.habit-tiny { font-size: 0.76rem; color: var(--text-muted); overflow-wrap: anywhere; }
+
+.habit-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.habit-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 0;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg);
+  color: var(--text-light); font: inherit; cursor: pointer; transition: transform 0.12s, border-color 0.12s;
+}
+.habit-cell:not(:disabled):hover { border-color: var(--primary); }
+.habit-cell:disabled { cursor: default; }
+.habit-cell-day { font-size: 0.68rem; font-weight: 600; color: var(--text-muted); }
+.habit-cell-mark { font-size: 0.9rem; line-height: 1.2; min-height: 1.1em; }
+.habit-cell.today { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+.habit-cell.full { background: var(--green); border-color: var(--green); color: #fff; }
+.habit-cell.full .habit-cell-day { color: #ecfdf5; }
+.habit-cell.tiny { background: var(--green-light); border-color: var(--green); color: var(--green); }
+.habit-cell.missed { color: var(--red); }
+.habit-cell.off, .habit-cell.before { background: transparent; border-style: dashed; }
+
+.habit-card-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.76rem; color: var(--text-muted); }
+.habit-met { color: var(--green); font-weight: 700; }
+.habit-warn { color: #b45309; }
+.habit-today-actions { margin-left: auto; display: flex; gap: 4px; }
+.habit-do-btn {
+  font-size: 0.75rem; font-weight: 700; padding: 4px 11px; border-radius: 6px; border: none;
+  background: var(--green); color: #fff; cursor: pointer;
+}
+.habit-do-btn:hover { filter: brightness(0.95); }
+.habit-do-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.habits-archive { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 16px; }
+.habits-archive summary { cursor: pointer; font-size: 0.84rem; font-weight: 600; color: var(--text-muted); }
+.habits-archive ul { list-style: none; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.habits-archive li { display: flex; align-items: center; gap: 6px; font-size: 0.84rem; }
+.habits-archive li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.habits-archive em { font-style: normal; color: var(--text-light); font-size: 0.75rem; margin-left: 4px; }
+.block-manage-btn.danger:hover { border-color: var(--red); color: var(--red); }
+.habit-error { color: var(--red); font-size: 0.8rem; }
+
+/* 축하 효과 */
+.habit-card.celebrate, .habit-today-item.celebrate { animation: habit-pop 0.45s ease-out; }
+.habit-confetti {
+  position: absolute; right: 14px; top: 6px; font-size: 1.2rem; pointer-events: none;
+  animation: habit-float 0.9s ease-out forwards;
+}
+@keyframes habit-pop { 0% { transform: scale(1); } 40% { transform: scale(1.03); } 100% { transform: scale(1); } }
+@keyframes habit-float { 0% { opacity: 0; transform: translateY(6px) scale(0.6); } 30% { opacity: 1; transform: translateY(-4px) scale(1.15); } 100% { opacity: 0; transform: translateY(-18px) scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .habit-card.celebrate, .habit-today-item.celebrate, .habit-confetti { animation: none; }
+}
+
+/* 오늘 탭 블록 */
+.habit-today-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.habit-today-item { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-radius: var(--radius-sm); }
+.habit-today-item.done .habit-today-name { color: var(--text-muted); }
+.habit-check {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border);
+  background: var(--surface); color: #fff; font-size: 0.75rem; font-weight: 700; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; transition: all 0.12s;
+}
+.habit-check:hover { border-color: var(--green); }
+.habit-check.full { background: var(--green); border-color: var(--green); }
+.habit-check.tiny { background: var(--green-light); border-color: var(--green); color: var(--green); }
+.habit-today-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.habit-today-name { font-size: 0.86rem; font-weight: 600; overflow-wrap: anywhere; }
+.habit-today-anchor { font-size: 0.72rem; color: var(--text-light); overflow-wrap: anywhere; }
+
+/* 추가·수정 창 */
+.habit-form { max-width: 520px; }
+.habit-field { display: flex; flex-direction: column; gap: 6px; border: 0; font-size: 0.84rem; font-weight: 600; }
+.habit-field legend { margin-bottom: 6px; }
+.habit-field em, .habit-inline em { font-style: normal; font-weight: 400; color: var(--text-light); font-size: 0.75rem; margin-left: 4px; }
+.habit-name-row { display: flex; gap: 6px; }
+.habit-emoji-input { width: 56px; flex: 0 0 56px; text-align: center; }
+.habit-preview { font-size: 0.84rem; background: var(--bg); border-radius: var(--radius-sm); padding: 8px 12px; overflow-wrap: anywhere; }
+.habit-choice-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.habit-chip {
+  font: inherit; font-size: 0.8rem; font-weight: 600; padding: 5px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); cursor: pointer;
+}
+.habit-chip.day { padding: 5px 10px; }
+.habit-chip.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.habit-inline { font-size: 0.84rem; font-weight: 400; margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.habit-inline input, .habit-choice-row input[type="date"] {
+  font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+}
+.habit-inline input { width: 56px; }
+.habit-form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.habit-form-actions .habit-error { margin-right: auto; }

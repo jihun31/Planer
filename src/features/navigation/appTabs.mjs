@@ -10,6 +10,7 @@ export const APP_TABS = [
     { id: 'control', label: '🧭 통제', hideable: true },
   ] },
   { id: 'learning', label: '🌱 학습 기록' },
+  { id: 'habits', label: '🔁 습관', hideable: true },
   { id: 'notes', label: '📝 메모', hideable: true },
   { id: 'calendar', label: '📅 캘린더', hideable: true },
   { id: 'checkin', label: '🔥 인증', requires: 'discord' },

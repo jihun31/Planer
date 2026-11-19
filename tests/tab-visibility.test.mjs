@@ -6,20 +6,20 @@ import { readTabVisibility } from '../src/features/navigation/tabVisibility.mjs'
 import { APP_TABS, HIDEABLE_VIEW_IDS, HOME_VIEW, availableViews, resolveView, stepView, tabOfView, viewForTab, viewOrder, visibleTabs }
   from '../src/features/navigation/appTabs.mjs';
 
-const allShown = {control:true,calendar:true,notes:true};
+const allShown = {control:true,habits:true,calendar:true,notes:true};
 const topIds = tabs => tabs.map(tab => tab.id);
 
 test('one registry defines the tabs; planner and control live under one time-management tab', () => {
   assert.equal(new Set(APP_TABS.map(tab => tab.id)).size,APP_TABS.length);
-  assert.deepEqual(HIDEABLE_VIEW_IDS,['control','notes','calendar']);
+  assert.deepEqual(HIDEABLE_VIEW_IDS,['control','habits','notes','calendar']);
   const tabs = visibleTabs(allShown,{discord:false});
-  assert.deepEqual(topIds(tabs),['today','time','learning','notes','calendar']);
+  assert.deepEqual(topIds(tabs),['today','time','learning','habits','notes','calendar']);
   assert.deepEqual(tabs.find(tab => tab.id === 'time').views.map(view => view.id),['planner','control']);
-  assert.deepEqual(viewOrder(tabs),['today','planner','control','learning','notes','calendar']);
+  assert.deepEqual(viewOrder(tabs),['today','planner','control','learning','habits','notes','calendar']);
   assert.equal(tabOfView(tabs,'control').id,'time');
   // 디스코드 연동 탭은 연동했을 때만
-  assert.deepEqual(topIds(visibleTabs(allShown,{discord:true})),['today','time','learning','notes','calendar','checkin']);
-  assert.deepEqual(availableViews({discord:false}).map(view => view.id),['today','planner','control','learning','notes','calendar']);
+  assert.deepEqual(topIds(visibleTabs(allShown,{discord:true})),['today','time','learning','habits','notes','calendar','checkin']);
+  assert.deepEqual(availableViews({discord:false}).map(view => view.id),['today','planner','control','learning','habits','notes','calendar']);
   assert.ok(availableViews({discord:true}).some(view => view.id === 'checkin'));
   assert.deepEqual(availableViews({}).filter(view => view.eager).map(view => view.id),['today']);
 });
@@ -27,11 +27,12 @@ test('one registry defines the tabs; planner and control live under one time-man
 test('only optional views are hidden, preserving navigation order and the default visible views', () => {
   assert.deepEqual(readTabVisibility(null),allShown);
   assert.deepEqual(readTabVisibility('invalid'),allShown);
-  assert.deepEqual(readTabVisibility('{"notes":false}'),{control:true,calendar:true,notes:false});
+  assert.deepEqual(readTabVisibility('{"notes":false}'),{control:true,habits:true,calendar:true,notes:false});
   const order = visibility => viewOrder(visibleTabs(visibility,{}));
-  assert.deepEqual(order({control:false,notes:false}),['today','planner','learning','calendar']);
-  assert.deepEqual(order({control:false,notes:true}),['today','planner','learning','notes','calendar']);
-  assert.deepEqual(order({control:true,calendar:false,notes:true}),['today','planner','control','learning','notes']);
+  assert.deepEqual(order({control:false,notes:false}),['today','planner','learning','habits','calendar']);
+  assert.deepEqual(order({habits:false}),['today','planner','control','learning','notes','calendar']);
+  assert.deepEqual(order({control:false,notes:true}),['today','planner','learning','habits','notes','calendar']);
+  assert.deepEqual(order({control:true,calendar:false,notes:true}),['today','planner','control','learning','habits','notes']);
   // 통제를 숨겨도 시간 관리 탭은 남고 하위 화면은 기록 하나뿐
   const noControl = visibleTabs({control:false},{});
   assert.deepEqual(noControl.find(tab => tab.id === 'time').views.map(view => view.id),['planner']);
