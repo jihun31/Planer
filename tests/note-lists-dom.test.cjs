@@ -162,8 +162,8 @@ if(!process.versions.electron){
       await putCaret('.notes-checklist-text');
       await press('X',['control']);
       if(await js('cutText')!=='체크 유지')throw Error('Cutting a checked line did not copy its own text');
-      // A cut inside one line removes only its text; the (now empty) checklist row stays, like the installed app.
-      await check(`document.querySelector('li[data-note-checked="true"] .notes-checklist-text')?.textContent==='' && document.querySelector('li > ul > li')?.textContent==='하위 보존'`,'Cutting a checklist row did not remove only its text or changed a different line');
+      // Ctrl+X with only a caret cuts the whole row (a selected-text cut keeps the row; see memo-todo-dom).
+      await check(`!document.querySelector('li[data-note-checked="true"]') && document.querySelector('li > ul > li')?.textContent==='하위 보존'`,'Cutting a checklist row left the item or changed a different line');
 
       await setContent('<div>앞 줄<br><b>중간 줄</b><br>뒤 줄</div><div>다음 블록</div>');
       await putCaret('div > b');

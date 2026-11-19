@@ -81,6 +81,7 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
   const textDrag = useRef(null);
   const toggleHistory = useRef({undo:[],redo:[]});
   const lineSelection = useRef(null);
+  const caretLineCut = useRef(null);
   const menuId = useId();
   const [formats,setFormats] = useState({bold:false,italic:false,underline:false,strikeThrough:false,highlight:false,color:NOTE_TEXT_COLORS[0].value});
   const [anchor,setAnchor] = useState(null);
@@ -327,10 +328,15 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
     event.clipboardData.setData('application/x-planer-note',value);
     event.clipboardData.setData('text/plain',notePlainText(value));
     event.clipboardData.setData('text/html',noteHtml(value).replace(/\n/g,'<br>'));
+    const caretLine = caretLineCut.current;caretLineCut.current = null;
     if (!cut || loading || readOnly) return;
     if (!inLine) {document.execCommand('delete');commit();return;}
-    // Cutting inside one line removes only the selected text, even when it is the whole line;
-    // the empty line stays (Ctrl+X on an empty line still removes the line).
+    // Ctrl+X with only a caret (keydown selected exactly this line) cuts the whole line, like a code editor.
+    if (caretLine && range.compareBoundaryPoints(Range.START_TO_START,caretLine) === 0
+      && range.compareBoundaryPoints(Range.END_TO_END,caretLine) === 0) {
+      cutLine(currentLine,selection);return;
+    }
+    // A selection inside one line removes only the selected text, even when it is the whole line.
     finishCut(selection,() => {
       range.deleteContents();
       range.collapse(true);
@@ -547,6 +553,8 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
               }
               if (key === 'a') event.preventDefault();
               selection.removeAllRanges();selection.addRange(line.range);
+              // The native cut that follows removes the whole line (see copy()).
+              if (key === 'x') caretLineCut.current = line.range.cloneRange();
               if (key === 'a') {
                 lineSelection.current = selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
                 inspectSelection();return;
