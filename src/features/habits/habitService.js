@@ -3,12 +3,12 @@ import {
   query, where, onSnapshot, serverTimestamp, getDocs, writeBatch,
 } from "firebase/firestore";
 import { db } from "../../firebase/config";
-import { dayKey, isDay, LOG_VALUES } from "./habitCore.mjs";
+import { dayKey, isDay, isValidLog } from "./habitCore.mjs";
 
 // 새벽 5시 기준으로 하루가 바뀜 (다른 화면도 이 함수를 쓴다)
 export const todayStr = () => dayKey();
 
-// 습관 기록은 습관 문서의 logs 맵({ 'YYYY-MM-DD': 'full' | 'tiny' })에 둔다.
+// 습관 기록은 습관 문서의 logs 맵({ 'YYYY-MM-DD': 'full' | 'tiny' | 'skip' | 횟수 })에 둔다.
 // 하루 한 칸이라 중복 기록이 생기지 않고, 습관 구독 하나로 기록까지 모두 받는다(1년에 약 7KB).
 export const subscribeHabits = (uid, cb, onError) =>
   onSnapshot(
@@ -32,7 +32,7 @@ export const setArchived = (habitId, archived) =>
 
 // value가 null이면 그날 기록을 지운다.
 export const setHabitLog = (habitId, day, value) => {
-  if (!isDay(day) || (value !== null && !LOG_VALUES.includes(value))) throw new Error("Invalid habit log");
+  if (!isDay(day) || !isValidLog(value)) throw new Error("Invalid habit log");
   return updateDoc(doc(db, "habits", habitId), new FieldPath("logs", day), value ?? deleteField());
 };
 

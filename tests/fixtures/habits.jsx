@@ -13,7 +13,7 @@ const write=async(entry)=>{await later();if(globalThis.failWrites)throw Error('o
 
 function Preview(){
   const [habits,setHabits]=useState([{id:'water',name:'물 마시기',emoji:'💧',anchor:'아침에 일어나서',tinyVersion:'한 모금',
-    schedule:{type:'daily'},startDate:'2026-11-01',archived:false,logs:{'2026-11-17':'full','2026-11-18':'full'}}]);
+    schedule:{type:'daily'},startDate:'2026-11-01',archived:false,logs:{'2026-11-03':'full','2026-11-10':'full','2026-11-11':'full','2026-11-17':'full','2026-11-18':'full'}}]);
   const patch=(id,change)=>setHabits(list=>list.map(h=>h.id===id?{...h,...change(h)}:h));
   const habitsData={habits,today:TODAY,loading:false,error:null,
     addHabit:async value=>{await write(['add',value]);setHabits(list=>[...list,{...value,id:'h'+list.length,archived:false,logs:{}}]);},
@@ -25,7 +25,7 @@ function Preview(){
   };
   return <main style={{display:'grid',gridTemplateColumns:'320px 1fr',gap:16,padding:16,alignItems:'start'}}>
     <section id="today"><TodayHabitsBlock habitsData={habitsData} onOpen={()=>{globalThis.opened=true;}}/></section>
-    <section id="tab"><HabitsTab habitsData={habitsData}/></section>
+    <section id="tab"><HabitsTab uid="tester" habitsData={habitsData}/></section>
   </main>;
 }
 createRoot(document.getElementById('root')).render(<Preview/>);

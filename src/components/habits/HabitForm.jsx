@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NAME_MAX, TEXT_MAX, WEEKDAY_LABELS, WEEK_ORDER, normalizeHabit, startSuggestions } from '../../features/habits/habitCore.mjs';
+import { COUNT_MAX, NAME_MAX, TEXT_MAX, UNIT_MAX, WEEKDAY_LABELS, WEEK_ORDER, normalizeHabit, startSuggestions } from '../../features/habits/habitCore.mjs';
 
 // 습관 추가·수정 창. "[이미 하는 일] 하고 나서 → [작은 행동]" 형태로 받는다(Fogg의 앵커, Gollwitzer의 if-then 계획).
 export default function HabitForm({ habit, today, onSave, onClose }) {
@@ -11,12 +11,17 @@ export default function HabitForm({ habit, today, onSave, onClose }) {
     type: habit?.schedule?.type ?? 'weekly',
     count: habit?.schedule?.count ?? 3,
     days: habit?.schedule?.days ?? [],
+    targetType: habit?.target?.type ?? 'check',
+    targetValue: habit?.target?.value ?? 8,
+    unit: habit?.target?.unit ?? '',
     startDate: habit?.startDate ?? today,
   }));
+  const counting = form.targetType === 'count';
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState('');
   const set = (key, value) => setForm(f => ({ ...f, [key]: value }));
-  const result = normalizeHabit({ ...form, schedule: { type: form.type, count: Number(form.count), days: form.days } });
+  const result = normalizeHabit({ ...form, schedule: { type: form.type, count: Number(form.count), days: form.days },
+    target: { type: form.targetType, value: Number(form.targetValue), unit: form.unit } });
   const toggleDay = day => set('days', form.days.includes(day) ? form.days.filter(d => d !== day) : [...form.days, day]);
 
   const submit = async event => {
@@ -52,15 +57,32 @@ export default function HabitForm({ habit, today, onSave, onClose }) {
             aria-label="언제 할지" onChange={e => set('anchor', e.target.value)} />
         </label>
 
-        <label className="habit-field">
+        <fieldset className="habit-field">
+          <legend>목표</legend>
+          <div className="habit-choice-row">
+            {[['check', '한 번 하기'], ['count', '하루 횟수 채우기']].map(([type, label]) =>
+              <button key={type} type="button" className={`habit-chip ${form.targetType === type ? 'on' : ''}`}
+                aria-pressed={form.targetType === type} onClick={() => set('targetType', type)}>{label}</button>)}
+          </div>
+          {counting && <label className="habit-inline">
+            하루 <input type="number" min={2} max={COUNT_MAX} value={form.targetValue} aria-label="하루 횟수"
+              onChange={e => set('targetValue', e.target.value)} />
+            <input className="habit-unit-input" value={form.unit} maxLength={UNIT_MAX} placeholder="회" aria-label="단위"
+              onChange={e => set('unit', e.target.value)} />
+            <em>한 번이라도 하면 최소로 쳐요</em>
+          </label>}
+        </fieldset>
+
+        {!counting && <label className="habit-field">
           <span>최소 버전 <em>바쁜 날엔 이것만 해도 한 것으로 쳐요</em></span>
           <input className="today-add-input" value={form.tinyVersion} maxLength={TEXT_MAX} placeholder="예: 운동복 갈아입기"
             aria-label="최소 버전" onChange={e => set('tinyVersion', e.target.value)} />
-        </label>
+        </label>}
 
         {(form.anchor.trim() || form.name.trim()) && <p className="habit-preview">
           {form.anchor.trim() || '…'} → <strong>{form.name.trim() || '…'}</strong>
-          {form.tinyVersion.trim() && <> (최소: {form.tinyVersion.trim()})</>}
+          {counting ? <> (하루 {form.targetValue}{form.unit.trim() || '회'})</>
+            : form.tinyVersion.trim() && <> (최소: {form.tinyVersion.trim()})</>}
         </p>}
 
         <fieldset className="habit-field">

@@ -2,10 +2,11 @@ import { useState } from 'react';
 import HabitForm from '../habits/HabitForm';
 import HabitCard from '../habits/HabitCard';
 import { useHabitCheck } from '../habits/useHabitCheck';
+import WeekReview from '../habits/WeekReview';
 import { scheduleLabel, totalDone } from '../../features/habits/habitCore.mjs';
 import '../../styles/habits.css';
 
-export default function HabitsTab({ habitsData }) {
+export default function HabitsTab({ uid, habitsData }) {
   const { habits, today, loading, error, addHabit, updateHabit, archiveHabit, restoreHabit, deleteHabit, setLog } = habitsData;
   const check = useHabitCheck(setLog);
   const [editing, setEditing] = useState(null); // null | 'new' | 습관
@@ -33,6 +34,7 @@ export default function HabitsTab({ habitsData }) {
 
     {error && <p role="alert">습관을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.</p>}
     {(failure || check.failure) && <p role="alert" className="habit-error">{failure || check.failure}</p>}
+    {!loading && <WeekReview uid={uid} habits={habits} today={today} />}
     {loading ? <p role="status" className="today-block-empty">불러오는 중…</p>
       : active.length === 0 ? <div className="habits-empty">
         <p>아직 습관이 없어요.</p>

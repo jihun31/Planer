@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  completion, countLabel, countOf, historyWeeks, isValidLog, nextCellValue, statusOf, stepCount, weekReview,
   addDays, dayKey, dueToday, isDay, isDue, normalizeHabit, scheduleLabel, startSuggestions,
   streakOf, totalDone, weekCells, weekDoneCount, weekStart, weeklyTarget,
 } from '../src/features/habits/habitCore.mjs';
@@ -134,7 +135,12 @@ test("today's list shows what is due, unfinished weekly targets, and what is alr
 test('normalizeHabit trims input, checks every field and keeps only known schedule fields', () => {
   const base = { name: ' 운동 ', emoji: '🏃', anchor: ' 아침 커피를 마시고 ', tinyVersion: '운동복 입기', startDate: '2026-11-23' };
   assert.deepEqual(normalizeHabit({ ...base, schedule: { type: 'weekly', count: '3', days: [1] } }).value,
-    { name: '운동', emoji: '🏃', anchor: '아침 커피를 마시고', tinyVersion: '운동복 입기', schedule: { type: 'weekly', count: 3 }, startDate: '2026-11-23' });
+    { name: '운동', emoji: '🏃', anchor: '아침 커피를 마시고', tinyVersion: '운동복 입기', schedule: { type: 'weekly', count: 3 }, target: { type: 'check' }, startDate: '2026-11-23' });
+  const count = normalizeHabit({ ...base, schedule: { type: 'daily' }, target: { type: 'count', value: '8', unit: ' 잔 ' } }).value;
+  assert.deepEqual(count.target, { type: 'count', value: 8, unit: '잔' });
+  assert.equal(count.tinyVersion, ''); // 횟수 습관은 1회 이상이면 최소
+  assert.match(normalizeHabit({ ...base, schedule: { type: 'daily' }, target: { type: 'count', value: 1 } }).error, /2~99/);
+  assert.match(normalizeHabit({ ...base, schedule: { type: 'daily' }, target: { type: 'count', value: 8, unit: '아주긴단위이름' } }).error, /단위/);
   assert.deepEqual(normalizeHabit({ ...base, schedule: { type: 'weekdays', days: [5, 1, 1, 9] } }).value.schedule, { type: 'weekdays', days: [1, 5] });
   assert.deepEqual(normalizeHabit({ ...base, schedule: { type: 'daily', count: 3 } }).value.schedule, { type: 'daily' });
   assert.match(normalizeHabit({ ...base, name: '  ', schedule: { type: 'daily' } }).error, /이름/);
@@ -143,4 +149,104 @@ test('normalizeHabit trims input, checks every field and keeps only known schedu
   assert.match(normalizeHabit({ ...base, schedule: { type: 'hourly' } }).error, /주기/);
   assert.match(normalizeHabit({ ...base, startDate: '2026-02-30', schedule: { type: 'daily' } }).error, /시작일/);
   assert.match(normalizeHabit({ ...base, anchor: 'a'.repeat(81), schedule: { type: 'daily' } }).error, /80자/);
+});
+
+test('skip days are neither done nor missed, with no limit', () => {
+  const today = '2026-11-20';
+  // 18·19 쉬는 날: 17에서 이어짐(빠진 날 없음)
+  const daily = habit({ type: 'daily' }, { ...logsOn(['2026-11-16', '2026-11-17']), '2026-11-18': 'skip', '2026-11-19': 'skip' });
+  assert.equal(streakOf(daily, today).count, 2);
+  assert.equal(streakOf(daily, today).missedLast, false);
+  assert.equal(totalDone(daily), 2);
+  assert.deepEqual(weekCells(daily, today).map(c => c.state).slice(0, 5), ['full', 'full', 'skip', 'skip', 'open']);
+  // 쉬는 날을 길게 이어 붙여도 끊기지 않는다
+  const rest = Object.fromEntries(Array.from({ length: 18 }, (_, i) => [addDays('2026-11-02', i), 'skip']));
+  assert.equal(streakOf(habit({ type: 'daily' }, { '2026-11-01': 'full', ...rest }), today).count, 1);
+  // 주 N회: 쉬는 날만큼 그 주 목표가 줄고, 한 주를 다 쉬면 그 주는 건너뜀
+  const wholeWeek = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [addDays('2026-11-09', i), 'skip']));
+  const weekly = habit({ type: 'weekly', count: 3 }, { ...logsOn(['2026-11-02', '2026-11-03', '2026-11-04']), ...wholeWeek });
+  assert.equal(weeklyTarget(weekly, '2026-11-09'), 0);
+  assert.equal(streakOf(weekly, today).count, 1);
+  assert.equal(streakOf(weekly, today).missedLast, false);
+  const fiveSkips = Object.fromEntries(['10', '11', '12', '13', '14'].map(d => [`2026-11-${d}`, 'skip']));
+  assert.equal(weeklyTarget(habit({ type: 'weekly', count: 3 }, fiveSkips), '2026-11-09'), 2);
+  // 오늘 쉬는 날이면 오늘 목록에 남아 상태를 보여 줌
+  assert.equal(dueToday([habit({ type: 'weekdays', days: [1] }, { [today]: 'skip' })], today).length, 1);
+});
+
+test('count habits: partial counts are tiny, reaching the target is full', () => {
+  const today = '2026-11-20';
+  const water = { ...habit({ type: 'daily' }, { '2026-11-18': 8, '2026-11-19': 3, [today]: 10 }), target: { type: 'count', value: 8, unit: '잔' } };
+  assert.equal(statusOf(water, '2026-11-18'), 'full');
+  assert.equal(statusOf(water, '2026-11-19'), 'tiny');
+  assert.equal(statusOf(water, today), 'full');
+  assert.equal(statusOf(water, '2026-11-17'), null);
+  assert.equal(countOf(water, '2026-11-19'), 3);
+  assert.equal(countLabel(water, 3), '3/8잔');
+  assert.equal(streakOf(water, today).count, 3);
+  assert.equal(stepCount(water, '2026-11-19', 1), 4);
+  assert.equal(stepCount(water, '2026-11-17', -1), null);
+  assert.equal(stepCount({ ...water, logs: { [today]: 1 } }, today, -1), null);
+  assert.equal(stepCount({ ...water, logs: { [today]: 999 } }, today, 1), 999);
+  // 숫자 기록이 있는 일반 습관은 완료로 본다
+  assert.equal(statusOf(habit({ type: 'daily' }, { [today]: 2 }), today), 'full');
+  assert.ok(isValidLog(5) && isValidLog('skip') && isValidLog(null));
+  assert.ok(!isValidLog(0) && !isValidLog(1.5) && !isValidLog('done') && !isValidLog(1000));
+});
+
+test('cell cycle: empty → done → tiny (if any) → skip → empty', () => {
+  const day = '2026-11-19';
+  const withTiny = { ...habit({ type: 'daily' }), tinyVersion: '한 모금' };
+  const values = [];
+  let logs = {};
+  for (let i = 0; i < 4; i += 1) {
+    const value = nextCellValue({ ...withTiny, logs }, day);
+    values.push(value);
+    logs = value === null ? {} : { [day]: value };
+  }
+  assert.deepEqual(values, ['full', 'tiny', 'skip', null]);
+  assert.equal(nextCellValue(habit({ type: 'daily' }, { [day]: 'full' }), day), 'skip');
+  const count = { ...habit({ type: 'daily' }), target: { type: 'count', value: 8 } };
+  assert.equal(nextCellValue(count, day), 8);
+  assert.equal(nextCellValue({ ...count, logs: { [day]: 8 } }, day), 'skip');
+  assert.equal(nextCellValue({ ...count, logs: { [day]: 3 } }, day), 'skip');
+});
+
+test('completion rate leaves out rest days and does not punish an unfinished today', () => {
+  const today = '2026-11-20';
+  const daily = habit({ type: 'daily' }, { ...logsOn(['2026-11-16', '2026-11-17']), '2026-11-18': 'skip' });
+  // 16·17 완료, 18 쉬는 날, 19 빠짐, 20(오늘) 아직 → 2/3
+  assert.deepEqual(completion(daily, '2026-11-16', '2026-11-22', today), { done: 2, total: 3, rate: 2 / 3 });
+  assert.equal(completion({ ...daily, logs: { ...daily.logs, [today]: 'full' } }, '2026-11-16', '2026-11-22', today).total, 4);
+  assert.equal(completion(daily, '2026-12-01', '2026-12-07', today).rate, null);
+  // 주 N회: 주마다 목표까지만 인정
+  const weekly = habit({ type: 'weekly', count: 2 }, logsOn(['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-02']));
+  assert.deepEqual(completion(weekly, '2026-11-02', '2026-11-15', today), { done: 3, total: 4, rate: 0.75 });
+});
+
+test('week review compares last week with the week before', () => {
+  const today = '2026-11-20'; // 지난주 11/9~11/15, 그 전 주 11/2~11/8
+  const a = { ...habit({ type: 'daily' }, logsOn(['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-02'])), id: 'a' };
+  const b = { ...habit({ type: 'weekly', count: 2 }, logsOn(['2026-11-10', '2026-11-03', '2026-11-04'])), id: 'b' };
+  const later = { ...habit({ type: 'daily' }, {}, '2026-11-16'), id: 'later' };
+  const review = weekReview([a, b, later, { ...a, id: 'gone', archived: true }], today);
+  assert.equal(review.from, '2026-11-09');
+  assert.equal(review.to, '2026-11-15');
+  assert.deepEqual(review.items.map(i => [i.habit.id, i.done, i.total]), [['a', 6, 7], ['b', 1, 2]]);
+  assert.equal(review.items[0].prevRate, 1 / 7);
+  assert.equal(review.items[1].prevRate, 1);
+  assert.equal(review.rate, 7 / 9);
+});
+
+test('history weeks cover the last 26 weeks ending this week', () => {
+  const today = '2026-11-20';
+  const h = habit({ type: 'daily' }, { '2026-11-19': 'full', '2026-11-18': 'skip' }, '2026-11-01');
+  const weeks = historyWeeks(h, today);
+  assert.equal(weeks.length, 26);
+  assert.equal(weeks.at(-1).monday, '2026-11-16');
+  assert.equal(weeks[0].monday, addDays('2026-11-16', -7 * 25));
+  assert.deepEqual(weeks.at(-1).days.map(d => d.state), ['missed', 'missed', 'skip', 'full', 'open', 'future', 'future']);
+  assert.equal(weeks[0].days[0].state, 'before');
+  const weekly = habit({ type: 'weekly', count: 2 }, { '2026-11-10': 'full' });
+  assert.equal(historyWeeks(weekly, today, 2)[0].days[0].state, 'empty');
 });

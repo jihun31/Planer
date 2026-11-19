@@ -170,7 +170,7 @@ function App() {
     control: () => afterBlockMigration(<PlannerTab key={`${user.uid}-control`} {...plannerProps} control
       active={currentView === 'control'} onRestReturn={resumeAfterRest} />),
     learning: () => <LearningTab key={user.uid} learning={learning} active={currentView === 'learning'} />,
-    habits: () => <HabitsTab key={user.uid} habitsData={habitsData} />,
+    habits: () => <HabitsTab key={user.uid} uid={user.uid} habitsData={habitsData} />,
     notes: () => <NotesTab key={user.uid} uid={user.uid} />,
     calendar: () => <CalendarTab key={user.uid} uid={user.uid} active={currentView === 'calendar'} />,
     checkin: () => <CheckInTab tonkatsu={tonkatsu} discordId={discordId} />,

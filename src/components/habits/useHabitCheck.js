@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { logOf } from '../../features/habits/habitCore.mjs';
+import { nextCellValue, statusOf, stepCount } from '../../features/habits/habitCore.mjs';
 
 // 습관 칸 체크: 저장 중 표시, 실패 안내, 완료 직후 짧은 축하 효과(Fogg의 Celebration)를 맡는다.
 export function useHabitCheck(setLog) {
@@ -12,11 +12,14 @@ export function useHabitCheck(setLog) {
   const save = async (habit, day, value) => {
     const key = `${habit.id}:${day}`;
     if (pending === key) return;
+    const before = statusOf(habit, day);
+    const after = statusOf({ ...habit, logs: { ...habit.logs, [day]: value ?? undefined } }, day);
     setPending(key);
     setFailure('');
     try {
       await setLog(habit.id, day, value);
-      if (value) {
+      // 새로 완료(또는 목표 달성)했을 때만 축하한다
+      if (after === 'full' ? before !== 'full' : after === 'tiny' && !before) {
         clearTimeout(timer.current);
         setCelebrating(key);
         timer.current = setTimeout(() => setCelebrating(null), 900);
@@ -25,15 +28,10 @@ export function useHabitCheck(setLog) {
     finally { setPending(current => (current === key ? null : current)); }
   };
 
-  // 빈 칸 → 완료 → (최소 버전이 있으면) 최소 → 빈 칸
-  const cycle = (habit, day) => {
-    const now = logOf(habit, day);
-    const next = !now ? 'full' : now === 'full' && habit.tinyVersion ? 'tiny' : null;
-    return save(habit, day, next);
-  };
-
   return {
-    save, cycle, failure,
+    save, failure,
+    cycle: (habit, day) => save(habit, day, nextCellValue(habit, day)),
+    step: (habit, day, delta) => save(habit, day, stepCount(habit, day, delta)),
     isPending: (habit, day) => pending === `${habit.id}:${day}`,
     isCelebrating: (habit, day) => celebrating === `${habit.id}:${day}`,
   };
