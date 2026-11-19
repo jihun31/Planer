@@ -94,8 +94,8 @@ async function releaseCommit(tag) {
 }
 
 function defaultAsar() {
+  // The repository lives outside the install folder (the updater wipes that folder on install).
   const candidates = [
-    path.resolve(root, '../resources/app.asar'),
     process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Planer', 'resources', 'app.asar'),
     path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Planer', 'resources', 'app.asar'),
   ].filter(Boolean);
