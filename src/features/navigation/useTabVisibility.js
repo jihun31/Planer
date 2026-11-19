@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
+import { HIDEABLE_VIEW_IDS } from './appTabs.mjs';
 import { readTabVisibility } from './tabVisibility.mjs';
 
 const changeEvent = 'planer:tab-visibility';
@@ -13,9 +14,9 @@ export function useTabVisibility(uid) {
   const read = () => {try {return key ? window.localStorage.getItem(key) : null;} catch {return null;}};
   const value = useSyncExternalStore(subscribe,read,() => null);
   const setVisible = (tab,visible) => {
-    if (!key || !['control','calendar','notes'].includes(tab) || typeof visible !== 'boolean') throw new Error('Invalid tab preference');
+    if (!key || !HIDEABLE_VIEW_IDS.includes(tab) || typeof visible !== 'boolean') throw new Error('Invalid tab preference');
     window.localStorage.setItem(key,JSON.stringify({...readTabVisibility(read()),[tab]:visible}));
     window.dispatchEvent(new Event(changeEvent));
   };
-  return [readTabVisibility(value),setVisible];
+  return [useMemo(() => readTabVisibility(value),[value]),setVisible];
 }

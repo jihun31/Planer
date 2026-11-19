@@ -23,23 +23,10 @@ import { useTonkatsu } from './features/tonkatsu/useTonkatsu';
 import CheckInTab from './components/tabs/CheckInTab';
 import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
 import { useTabVisibility } from './features/navigation/useTabVisibility';
-import { visibleAppTabs } from './features/navigation/tabVisibility.mjs';
+import { HOME_VIEW, availableViews, resolveView, stepView, tabOfView, viewForTab, visibleTabs } from './features/navigation/appTabs.mjs';
 import "./styles/app.css";
 import "./styles/goals.css";
 import "./styles/tasks.css";
-
-const TABS = [
-  { id: "today",   label: "📋 오늘 할 일" },
-  { id: "planner", label: "🕐 시간 관리" },
-  { id: "control", label: "🧭 통제" },
-  { id: "learning", label: "🌱 학습 기록" },
-  { id: "notes", label: "📝 메모" },
-  { id: "calendar", label: "📅 캘린더" },
-];
-// 디스코드와 연동했을 때만 보이는 탭
-const TONKATSU_TABS = [
-  { id: "checkin", label: "🔥 인증" },
-];
 
 function BlockMigrationNotice({ error, retry }) {
   if (error) return <div role="alert">
@@ -51,14 +38,14 @@ function BlockMigrationNotice({ error, retry }) {
 
 function App() {
   const { user, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState("today");
-  const [{control:controlVisible,calendar:calendarVisible,notes:notesVisible}] = useTabVisibility(user?.uid);
+  const [activeView, setActiveView] = useState(HOME_VIEW);
+  const [tabVisibility] = useTabVisibility(user?.uid);
   const discord = useDiscordLink(user?.uid);
   const discordId = discord.link?.discordId || null;
-  const visibleTabs = useMemo(() => [...visibleAppTabs(TABS,{control:controlVisible,calendar:calendarVisible,notes:notesVisible}),
-    ...(discordId ? TONKATSU_TABS : [])],[controlVisible,calendarVisible,notesVisible,discordId]);
-  const currentTab = visibleTabs.some(tab => tab.id === activeTab) ? activeTab : 'today';
-  useEffect(() => {if (activeTab !== currentTab) setActiveTab(currentTab);},[activeTab,currentTab]);
+  const tabContext = useMemo(() => ({ discord: Boolean(discordId) }), [discordId]);
+  const tabs = useMemo(() => visibleTabs(tabVisibility, tabContext), [tabVisibility, tabContext]);
+  const currentView = resolveView(tabs, activeView);
+  const currentTab = tabOfView(tabs, currentView);
   const goalsData   = useGoals(user?.uid);
   const tasksData   = useTasks(user?.uid);
   const todosData   = useTodos(user?.uid);
@@ -68,33 +55,31 @@ function App() {
   const [settingsUser, setSettingsUser] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [scheduleHistory, settingsReady, settingsError] = useCollection(user?.uid, subscribeScheduleSettings);
-  const [plannerOpened, setPlannerOpened] = useState(false);
-  const [controlOpened, setControlOpened] = useState(false);
-  const [learningOpened, setLearningOpened] = useState(false);
-  const [notesOpened, setNotesOpened] = useState(false);
-  const [calendarOpened, setCalendarOpened] = useState(false);
-  const [tonkatsuOpened, setTonkatsuOpened] = useState(false);
-  const tonkatsu = useTonkatsu(discordId, tonkatsuOpened);
-  const learning = useLearning(plannerOpened || learningOpened ? user?.uid : null);
-  const activateTab = useCallback(tabId => {
-    setActiveTab(tabId);
-    if (tabId === 'planner') setPlannerOpened(true);
-    if (tabId === 'control') setControlOpened(true);
-    if (tabId === 'learning') setLearningOpened(true);
-    if (tabId === 'notes') setNotesOpened(true);
-    if (tabId === 'calendar') setCalendarOpened(true);
-    if (tabId === 'checkin') setTonkatsuOpened(true);
+  // 한 번 연 화면은 숨겨도 계속 붙여 둔다(타이머 등 상태 유지).
+  const [openedViews, setOpenedViews] = useState({});
+  const [lastViewByTab, setLastViewByTab] = useState({});
+  const tonkatsu = useTonkatsu(discordId, Boolean(openedViews.checkin));
+  const learning = useLearning(openedViews.planner || openedViews.learning ? user?.uid : null);
+  const activateView = useCallback(viewId => {
+    setActiveView(viewId);
+    setOpenedViews(opened => opened[viewId] ? opened : { ...opened, [viewId]: true });
   }, []);
-  const openLearning = () => activateTab('learning');
+  // 보던 화면이 숨겨지면 같은 탭의 다른 화면(없으면 오늘 할 일)으로 옮긴다.
+  useEffect(() => { if (activeView !== currentView) activateView(currentView); }, [activeView, currentView, activateView]);
+  const currentTabId = currentTab?.id;
+  useEffect(() => {
+    if (currentTabId) setLastViewByTab(last => last[currentTabId] === currentView ? last : { ...last, [currentTabId]: currentView });
+  }, [currentTabId, currentView]);
   const [restTarget, setRestTarget] = useState(null);
   useEffect(() => { setRestTarget(null); }, [user?.uid]);
+  const controlVisible = tabVisibility.control;
   useEffect(() => {
-    if (user?.uid && controlVisible && restTimer.read(user.uid).session) activateTab('control');
-  }, [user?.uid, controlVisible, activateTab]);
+    if (user?.uid && controlVisible && restTimer.read(user.uid).session) activateView('control');
+  }, [user?.uid, controlVisible, activateView]);
 
   const resumeAfterRest = activityId => {
     setRestTarget({ uid: user.uid, activityId });
-    activateTab('planner');
+    activateView('planner');
   };
 
   useEffect(() => {
@@ -103,16 +88,13 @@ function App() {
       if (event.key !== 'Tab' || event.repeat || event.defaultPrevented || event.isComposing
         || event.altKey || event.ctrlKey || event.metaKey
         || isEditingTarget(event.target) || hasVisibleModal()) return;
-      const currentIndex = visibleTabs.findIndex(tab => tab.id === currentTab);
-      const nextIndex = (currentIndex + (event.shiftKey ? -1 : 1) + visibleTabs.length) % visibleTabs.length;
-      const nextTab = visibleTabs[nextIndex];
       event.preventDefault();
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      activateTab(nextTab.id);
+      activateView(stepView(tabs, currentView, event.shiftKey ? -1 : 1));
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentTab, visibleTabs, activateTab, loading, settingsUser, user]);
+  }, [currentView, tabs, activateView, loading, settingsUser, user]);
 
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -169,6 +151,26 @@ function App() {
     );
   }
 
+  const plannerProps = { uid: user.uid, scheduleHistory, settingsReady, settingsError };
+  const afterBlockMigration = content => blockMigration.ready ? content
+    : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />;
+  // 보기 id(appTabs.mjs)마다 그릴 화면
+  const panels = {
+    today: () => <TodayTab key={user.uid} uid={user.uid} tasks={tasksData} todos={todosData} goalsData={goalsData}
+      priorityData={priorityData} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />,
+    planner: () => <>
+      <LearningSummary learning={learning} onOpen={() => activateView('learning')} />
+      {afterBlockMigration(<PlannerTab key={user.uid} {...plannerProps} active={currentView === 'planner'}
+        restTarget={restTarget?.uid === user.uid ? restTarget : null} />)}
+    </>,
+    control: () => afterBlockMigration(<PlannerTab key={`${user.uid}-control`} {...plannerProps} control
+      active={currentView === 'control'} onRestReturn={resumeAfterRest} />),
+    learning: () => <LearningTab key={user.uid} learning={learning} active={currentView === 'learning'} />,
+    notes: () => <NotesTab key={user.uid} uid={user.uid} />,
+    calendar: () => <CalendarTab key={user.uid} uid={user.uid} active={currentView === 'calendar'} />,
+    checkin: () => <CheckInTab tonkatsu={tonkatsu} discordId={discordId} />,
+  };
+
   return (
     <div className="app">
       <header className="header">
@@ -193,11 +195,11 @@ function App() {
         ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
       <nav className="tab-nav">
-        {visibleTabs.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
-            className={`tab-btn ${currentTab === tab.id ? "tab-active" : ""}`}
-            onClick={() => activateTab(tab.id)}
+            className={`tab-btn ${currentTab?.id === tab.id ? "tab-active" : ""}`}
+            onClick={() => activateView(viewForTab(tab, lastViewByTab))}
           >
             {tab.label}
           </button>
@@ -208,35 +210,15 @@ function App() {
         {dataError && <p role="alert">
           데이터를 불러오지 못했습니다. 인터넷 연결과 계정 접근 권한을 확인해 주세요.
         </p>}
-        <div hidden={currentTab !== "today"}>
-          <TodayTab key={user.uid} uid={user.uid} tasks={tasksData} todos={todosData} goalsData={goalsData}
-            priorityData={priorityData} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
-        </div>
-        <div hidden={currentTab !== "planner"}>
-          {plannerOpened && <LearningSummary learning={learning} onOpen={openLearning} />}
-          {plannerOpened && (blockMigration.ready
-            ? <PlannerTab key={user.uid} uid={user.uid} active={currentTab === 'planner'} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError}
-                restTarget={restTarget?.uid === user.uid ? restTarget : null} />
-            : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />)}
-        </div>
-        <div hidden={currentTab !== "control"}>
-          {controlOpened && (blockMigration.ready
-            ? <PlannerTab key={`${user.uid}-control`} uid={user.uid} control active={currentTab === 'control'} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError}
-                onRestReturn={resumeAfterRest} />
-            : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />)}
-        </div>
-        <div hidden={currentTab !== "learning"}>
-          {learningOpened && <LearningTab key={user.uid} learning={learning} active={currentTab === 'learning'} />}
-        </div>
-        <div hidden={currentTab !== 'calendar'}>
-          {calendarOpened && <CalendarTab key={user.uid} uid={user.uid} active={currentTab === 'calendar'} />}
-        </div>
-        {discordId && <div hidden={currentTab !== 'checkin'}>
-          {tonkatsuOpened && <CheckInTab tonkatsu={tonkatsu} discordId={discordId} />}
+        {currentTab && currentTab.views.length > 1 && <div className="subtab-nav" role="group" aria-label={`${currentTab.label} 화면 선택`}>
+          {currentTab.views.map(view => <button key={view.id} type="button" aria-pressed={currentView === view.id}
+            className={`subtab-btn ${currentView === view.id ? 'subtab-active' : ''}`} onClick={() => activateView(view.id)}>
+            {view.label}
+          </button>)}
         </div>}
-        <div hidden={currentTab !== 'notes'}>
-          {notesOpened && <NotesTab key={user.uid} uid={user.uid} />}
-        </div>
+        {availableViews(tabContext).map(view => <div key={view.id} hidden={currentView !== view.id}>
+          {(view.eager || openedViews[view.id]) && panels[view.id]()}
+        </div>)}
       </main>
     </div>
   );

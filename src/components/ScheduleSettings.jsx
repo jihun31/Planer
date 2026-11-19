@@ -4,6 +4,7 @@ import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs'
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
 import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition } from '../features/planner/timerPreferences';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
+import { HIDEABLE_VIEW_IDS } from '../features/navigation/appTabs.mjs';
 import { useEditableCopy } from '../features/copy/useEditableCopy';
 import DiscordLinkSection from './DiscordLinkSection';
 export default function ScheduleSettings({ uid, history, ready, error, onClose, discord, serverInfo }) {
@@ -61,7 +62,7 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
     </section>
     <section className="schedule-settings-timer">
       <h3>{copy.field('tabsHeading')}</h3>
-      {['control','notes','calendar'].map(tab => <label key={tab}>{copy.field(`${tab}Tab`)}
+      {HIDEABLE_VIEW_IDS.map(tab => <label key={tab}>{copy.field(`${tab}Tab`)}
         <input type="checkbox" disabled={copy.editing} checked={tabVisibility[tab]} onChange={event => {
           try {setTabVisible(tab,event.target.checked);setTabFailure('');}
           catch {setTabFailure('탭 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}

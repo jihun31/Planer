@@ -1,5 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useEditableCopy } from '../features/copy/useEditableCopy';
+import { UI_COPY } from '../features/copy/uiCopy.mjs';
+import { allViews } from '../features/navigation/appTabs.mjs';
+
+// 가이드 문구(uiCopy.mjs의 `${id}Title`)가 있는 화면만 탭 순서대로 보여 준다.
+const GUIDE_VIEWS = allViews().map(view => view.id).filter(id => `${id}Title` in UI_COPY.guide);
 
 export default function HelpDialog({ onClose }) {
   const dialogRef = useRef(null);
@@ -24,7 +29,7 @@ export default function HelpDialog({ onClose }) {
     <section className="help-section">
       <h3>{copy.field('guideHeading')}</h3>
       <dl className="help-guide-list">
-        {['today','planner','control','learning','notes','calendar'].map(key => <div key={key}><dt>{copy.field(`${key}Title`)}</dt><dd>{copy.field(key)}</dd></div>)}
+        {GUIDE_VIEWS.map(key => <div key={key}><dt>{copy.field(`${key}Title`)}</dt><dd>{copy.field(key)}</dd></div>)}
       </dl>
     </section>
     <section className="help-section">
