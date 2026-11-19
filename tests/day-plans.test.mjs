@@ -27,7 +27,8 @@ test('different activities remove the entire plan hint, while matching records k
   const plans=[{title:'공부 계획',activityId:'study',startMin:60,endMin:180}],records=[{activityId:'study',startMin:80,endMin:100},{activityId:'study',startMin:130,endMin:180}];
   const before=JSON.stringify(records);
   assert.deepEqual(planHintRuns(plans,records),[
-    {startMin:60,endMin:120,title:'공부 계획',color:'#6366f1',showLabel:false}, {startMin:120,endMin:180,title:'공부 계획',color:'#6366f1',showLabel:false},
+    {startMin:60,endMin:120,title:'공부 계획',color:'#6366f1',showLabel:false,outline:{'--plan-bottom-start':'0%','--plan-bottom-end':'100%'}},
+    {startMin:120,endMin:180,title:'공부 계획',color:'#6366f1',showLabel:false,outline:{'--plan-top-start':'0%','--plan-top-end':'100%'}},
   ]);
   assert.equal(JSON.stringify(records),before);
   assert.equal(planHintRuns(plans,[{activityId:'study',startMin:60,endMin:180}]).length,2);
@@ -38,8 +39,14 @@ test('different activities remove the entire plan hint, while matching records k
   assert.equal(planHintRuns(plans,[{activityId:'other',startMin:180,endMin:190}]).length,2,'Touching endpoints do not overlap');
   assert.equal(planHintRuns(plans,[])[0].showLabel,true,'Removing a conflicting record restores the plan');
   assert.equal(planHintRuns([{title:'직접 입력',startMin:0,endMin:10}],[{customName:'직접 입력',startMin:0,endMin:5}])[0].showLabel,false);
-  assert.deepEqual(planHintRuns([{title:'한 분',startMin:0,endMin:1}],[]),[{startMin:0,endMin:1,title:'한 분',color:'#6366f1',showLabel:true}]);
+  assert.deepEqual(planHintRuns([{title:'한 분',startMin:0,endMin:1}],[]),[{startMin:0,endMin:1,title:'한 분',color:'#6366f1',showLabel:true,outline:{}}]);
   assert.deepEqual(planHintRuns([{title:'18:30~19:30',startMin:630,endMin:690}],[]).map(run=>[run.startMin,run.endMin]),[[630,660],[660,690]]);
+  const wrapped=planHintRuns([{title:'08:10~09:50',startMin:10,endMin:110}],[]);
+  assert.deepEqual(wrapped.map(run=>run.outline),[
+    {'--plan-bottom-start':'0%','--plan-bottom-end':'80%'},{'--plan-top-start':'20%','--plan-top-end':'100%'},
+  ],'Only the edge shared with the adjacent row is open, so the wrapped plan reads as one outline');
+  assert.deepEqual(planHintRuns([{title:'라벨',startMin:30,endMin:100}],[]).map(run=>run.showLabel),[false,true],'The label goes to the widest row piece');
+  assert.deepEqual(planHintRuns([{title:'18:30~19:30',startMin:630,endMin:690}],[]).map(run=>run.outline),[{},{}],'Rows that do not share columns keep closed edges');
   assert.equal(planHintRuns([{title:'활동 색',color:'#22c55e',startMin:0,endMin:10}],[])[0].color,'#22c55e');
   assert.equal(planHintRuns([{title:'새벽',startMin:1080,endMin:1140}],[])[0].startMin,1080);
 });

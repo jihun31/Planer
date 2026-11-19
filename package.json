@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && node electron/run-dev.cjs\"",
     "electron:build": "npm run build && electron-builder --publish never",
-    "test": "node --test tests/planner-reads.test.mjs tests/google-auth.test.cjs tests/account-isolation.test.mjs tests/activity-history.test.mjs tests/schedule-time.test.mjs tests/control-time.test.mjs tests/control-colors.test.mjs tests/learning.test.mjs tests/notepad.test.mjs tests/note-library.test.mjs tests/note-subscriptions.test.mjs tests/youtube-links.test.mjs tests/site-links.test.mjs tests/tab-visibility.test.mjs tests/note-rich-text.test.mjs tests/calendar.test.mjs tests/day-plans.test.mjs tests/study-gap.test.mjs tests/ui-text.test.mjs tests/discord-link.test.mjs tests/tonkatsu-core.test.mjs tests/tonkatsu-tabs.test.mjs tests/auto-update.test.cjs",
+    "test": "node --test tests/planner-reads.test.mjs tests/google-auth.test.cjs tests/account-isolation.test.mjs tests/activity-history.test.mjs tests/schedule-time.test.mjs tests/control-time.test.mjs tests/control-colors.test.mjs tests/learning.test.mjs tests/notepad.test.mjs tests/note-library.test.mjs tests/note-subscriptions.test.mjs tests/youtube-links.test.mjs tests/site-links.test.mjs tests/tab-visibility.test.mjs tests/note-rich-text.test.mjs tests/note-images.test.mjs tests/calendar.test.mjs tests/day-plans.test.mjs tests/study-gap.test.mjs tests/calendar-labels.test.mjs tests/ui-text.test.mjs tests/discord-link.test.mjs tests/tonkatsu-core.test.mjs tests/tonkatsu-tabs.test.mjs tests/auto-update.test.cjs",
     "test:affected": "node scripts/affected-tests.mjs --run",
     "check:version": "node scripts/check-version.mjs",
     "test:plans": "node --test tests/day-plans.test.mjs",
@@ -21,7 +21,9 @@
     "test:notes:dom": "node tests/note-drag-dom.test.cjs",
     "test:notes:checklist": "node tests/note-checklist-dom.test.cjs",
     "test:notes:lists": "node tests/note-lists-dom.test.cjs",
-    "test:notes:workspace": "node tests/note-workspace-dom.test.cjs"
+    "test:notes:workspace": "node tests/note-workspace-dom.test.cjs",
+    "test:notes:images": "node tests/note-images-dom.test.cjs",
+    "test:memo-todo": "node tests/memo-todo-dom.test.cjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.11",

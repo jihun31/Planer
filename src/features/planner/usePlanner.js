@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   subscribeActivities, subscribeAllBlocks,
-  addActivity, deleteActivity, addBlock, deleteBlock, updateActivityOrder, saveTimer,
+  addActivity, deleteActivity, addBlock, deleteBlock, updateActivityOrder, updateActivityColor, saveTimer,
 } from "./plannerService";
 import { monthDates, selectedDateOutsideMonth } from "./blockSubscriptions.mjs";
 import { subscribeControlActivities } from './controlService';
@@ -82,5 +82,6 @@ export const usePlanner = (uid, year, month, selectedDate) => {
     saveTimer: data => saveTimer(uid, data),
     deleteBlock,
     updateActivityOrder: (ids) => updateActivityOrder(ids),
+    updateActivityColor: (activity, color) => updateActivityColor(activity, color),
   };
 };

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { MINUTES_ARR, fmtHour } from '../planner/plannerDisplay.mjs';
 import { planTime } from '../../features/plans/planModel.mjs';
 import { planHours } from '../../features/plans/planTimetable.mjs';
+import { calendarLabelPlacements } from '../../features/planner/calendarLabels.mjs';
 
 // Plans use midnight-based minutes; the actual-record timetable keeps its own
 // 08:00-based storage. Only the timetable's visual layout is shared here.
@@ -36,6 +37,10 @@ export default function DayPlanGrid({plans,selection,onSelect,onEdit,onRemove,di
       <div className="ds-th ds-th-time">시간</div>
       {MINUTES_ARR.map(minute=><div key={minute} className={`ds-th${minute%15===0?' ds-th-quarter':[14,29,44].includes(minute)?' ds-th-qend':' ds-th-minor'}`}>
         {minute%15===0?`:${String(minute).padStart(2,'0')}`:''}</div>)}
+      {calendarLabelPlacements(hours.map(hour=>hour*60),minute=>{
+        const plan=cellPlans.get(minute)?.at(-1);
+        return plan&&plan.endMinute-plan.startMinute>=5?plan:null;
+      }).map(({group,style,key})=><span key={'label-'+key} className="ds-cell-name" style={{...style,color:group.color}}>{group.title}</span>)}
       {hours.map(hour=><div key={hour} style={{display:'contents'}}>
         <div className="ds-td-time">{fmtHour(hour)}</div>
         {MINUTES_ARR.map(offset=>{
@@ -51,7 +56,6 @@ export default function DayPlanGrid({plans,selection,onSelect,onEdit,onRemove,di
               aria-pressed={!!selected} tabIndex={minute===(selection?.startMinute??hours[0]*60)?0:-1}
               disabled={disabled} onKeyDown={event=>navigate(event,minute)}
               onClick={()=>choose(minute,plan)} onMouseEnter={()=>setHovered(minute)} />
-            {plan&&minute===Math.floor((plan.startMinute+plan.endMinute)/2)&&plan.endMinute-plan.startMinute>=5&&<span className="ds-cell-name" style={{color:plan.color}}>{plan.title}</span>}
             {plan&&minute===plan.startMinute&&<button type="button" className="ds-del" aria-label={`${plan.title} ${plan.routineId?'이번 날짜 제외':'계획 삭제'}`}
               disabled={disabled} onClick={()=>onRemove(plan)}>✕</button>}
           </div>;

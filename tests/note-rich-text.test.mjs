@@ -60,10 +60,14 @@ test('direct slash commands wait for Korean composition to finish and respect mo
   const start=source.lastIndexOf('      onKeyDown={event => {');
   const body=source.slice(start+'      onKeyDown={event => {'.length,source.indexOf("        if ((event.ctrlKey || event.metaKey)",start));
   const applied=[],composing={current:false},dismissedSlash={current:null};
+  const opened=[];
   const context=vm.createContext({loading:false,readOnly:false,composing,dismissedSlash,editor:{current:{}},window:{getSelection:()=>({})},
-    noteSlashShortcut:()=>({type:'h3',range:'command-range'}),applyBlock:(...args)=>applied.push(args)});
+    noteSlashShortcut:()=>({type:'h3',range:'command-range'}),applyBlock:(...args)=>applied.push(args),
+    noteImageSelector:'[data-note-image-id]',openNoteImage:image=>{opened.push(image);return true;}});
   vm.runInContext('globalThis.keyDown=event=>{'+body+'};',context);
-  const key=(overrides={})=>context.keyDown({key:'Enter',nativeEvent:{isComposing:false},preventDefault(){},...overrides});
+  const key=(overrides={})=>context.keyDown({key:'Enter',nativeEvent:{isComposing:false},preventDefault(){},target:{closest:()=>null},...overrides});
+  const photo={};key({target:{closest:selector=>selector==='[data-note-image-id]'?photo:null}});
+  assert.deepEqual(opened,[photo],'Enter on a focused photo opens it instead of running a slash command');
   key({nativeEvent:{isComposing:true}});key({keyCode:229});
   composing.current=true;key();composing.current=false;
   key({ctrlKey:true});key({shiftKey:true});
@@ -77,11 +81,18 @@ test('paste uses the live typing color for external text and copied notes, inclu
   const source = fs.readFileSync('src/components/notes/NoteTextEditor.jsx','utf8');
   const paste = source.slice(source.indexOf('  function paste(event)'),source.indexOf('  function copy(event'));
   let activeColor = '#9065b0', inserted = '';
+  const attached = [];
   const context = vm.createContext({loading:false,readOnly:false,selectedFormats:()=>({color:activeColor}),
-    setNotice(){},commit:()=>true,escapeHtml,youtubeVideo,webLink,noteHtml,
+    setNotice(){},commit:()=>true,escapeHtml,youtubeVideo,webLink,noteHtml,editor:{current:'editor'},
+    noteImageFiles:transfer=>transfer.files||[],attachNoteImages:(...args)=>attached.push(args),
+    restoreSelection:()=>({getRangeAt:()=>({cloneRange:()=>'caret'})}),
     document:{execCommand(command,_ui,html){assert.equal(command,'insertHTML');inserted=html;return true;}}});
   vm.runInContext(paste + '\nglobalThis.paste = paste;',context);
-  const event = (plain,copied = '') => ({preventDefault(){},clipboardData:{getData:type=>type==='text/plain'?plain:copied}});
+  const event = (plain,copied = '',files) => ({preventDefault(){},clipboardData:{files,getData:type=>type==='text/plain'?plain:copied}});
+  context.paste(event('','',['photo.png']));
+  assert.deepEqual(attached.map(args=>args.slice(0,3)),[['editor',['photo.png'],'caret']],'Pasted image files are attached at the caret');
+  context.paste(event('',serializeNoteRuns([{text:'노트'}]),['photo.png']));
+  assert.equal(attached.length,1,'A copied note keeps priority over clipboard image files');
   context.paste(event('첫 줄\n<본문>'));
   assert.equal(inserted,'<span style="color:#9065b0">첫 줄<br>&lt;본문&gt;</span>');
   const copied = serializeNoteRuns([{text:'복사한 제목',color:'#337ea9',bold:true,block:'h2'}]);

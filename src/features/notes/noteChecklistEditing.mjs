@@ -31,7 +31,7 @@ function createCheckbox(doc, checked=false) {
 }
 
 function ensureCaretSlot(content) {
-  if (!content.textContent && !content.querySelector('br,a,img')) content.replaceChildren(content.ownerDocument.createElement('br'));
+  if (!content.textContent && !content.querySelector('br,a,img,[data-note-image-id]')) content.replaceChildren(content.ownerDocument.createElement('br'));
 }
 
 function decorateItem(item) {
@@ -71,7 +71,7 @@ export function repairNoteChecklists(editor) {
       const existing=item.querySelector(':scope > .notes-checklist-text');
       // A native multi-line deletion can retain the last LI while deleting its
       // checkbox. Drop that empty shell, rather than restoring a ghost item.
-      if (!button&&!item.textContent&&!item.querySelector('li,a,img')) {
+      if (!button&&!item.textContent&&!item.querySelector('li,a,img,[data-note-image-id]')) {
         const list=item.parentElement, active=selection?.isCollapsed&&item.contains(selection.anchorNode);
         const neighbour=item.previousElementSibling||item.nextElementSibling;
         item.remove();repaired=true;
@@ -86,7 +86,7 @@ export function repairNoteChecklists(editor) {
       const outside=[...item.childNodes].filter(child=>child!==button&&child!==existing&&!['UL','OL'].includes(child.nodeName));
       const checked=button.getAttribute('aria-checked') === 'true' ? 'true' : 'false';
       if (existing&&!missingButton&&!outside.length&&item.classList.contains('notes-checklist-item')&&item.getAttribute('data-note-checked')===checked) {
-        if(!existing.textContent&&!existing.querySelector('br,a,img')) {ensureCaretSlot(existing);repaired=true;}
+        if(!existing.textContent&&!existing.querySelector('br,a,img,[data-note-image-id]')) {ensureCaretSlot(existing);repaired=true;}
         continue;
       }
       const content=existing || editor.ownerDocument.createElement('span');

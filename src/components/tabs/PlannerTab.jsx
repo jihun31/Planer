@@ -33,7 +33,7 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
   const plannerData = usePlanner(control ? null : uid, calYear, calMonth, selectedDate);
   const controlData = useControl(control ? uid : null, calYear, calMonth, selectedDate);
   const { activities, allActivities, blocks, oppositeBlocks, oppositeActivities, loading, error, retryLoading, addActivity,
-    deleteActivity, addBlock, saveTimer, deleteBlock, updateActivityOrder, updateActivityGroup } =
+    deleteActivity, addBlock, saveTimer, deleteBlock, updateActivityOrder, updateActivityGroup, updateActivityColor } =
     control ? controlData : plannerData;
   const displaySettings = oppositeDisplayFromHistory(scheduleHistory);
   const oppositeMode = control ? displaySettings.controlOppositeDisplay : displaySettings.plannerOppositeDisplay;
@@ -78,6 +78,7 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
         <button type="button" onClick={retryLoading}>다시 시도</button>
       </div> : loading && <div className="planner-updating" role="status">불러오는 중…</div>}
       <ActivityManager activities={activities} onAdd={addActivity} onDelete={deleteActivity} onUpdateOrder={updateActivityOrder}
+        onUpdateColor={updateActivityColor}
         showRestShortcut={control && !loading && !error && !restTimer.findRest(activities)}
         onUpdateGroup={updateActivityGroup} onStart={id => {
           if (id === restTimer.optionId) { timerStart.current?.(id); return; }

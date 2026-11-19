@@ -1,7 +1,7 @@
 import {
   collection, addDoc, deleteDoc, doc,
   query, where, onSnapshot, serverTimestamp,
-  updateDoc, writeBatch,
+  updateDoc, writeBatch, getDocs,
 } from "firebase/firestore";
 import { db } from "../../firebase/config";
 import { subscribeDateGroups } from "./blockSubscriptions.mjs";
@@ -31,6 +31,24 @@ export const updateActivityOrder = (orderedIds) => {
 
 export const addActivity = (uid, data) =>
   addDoc(collection(db, "plannerActivities"), { ...data, uid, createdAt: serverTimestamp() });
+
+// Records keep their own color, so recolor this activity's past records too
+// (control entries and custom-named records keep theirs).
+export const updateActivityColor = async (activity, color) => {
+  if (!/^#[0-9a-f]{6}$/i.test(color) || !activity?.id || !activity.uid) throw new Error('activity-color');
+  await updateDoc(doc(db, "plannerActivities", activity.id), { color });
+  const snapshot = await getDocs(query(collection(db, "scheduleBlocks"),
+    where("uid", "==", activity.uid), where("activityId", "==", activity.id)));
+  const records = snapshot.docs.filter(item => {
+    const data = item.data();
+    return data.kind !== 'control' && !data.customName && data.activityColor !== color;
+  });
+  for (let index = 0; index < records.length; index += 400) {
+    const batch = writeBatch(db);
+    records.slice(index, index + 400).forEach(item => batch.update(item.ref, { activityColor: color }));
+    await batch.commit();
+  }
+};
 
 // Keep the activity metadata for historical records; hide it from new selections.
 export const deleteActivity = (uid, activityId) => {

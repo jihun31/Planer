@@ -82,6 +82,7 @@ test('preload subscriptions return cleanup and never pass raw Electron events', 
 test('Electron IPC rejects other windows and child frames; stop is delivered once from timer window', async () => {
   const handlers = new Map(), invokes = new Map(), windows = [];
   const titleRequests = [];
+  let noteImagesAllowed = null;
   class FakeWindow {
     constructor({ width, height }) {
       this.events = new Map(); this.dead = false; this.sent = [];
@@ -121,6 +122,7 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
       if (name === 'node:fs') return { readFileSync() { throw Error('No OAuth config'); } };
       if (name === './google-auth.cjs') return {};
       if (name === './rest-reminder.cjs') return restReminder;
+      if (name === './note-image-store.cjs') return { registerNoteImages: (_ipcMain, allowed) => { noteImagesAllowed = allowed; } };
       throw Error('Unexpected require ' + name);
     },
     URL, AbortSignal, encodeURIComponent, process: { platform: 'win32' },
@@ -156,6 +158,10 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal((await invokes.get('notes:youtube-title')(eventFor(timer),'jNQXAC9IVRw')).code,'desktop/forbidden');
   assert.equal((await invokes.get('auth:google')(eventFor(timer))).code, 'desktop/forbidden');
   assert.equal((await invokes.get('notes:link-preview')(eventFor(timer),'https://example.com')).code,'desktop/forbidden');
+  // Note photos use the same main-window check as the other note IPC.
+  assert.equal(noteImagesAllowed(eventFor(main)),true);
+  assert.equal(noteImagesAllowed(eventFor(timer)),false);
+  assert.equal(noteImagesAllowed(maliciousFrame),false);
   handlers.get('timer:stop-from-popup')(eventFor(main));
   assert.ok(!timer.dead);
   const timerEvent = eventFor(timer);

@@ -3,7 +3,28 @@ import { controlColor } from '../../features/planner/controlColors.mjs';
 import { COLORS } from './plannerDisplay.mjs';
 import { restTimer } from './restTimer';
 
-function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateGroup, onStart, control = false, showRestShortcut = false }) {
+function ActivityColorPanel({ activities, targetId, busy, onPick }) {
+  const target = activities.find(activity => activity.id === targetId);
+  if (!target) {
+    return <div className="act-color-editor" role="status">
+      <span className="act-color-hint">색상을 바꿀 활동을 누르세요.</span>
+    </div>;
+  }
+  return <div className="act-color-editor" role="group" aria-label={`${target.name} 색상 선택`}>
+    <span className="act-color-name" style={{ color: target.color }}>{target.name} 색상</span>
+    <div className="color-palette">
+      {COLORS.map(color => (
+        <button key={color} type="button" disabled={busy} title={color}
+          aria-label={color + (color === target.color ? ' (현재 색상)' : '')} aria-pressed={color === target.color}
+          className={`color-dot ${color === target.color ? 'color-selected' : ''}`}
+          style={{ background: color }} onClick={() => onPick(target.id, color)} />
+      ))}
+    </div>
+    {busy && <span className="act-color-hint">저장 중...</span>}
+  </div>;
+}
+
+function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateGroup, onUpdateColor, onStart, control = false, showRestShortcut = false }) {
   const [name, setName]             = useState('');
   const [color, setColor]           = useState(COLORS[0]);
   const [group, setGroup]           = useState('');
@@ -15,6 +36,19 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
   const [localIds, setLocalIds]     = useState([]);
   const [actionError, setActionError] = useState('');
   const addDisabled = reordering || changingGroups || submitting;
+  // Color mode: pick an activity chip, then a palette color (planner tab only).
+  const [colorMode, setColorMode] = useState(false);
+  const [colorTarget, setColorTarget] = useState(null);
+  const [colorBusy, setColorBusy] = useState(false);
+  const pickColor = async (id, nextColor) => {
+    const activity = activities.find(item => item.id === id);
+    if (!activity || activity.color === nextColor || colorBusy) return;
+    setColorBusy(true);
+    setActionError('');
+    try { await onUpdateColor(activity, nextColor); }
+    catch { setActionError('활동 색상을 변경하지 못했습니다. 다시 시도해 주세요.'); }
+    finally { setColorBusy(false); }
+  };
 
   useEffect(() => {
     if (!reordering) setLocalIds(activities.map(a => a.id));
@@ -79,14 +113,15 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
             <span className="act-empty">활동을 추가하면 표에서 기록할 수 있어요</span>
           ) : (
             displayActivities.map((a, idx) => (
-              <span key={a.id} className="act-chip"
+              <span key={a.id} className={`act-chip${colorMode && colorTarget === a.id ? ' act-chip-color-target' : ''}`}
                 style={{ background: a.color + '20', borderColor: a.color + '80', color: a.color }}
               >
                 <span className="act-chip-dot" style={{ background: a.color }} />
                 <button type="button" className="act-chip-start" aria-label={`${a.name} 선택 시간 기록 또는 타이머 시작`}
                   title="시간표에서 선택한 칸이 있으면 바로 기록하고, 없으면 타이머를 시작합니다."
-                  disabled={!onStart || reordering || changingGroups || !!deleteBusyId || !!groupBusyId}
-                  onClick={() => onStart(a.id)}>{a.name}</button>
+                  aria-pressed={colorMode ? colorTarget === a.id : undefined}
+                  disabled={(!onStart && !colorMode) || reordering || changingGroups || !!deleteBusyId || !!groupBusyId || (colorMode && colorBusy)}
+                  onClick={() => colorMode ? setColorTarget(a.id) : onStart(a.id)}>{a.name}</button>
                 {changingGroups && <button type="button" className="act-chip-change"
                   title={`${a.name}: ${a.group === 'foolish' ? '어리석음' : '통제'} → ${a.group === 'foolish' ? '통제' : '어리석음'}`}
                   aria-label={`${a.name} 그룹 변경`} disabled={groupBusyId === a.id}
@@ -111,12 +146,19 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
           {(activities.length > 0 || reordering) && (
             <button type="button"
               className={`act-reorder-btn${reordering ? ' act-reorder-active' : ''}`}
-              onClick={reordering ? handleDone : () => setReordering(true)} disabled={changingGroups || !!deleteBusyId || submitting}
+              onClick={reordering ? handleDone : () => setReordering(true)} disabled={changingGroups || !!deleteBusyId || submitting || colorMode}
               title={reordering ? '순서 변경 완료' : '활동 순서 수정'}
             >
               {reordering ? '완료' : '✎'}
             </button>
           )}
+          {!control && onUpdateColor && (activities.length > 0 || colorMode) && <button type="button"
+            className={`act-reorder-btn${colorMode ? ' act-reorder-active' : ''}`}
+            onClick={() => {setColorMode(value => !value);setColorTarget(null);}}
+            disabled={reordering || changingGroups || submitting || colorBusy}
+            title={colorMode ? '색상 변경 완료' : '활동 색상 변경'}>
+            {colorMode ? '완료' : '색상 변경'}
+          </button>}
           {control && (activities.length > 0 || changingGroups) && <button type="button"
             className={`act-reorder-btn${changingGroups ? ' act-reorder-active' : ''}`}
             onClick={() => setChangingGroups(value => !value)} disabled={reordering || !!groupBusyId || submitting}
@@ -125,7 +167,8 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
           </button>}
         </div>
       </div>
-      <form className="act-add-form" onSubmit={handleAdd}>
+      {!control && onUpdateColor && colorMode && <ActivityColorPanel activities={activities} targetId={colorTarget} busy={colorBusy} onPick={pickColor} />}
+      {!colorMode && <form className="act-add-form" onSubmit={handleAdd}>
         {control && <select className="form-select-sm" value={group} onChange={e => setGroup(e.target.value)} required disabled={addDisabled}>
           <option value="">그룹 선택</option><option value="controlled">통제</option><option value="foolish">어리석음</option>
         </select>}
@@ -150,7 +193,7 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
         <button className="btn btn-login" type="submit" disabled={addDisabled}>
           {submitting ? '...' : '+ 추가'}
         </button>
-      </form>
+      </form>}
       {actionError && <p role="alert" className="act-error">{actionError}</p>}
     </div>
   );

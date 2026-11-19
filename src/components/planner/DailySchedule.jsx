@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { controlColor } from '../../features/planner/controlColors.mjs';
 import { summarizeBlocks } from '../../features/planner/activityHistory.mjs';
 import { scheduleRunCells } from '../../features/planner/scheduleRuns.mjs';
+import { calendarLabelPlacements } from '../../features/planner/calendarLabels.mjs';
 import { visibleHours, blockMinutes as getBlockMins } from '../../features/planner/scheduleTime.mjs';
 import { COLORS, MINUTES_ARR, CUSTOM_ID, minToTime, fmtHour, fmtMins } from './plannerDisplay.mjs';
 import { planHintRuns, planOutlineColor } from '../../features/plans/plannerPlanHints.mjs';
@@ -224,6 +225,15 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
             );
           })}
 
+          {calendarLabelPlacements(hours.map(hour => (hour - 8) * 60), minute => {
+            const group = runCells.get(minute);
+            return group && group.info.color && group.endMin - group.startMin >= 5
+              && (!group.opposite || !['blind', 'hidden'].includes(oppositeMode)) ? group : null;
+          }).map(({ group, style, key }) => (
+            <span key={`label-${key}`} className={`ds-cell-name${group.opposite && oppositeMode === 'faded' ? ' ds-cell-name-faded' : ''}`}
+              style={{ ...style, color: group.info.color }}>{group.info.name}</span>
+          ))}
+
           {hours.map(hour => (
             <div key={hour} style={{ display: 'contents' }}>
               <div className="ds-td-time">{fmtHour(hour)}</div>
@@ -238,8 +248,6 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
                 const name   = info?.name;
                 const { startMin: blkStart } = blk ? getBlockMins(blk) : {};
                 const isFirst  = blk && min === blkStart;
-                const runMid   = run ? Math.floor((run.startMin + run.endMin) / 2) : null;
-                const showName = run && min === runMid && color && (run.endMin - run.startMin) >= 5;
 
                 const visuallyHidden = blk?._opposite && oppositeMode === 'hidden';
                 const actualVisible=blk&&!visuallyHidden;
@@ -265,13 +273,11 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
                     key={m}
                     className={cls.join(' ')}
                     data-schedule-minute={min}
+                    title={name || undefined}
                     style={color ? { background: color + (blk?._opposite && oppositeMode === 'faded' ? '12' : '30') } : undefined}
                     onClick={() => handleCellClick(min)}
                     onMouseEnter={() => setHovered(min)}
                   >
-                    {showName && (
-                      <span className="ds-cell-name" style={{ color }}>{name}</span>
-                    )}
                     {isFirst && !blk._opposite && (
                       <button
                         className="ds-del"
@@ -289,7 +295,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
           {hintRuns.map(hint=>{
             const hour=Math.floor((hint.startMin+480)/60),row=hours.indexOf(hour)+2,column=(hint.startMin+480)%60+2;
             return <span key={`${hint.startMin}-${hint.endMin}`} className="ds-plan-block" data-plan-start={hint.startMin} data-plan-end={hint.endMin}
-              style={{gridRow:`${row} / ${row+1}`,gridColumn:`${column} / ${column+hint.endMin-hint.startMin}`,'--plan-color':hint.color,'--plan-outline-color':planOutlineColor(hint.color)}}
+              style={{gridRow:`${row} / ${row+1}`,gridColumn:`${column} / ${column+hint.endMin-hint.startMin}`,'--plan-color':hint.color,'--plan-outline-color':planOutlineColor(hint.color),...hint.outline}}
               title={`계획: ${hint.title}`}>
               {hint.showLabel&&<span className="ds-plan-name">{hint.title}</span>}
             </span>;

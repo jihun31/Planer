@@ -26,6 +26,36 @@ test('archiving only updates activity metadata and never reads/deletes history',
   assert.throws(() => context.archive(null, 'journal'));
 });
 
+test('changing an activity color recolors its own past records in batches, not control or custom ones', async () => {
+  const updates = [], queries = [], batches = [];
+  const record = (id, data) => ({ ref: { id }, data: () => data });
+  const docs = [
+    record('old', { activityColor: '#6366f1' }), record('same', { activityColor: '#22c55e' }),
+    record('control', { kind: 'control', activityColor: '#6366f1' }), record('custom', { customName: '직접', activityColor: '#6366f1' }),
+    ...Array.from({ length: 401 }, (_, index) => record('bulk' + index, { activityColor: '#6366f1' })),
+  ];
+  const source = fs.readFileSync('src/features/planner/plannerService.js','utf8')
+    .replace(/import[\s\S]*?from\s*["'][^"']+["'];/g, '').replace(/export const /g, 'const ');
+  const context = vm.createContext({
+    db: {}, doc: (_db, name, id) => ({ name, id }), collection: (_db, name) => name,
+    where: (field, op, value) => ({ field, op, value }), query: (name, ...filters) => ({ name, filters }),
+    updateDoc: async (ref, data) => updates.push({ ref, data }),
+    getDocs: async request => { queries.push(request); return { docs }; },
+    writeBatch: () => { const batch = { items: [], update: (ref, data) => batch.items.push([ref.id, data]), commit: async () => batches.push(batch.items) }; return batch; },
+  });
+  vm.runInContext(source + '\nglobalThis.recolor = updateActivityColor;', context);
+  await context.recolor({ id: 'study', uid: 'alice', color: '#6366f1' }, '#22c55e');
+  const plain = value => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(plain(updates), [{ ref: { name: 'plannerActivities', id: 'study' }, data: { color: '#22c55e' } }]);
+  assert.deepEqual(plain(queries[0].filters), [{ field: 'uid', op: '==', value: 'alice' }, { field: 'activityId', op: '==', value: 'study' }]);
+  assert.deepEqual(batches.map(items => items.length), [400, 2], 'Writes are split into batches of at most 400');
+  const touched = batches.flat().map(([id]) => id);
+  assert.ok(touched.includes('old') && !touched.includes('same') && !touched.includes('control') && !touched.includes('custom'));
+  assert.ok(batches.flat().every(([, data]) => data.activityColor === '#22c55e'));
+  await assert.rejects(context.recolor({ id: 'study', uid: 'alice' }, 'green'));
+  await assert.rejects(context.recolor({ id: 'study' }, '#22c55e'), 'An activity without an owner must not query records');
+});
+
 test('archived, custom, rest and orphan records are all counted', () => {
   const map = {
     journal: { name: '일기', color: '#112233', archived: true },

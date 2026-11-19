@@ -1,6 +1,63 @@
 import { MAX_NOTE_LIST_DEPTH } from './noteRichText.mjs';
-import { noteFormatAt } from './noteEditorDom.mjs';
+import { noteFormatAt, removeNoteListRow } from './noteEditorDom.mjs';
 import { changeNoteChecklistDepth, repairNoteChecklists } from './noteChecklistEditing.mjs';
+
+function placeListCaret(selection, content, end = false) {
+  const caret = content.ownerDocument.createRange();
+  caret.selectNodeContents(content);
+  if (content.nodeName === 'LI') {
+    const firstList = content.querySelector(':scope > ul, :scope > ol');
+    if (firstList) caret.setEndBefore(firstList);
+  }
+  caret.collapse(!end);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+}
+
+function editNestedListBackspace(editor, selection, item, range, empty) {
+  const plain = item.querySelector(':scope > [data-note-list-content]');
+  const content = plain || item.querySelector(':scope > .notes-checklist-text') || item;
+  const before = range.cloneRange();
+  before.selectNodeContents(content);
+  if (!content.contains(range.startContainer)) return false;
+  before.setEnd(range.startContainer, range.startOffset);
+  const prefix = before.cloneContents();
+  if (prefix.textContent.replace(/[\u200b\ufeff]/g,'') || prefix.querySelector('a,img,details,hr,ul,ol')) return false;
+
+  if (plain) {
+    if (!empty) return false;
+    // Walk in document order so the preceding row can be in another nested list.
+    const rows = editor.ownerDocument.createTreeWalker(editor, NodeFilter.SHOW_ELEMENT, node =>
+      node.matches('li:not([data-note-list-text="continuation"])')
+        ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP);
+    rows.currentNode = item;
+    const previous = rows.previousNode();
+    if (!previous) return false;
+    removeNoteListRow(item);
+    placeListCaret(selection,previous.querySelector(':scope > .notes-checklist-text, :scope > [data-note-list-content]') || previous,true);
+    return true;
+  }
+
+  const text = item.ownerDocument.createElement('span');
+  if (content !== item) {
+    text.append(...content.childNodes);
+    content.remove();
+  } else {
+    for (const child of [...item.childNodes]) {
+      if (!['UL','OL'].includes(child.nodeName)) text.append(child);
+    }
+  }
+  if (!text.childNodes.length) text.append(item.ownerDocument.createElement('br'));
+  item.querySelector(':scope > [data-note-checkbox]')?.remove();
+  item.classList.remove('notes-checklist-item');
+  if (!item.className) item.removeAttribute('class');
+  item.removeAttribute('data-note-checked');
+  item.setAttribute('data-note-list-text','text');
+  text.setAttribute('data-note-list-content','');
+  item.prepend(text);
+  placeListCaret(selection,text);
+  return true;
+}
 
 // Handle empty items before Chromium's native paragraph command can create
 // another nested item. Each Enter exits exactly one list level.
@@ -14,13 +71,30 @@ export function editNoteListKey(editor,selection,key) {
   const own=item.cloneNode(true);
   own.querySelectorAll('ul,ol,[data-note-checkbox]').forEach(node=>node.remove());
   const empty=!own.textContent.replace(/[\u200b\ufeff]/g,'').trim()&&!own.querySelector('a,img,hr,details');
+  const list=item.parentElement,parent=list.parentElement;
+  if (key === 'Backspace' && parent.nodeName === 'LI') return editNestedListBackspace(editor,selection,item,range,empty);
+  if (key === 'Enter' && item.hasAttribute('data-note-list-text')) {
+    const content = item.querySelector(':scope > [data-note-list-content]');
+    if (!content?.contains(range.startContainer)) return false;
+    const remainder = range.cloneRange();
+    remainder.setEnd(content,content.childNodes.length);
+    const next = item.cloneNode(false), nextContent = content.cloneNode(false);
+    nextContent.append(remainder.extractContents());
+    for (const slot of [content,nextContent]) {
+      if (!slot.textContent && !slot.querySelector('br,a,img')) slot.append(slot.ownerDocument.createElement('br'));
+    }
+    next.append(nextContent);
+    item.after(next);
+    placeListCaret(selection,nextContent);
+    return true;
+  }
   if(key==='Enter'&&!empty) return false;
   if(key==='Backspace') {
     if(item.hasAttribute('data-note-checked')&&!empty) return false;
     const before=range.cloneRange();before.selectNodeContents(item);before.setEnd(range.startContainer,range.startOffset);
     if(before.toString().replace(/[\u200b\ufeff]/g,'').length) return false;
   }else if(key!=='Enter') return false;
-  const doc=editor.ownerDocument,list=item.parentElement,parent=list.parentElement,tail=list.cloneNode(false);
+  const doc=editor.ownerDocument,tail=list.cloneNode(false);
   while(item.nextSibling) tail.append(item.nextSibling);
   let target;
   if(parent.nodeName==='LI') {

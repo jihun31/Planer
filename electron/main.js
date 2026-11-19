@@ -38,6 +38,7 @@ function fromWindow(event, win, expectedUrl) {
 }
 const fromMain = event => fromWindow(event, mainWindow, mainUrl);
 const fromTimer = event => fromWindow(event, timerWindow, timerUrl);
+require('./note-image-store.cjs').registerNoteImages(ipcMain, fromMain, () => path.join(app.getPath('userData'), 'note-images'));
 
 let uiTextStore;
 const uiTextPath = () => isDev ? path.join(__dirname,'../local-data/ui-text-edits.json')
@@ -71,6 +72,15 @@ function createMainWindow() {
     },
   });
   mainWindow.loadURL(mainUrl);
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const zoomModifier = process.platform === 'darwin' ? input.meta : input.control;
+    if (input.type !== 'keyDown' || !zoomModifier || input.alt) return;
+    if (input.key !== '=' && input.key !== '+' && input.code !== 'NumpadAdd') return;
+
+    event.preventDefault();
+    // Match Electron's built-in zoom menu step.
+    mainWindow.webContents.setZoomLevel(mainWindow.webContents.getZoomLevel() + 0.5);
+  });
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url !== mainUrl) event.preventDefault();
   });

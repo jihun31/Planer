@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { todayStr } from "../../features/habits/habitService";
+import TodoItem from "./TodoItem";
 
 /* ── 할 일 관리 팝업 ── */
 function dueDateLabel(dueDate) {
@@ -47,15 +48,7 @@ function TaskPopup({ tasks, onClose, onAdd, onDelete }) {
             <p className="today-block-empty" style={{ padding: '20px 0' }}>날짜 미지정 할 일이 없습니다</p>
           ) : (
             <ul className="task-list">
-              {undated.map(t => (
-                <li key={t.id} className={`task-item ${t.completed ? 'task-done' : ''}`}>
-                  <input type="checkbox" className="task-checkbox"
-                    checked={t.completed} onChange={() => onDelete(t.id)}
-                    aria-label={`${t.title} 완료 후 삭제`} />
-                  <span className="task-title">{t.title}</span>
-                  <button className="th-del" onClick={() => onDelete(t.id)}>✕</button>
-                </li>
-              ))}
+              {undated.map(t => <TodoItem key={t.id} todo={t} due={null} onDelete={onDelete} />)}
             </ul>
           )}
         </div>
@@ -86,19 +79,7 @@ function AllTasksBlock({ tasks, onDelete, onManage }) {
         <p className="today-block-empty">할 일이 없습니다</p>
       ) : (
         <ul className="task-list" style={{ marginTop: 4 }}>
-          {sortedTasks.map(t => {
-            const due = dueDateLabel(t.dueDate);
-            return (
-              <li key={t.id} className={`task-item ${t.completed ? 'task-done' : ''}`}>
-                <input type="checkbox" className="task-checkbox"
-                  checked={t.completed} onChange={() => onDelete(t.id)}
-                  aria-label={`${t.title} 완료 후 삭제`} />
-                <span className="task-title">{t.title}</span>
-                {due && <span className={`task-due ${due.cls}`}>{due.text}</span>}
-                <button className="th-del" onClick={() => onDelete(t.id)}>✕</button>
-              </li>
-            );
-          })}
+          {sortedTasks.map(t => <TodoItem key={t.id} todo={t} due={dueDateLabel(t.dueDate)} onDelete={onDelete} />)}
         </ul>
       )}
     </div>

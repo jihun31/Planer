@@ -76,5 +76,5 @@ function ConnectedNoteDocument({ uid, ...props }) {
 export default function NotesTab({ uid }) {
   const library = useNoteLibrary(uid);
   return <NotesWorkspace library={library} renderEditor={(note,run) =>
-    <ConnectedNoteDocument uid={uid} note={note} folders={library.folders} library={library} run={run} />} />;
+    <ConnectedNoteDocument key={`${uid}:${note.id}`} uid={uid} note={note} folders={library.folders} library={library} run={run} />} />;
 }

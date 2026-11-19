@@ -32,7 +32,7 @@ export function projectPlannerPlans(versions,entries,date,activities=[]) {
 // retain the outline, with only the actual activity's label shown.
 export function planHintRuns(plans,occupiedBlocks) {
   const records=occupiedBlocks.map(block=>({...block,...blockMinutes(block)})),minutes=new Map();
-  for(const plan of plans){
+  for(const [index,plan] of plans.entries()){
     const overlapping=records.filter(block=>block.startMin<plan.endMin&&block.endMin>plan.startMin);
     const matches=block=>plan.activityId
       ? !block._opposite&&!block.customName&&block.activityId===plan.activityId
@@ -41,14 +41,67 @@ export function planHintRuns(plans,occupiedBlocks) {
     const showLabel=overlapping.length===0;
     for(let minute=plan.startMin;minute<plan.endMin;minute++){
       if(!minutes.has(minute))minutes.set(minute,[]);
-      minutes.get(minute).push({title:plan.title,color:plan.color||plan.activityColor||'#6366f1',showLabel});
+      minutes.get(minute).push({index,title:plan.title,color:plan.color||plan.activityColor||'#6366f1',showLabel});
     }
   }
-  const runs=[];
-  for(const minute of [...minutes.keys()].sort((a,b)=>a-b)){
-    const items=minutes.get(minute),title=[...new Set(items.map(item=>item.title))].join(' · '),color=items[0].color,showLabel=items.every(item=>item.showLabel),previous=runs.at(-1);
-    if(previous&&previous.endMin===minute&&previous.title===title&&previous.color===color&&previous.showLabel===showLabel&&Math.floor((previous.startMin+480)/60)===Math.floor((minute+480)/60))previous.endMin++;
-    else runs.push({startMin:minute,endMin:minute+1,title,color,showLabel});
+  return plannedCalendarSegments(minutes);
+}
+
+// Split each contiguous set of the same plans into one segment per calendar row
+// (minutes are 08:00-based, so rows still start on the hour). Adjacent rows of
+// one group share an open edge, so a plan that wraps reads as a single outline;
+// only the widest row piece shows the label.
+function plannedCalendarSegments(minutes) {
+  const groups = [];
+  const hourOf = minute => Math.floor(minute / 60);
+  let group;
+  let segment;
+
+  for (const minute of [...minutes.keys()].sort((a, b) => a - b)) {
+    const active = minutes.get(minute);
+    const key = active.map(plan => plan.index).join(',');
+    if (!group || minute !== segment.endMin || key !== group.key) {
+      group = { key, label: active.every(plan => plan.showLabel), segments: [] };
+      groups.push(group);
+    } else if (hourOf(minute) === hourOf(segment.startMin)) {
+      segment.endMin++;
+      continue;
+    }
+    segment = {
+      startMin: minute,
+      endMin: minute + 1,
+      title: [...new Set(active.map(plan => plan.title))].join(' · '),
+      color: active[0].color,
+      showLabel: false,
+      outline: {},
+    };
+    group.segments.push(segment);
   }
-  return runs;
+
+  const width = part => part.endMin - part.startMin;
+  const column = part => part.startMin - 60 * hourOf(part.startMin);
+  function gap(part, side, start, end) {
+    part.outline['--plan-' + side + '-start'] = (start - column(part)) * 100 / width(part) + '%';
+    part.outline['--plan-' + side + '-end'] = (end - column(part)) * 100 / width(part) + '%';
+  }
+
+  return groups.flatMap(({ label, segments }) => {
+    let widest = segments[0];
+    for (let index = 1; index < segments.length; index++) {
+      const upper = segments[index - 1];
+      const lower = segments[index];
+      if (width(lower) > width(widest)) widest = lower;
+
+      // Only the shared part of the edge is inside the outline. A wrapped
+      // partial row can still have a horizontal edge beyond the adjacent row.
+      const start = Math.max(column(upper), column(lower));
+      const end = Math.min(column(upper) + width(upper), column(lower) + width(lower));
+      if (end > start) {
+        gap(upper, 'bottom', start, end);
+        gap(lower, 'top', start, end);
+      }
+    }
+    widest.showLabel = label;
+    return segments;
+  });
 }

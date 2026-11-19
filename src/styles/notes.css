@@ -48,6 +48,7 @@
 .notes-text-editor ul ul { margin:0; list-style:circle; }
 .notes-text-editor ul ul ul { list-style:square; }
 .notes-text-editor li { padding-left:2px; }
+.notes-text-editor li[data-note-list-text] { display:block; }
 .notes-toggle { margin:5px 0; }
 .notes-toggle > summary { display:flex; align-items:baseline; gap:7px; list-style:none; cursor:pointer; }
 .notes-toggle > summary::-webkit-details-marker { display:none; }
@@ -166,3 +167,130 @@
   .notes-editor-empty { min-height:300px; }
 }
 @media(max-width:650px) { .notes-text-editor { padding:18px; font-size:14px; } .notes-notice { flex-wrap:wrap; } .notes-heading { align-items:flex-start; } }
+
+/* 메모 사진: 이 PC에만 저장되고, 다른 기기에서는 안내 문구로 보인다 */
+.notes-text-editor .notes-image {
+  position: relative;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.notes-text-editor .notes-image:not([data-note-image-ready]) {
+  padding: 3px 10px;
+  border: 1px solid var(--border, #cbd5e1);
+  color: var(--muted, #64748b);
+  font-size: 13px;
+}
+.notes-text-editor .notes-image:not([data-note-image-ready])::before {
+  content: "첨부한 기기에서만 볼 수 있는 사진";
+}
+.notes-text-editor .notes-image[data-note-image-ready] {
+  width: var(--note-image-width, fit-content);
+  cursor: zoom-in;
+}
+.notes-text-editor .notes-image img {
+  display: block;
+  width: var(--note-image-width, auto);
+  max-width: 100%;
+  height: auto;
+  border-radius: inherit;
+}
+.notes-image-resize {
+  display: none;
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: min(20px, 100%);
+  height: min(20px, 100%);
+  border-radius: 4px;
+  background: #172033c9;
+  color: white;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.notes-image-resize::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+}
+.notes-text-editor[contenteditable='true'] .notes-image:is(:hover, :focus-visible, .is-resizing) .notes-image-resize {
+  display: block;
+}
+dialog.notes-image-dialog[open] {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(var(--note-viewer-width), calc(100vw - 48px));
+  height: min(var(--note-viewer-height), calc(100vh - 48px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 12px;
+  background: var(--surface, white);
+  color: var(--text, #0f172a);
+  box-shadow: 0 12px 48px rgb(0 0 0 / 30%);
+}
+.notes-image-dialog::backdrop {
+  background: rgb(15 23 42 / 45%);
+  backdrop-filter: blur(6px);
+}
+.notes-image-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, #cbd5e1);
+}
+.notes-image-viewer-toolbar button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 3px 8px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 6px;
+  background: var(--bg, #f8fafc);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.notes-image-viewer-close {
+  margin-inline-start: auto;
+}
+.notes-image-zoom {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.notes-image-viewport {
+  box-sizing: border-box;
+  display: flex;
+  overflow: auto;
+  padding: 12px;
+}
+.notes-image-viewport img {
+  display: block;
+  flex: none;
+  margin: auto;
+  max-width: none;
+  max-height: none;
+  height: auto;
+}
+

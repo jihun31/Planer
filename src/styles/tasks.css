@@ -1075,3 +1075,20 @@
   .today-layout { grid-template-columns: 1fr; }
   .today-right { grid-column: auto; display: flex; }
 }
+
+/* 할 일 수정, 활동 색상 변경 */
+.th-edit{background:none;border:none;color:var(--text-light);cursor:pointer;font-size:.72rem;padding:3px 5px;border-radius:4px;flex-shrink:0;transition:all .12s}
+.th-edit:hover{color:var(--primary);background:var(--bg)}
+.task-item.task-editing{flex-direction:column;align-items:stretch;gap:6px}
+.task-edit-form{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.task-edit-form .task-edit-title{flex:1 1 140px;padding:6px 10px;font-size:.84rem}
+.task-edit-form .form-input-date{flex:0 0 auto}
+.task-edit-save,.task-edit-cancel{border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:.75rem;padding:5px 9px;cursor:pointer;flex-shrink:0}
+.task-edit-save{border-color:var(--primary);background:var(--primary);color:#fff}
+.task-edit-save:disabled,.task-edit-cancel:disabled{opacity:.55;cursor:default}
+.task-edit-error{margin:0;color:var(--red);font-size:.75rem}
+.act-chip-color-target{box-shadow:0 0 0 2px var(--surface),0 0 0 4px currentColor}
+.act-color-editor{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;border:1px dashed var(--border);border-radius:8px}
+.act-color-name{font-size:.8rem;font-weight:700}
+.act-color-hint{font-size:.78rem;color:var(--text-muted)}
+

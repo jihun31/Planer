@@ -10,15 +10,16 @@ import {controlColor,orderControlActivities} from '../src/features/planner/contr
 const ts = (day,hour,minute = 0) => new Date(2026,9,day,hour,minute).getTime();
 const row = (startMin,endMin,kind = 'study',date = '2026-10-22') => ({date,startMin,endMin,kind});
 
-test('first study of the planner day does not offer a gap, even with control or other-day records', () => {
+test('first record of the planner day does not offer a gap, even with other-day or later records', () => {
   assert.equal(studyGap([],ts(22,12)),null);
-  assert.equal(studyGap([row(0,60,'control'),row(0,60,'study','2026-10-21')],ts(22,12)),null);
+  assert.equal(studyGap([row(0,60,'study','2026-10-21')],ts(22,12)),null);
   assert.equal(studyGap([row(300,360)],ts(22,12)),null);
 });
 
-test('latest preceding study is used and existing control time is subtracted', () => {
+test('the gap starts after the latest calendar record of any kind', () => {
   const gap = studyGap([row(0,60),row(80,120),row(130,150,'control')],ts(22,11));
-  assert.deepEqual(gap.segments,[row(120,130),row(150,180)].map(({kind,...segment}) => segment));
+  assert.deepEqual(gap.segments,[{date:'2026-10-22',startMin:150,endMin:180}]);
+  assert.deepEqual(studyGap([row(0,60,'control')],ts(22,12)).segments,[{date:'2026-10-22',startMin:60,endMin:240}]);
   assert.equal(studyGap([row(0,180)],ts(22,11)),null);
   assert.equal(studyGap([row(0,60),row(60,180,'control')],ts(22,11)),null);
   const legacy = studyGap([{date:'2026-10-22',startSlot:0,endSlot:4}],ts(22,10));
@@ -173,11 +174,12 @@ test('gap service queries actual day with owner, excludes new entries and retrie
   const gap = await context.prepare('alice',ts(22,12));
   rows.push(row(90,120,'control'));
   await context.save('alice',gap,{activityId:'rest',activityName:'휴식',group:'controlled'});
-  assert.equal(writes.length,2);
-  assert.deepEqual(writes.map(write=>[write.data.startMin,write.data.endMin]),[[60,90],[120,240]]);
+  // The save-time recheck also starts after the latest record, including one added while the dialog was open.
+  assert.equal(writes.length,1);
+  assert.deepEqual(writes.map(write=>[write.data.startMin,write.data.endMin]),[[120,240]]);
   assert.ok(writes.every(write=>write.data.kind==='control' && write.data.uid==='alice'));
   await context.save('alice',gap,{activityId:'rest',activityName:'휴식',group:'controlled'});
-  assert.equal(writes.length,2);
+  assert.equal(writes.length,1);
   for (const request of queries) assert.ok(request.filters.some(filter=>filter.field==='uid' && filter.value==='alice'));
   for (const request of queries.filter(item=>item.name==='scheduleBlocks')) assert.ok(request.filters.some(filter=>filter.field==='date' && filter.value==='2026-10-22'));
 });

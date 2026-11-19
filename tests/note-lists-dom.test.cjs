@@ -79,10 +79,106 @@ if(!process.versions.electron){
       await reset();await type('/숫자목록');await press('Enter');
       await check(`!!document.querySelector('.notes-text-editor ol>li')`,'Korean numbered slash command failed');
       await type('보존');await press('Enter');await press('Tab');await press('Backspace');
-      await check(`activeListItem()?.parentElement.parentElement.nodeName!=='LI'`,'Backspace on empty nested list did not move up');
-      await press('Enter');await check(`!activeListItem()`,'Empty list remained in an Enter/Backspace loop');
-      await type('탈출 성공');
-      console.log(JSON.stringify({autoNumberedUndoToLiteral:true,autoNumberedRedo:true,joinPrecedingList:true,joinUndoRedo:true,nestedBulletEmptyEnter:true,numberedShortcut:true,numberedNesting:true,numberedPersistence:true,listTypeConversion:true,koreanSlash:true,backspaceExit:true,typingAfterExit:true}));app.exit(0);
+      await check(`activeListItem()?.hasAttribute('data-note-list-text')`,'First Backspace did not remove the nested marker');
+      await press('Backspace');
+      await check(`activeListItem()?.textContent==='보존'`,'Second Backspace did not move the caret to the parent');
+      await type(' 유지');
+      await check(`activeListItem()?.textContent==='보존 유지'`,'Moved caret was not at the end of the parent');
+
+      const setContent=html=>js(`(()=>{
+        const root=document.querySelector('.notes-text-editor');
+        root.innerHTML=${JSON.stringify(html)};
+        root.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      const putCaret=(selector,atEnd=false)=>js(`(()=>{
+        const root=document.querySelector('.notes-text-editor'),node=root.querySelector(${JSON.stringify(selector)});
+        root.focus();
+        const range=document.createRange();range.selectNodeContents(node);range.collapse(${!atEnd});
+        getSelection().removeAllRanges();getSelection().addRange(range);
+      })()`);
+      await setContent('<ul><li><strong>상위</strong><ol><li>앞 번호</li><li><br></li><li>뒤 번호<ul><li>더 깊은 글머리</li></ul></li></ol><ul><li data-note-checked="true"><span class="notes-checklist-text">완료 항목</span></li></ul></li><li>다음 상위</li></ul>');
+      await putCaret('ol > li:nth-child(2)');
+      const beforeBackspace=await js('checklistText');
+      await press('Backspace');
+      await check(`getSelection().anchorNode.closest('[data-note-list-content]') && document.querySelector('ol > li:nth-child(2)').matches('[data-note-list-text]')`,'Markerless line lost its editable caret');
+      await press('Z',['control']);
+      await check(`checklistText===${JSON.stringify(beforeBackspace)} && activeListItem()===document.querySelector('ol > li:nth-child(2)')`,'Undo did not restore the empty nested item and its caret');
+      await press('Z',['control','shift']);
+      await js(`document.querySelector('#reopen').click()`);
+      await new Promise(resolve=>setTimeout(resolve,70));
+      await check(`document.querySelector('ol > li:nth-child(2)').matches('[data-note-list-text]')`,'Markerless line was lost after reopening');
+      await putCaret('ol > li:nth-child(2) > [data-note-list-content]');
+      await type('들여쓴 일반 문장');
+      await check(`document.querySelector('ol > li:nth-child(2) > [data-note-list-content]')?.textContent==='들여쓴 일반 문장'`,'Typing after the first Backspace escaped the markerless line');
+      await press('Z',['control']);
+      await putCaret('ol > li:nth-child(2) > [data-note-list-content]');
+      await press('Backspace');
+      await check(`activeListItem()?.textContent==='앞 번호' && document.querySelector('ol > li:nth-child(2) > ul > li')?.textContent==='더 깊은 글머리' && document.querySelector('ol + ul > li[data-note-checked="true"]')?.textContent==='완료 항목'`,'Removing a middle item misplaced the caret or changed the following items');
+
+      await setContent('<ul><li>상위<ul><li data-note-checked="true"><span class="notes-checklist-text">글 왼쪽에 요약 넣기</span></li><li data-note-checked="false"><button type="button" class="notes-checkbox" contenteditable="false" data-note-checkbox="true" role="checkbox" aria-checked="false"></button><span class="notes-checklist-text"><br></span></li><li data-note-checked="false"><span class="notes-checklist-text">기업분석 채우기</span></li></ul></li></ul>');
+      await putCaret('ul ul > li:nth-child(2) > .notes-checklist-text');
+      await press('Backspace');
+      await check(`activeListItem()?.matches('[data-note-list-text]')`,'The first Backspace did not leave an editable blank line');
+      await press('Backspace');
+      await check(`activeListItem()?.textContent==='글 왼쪽에 요약 넣기' && activeListItem().nextElementSibling?.textContent==='기업분석 채우기'`,'The second Backspace moved the caret or removed a different row');
+      await type(' 끝');
+      await check(`activeListItem()?.matches('[data-note-checked="true"]') && activeListItem().textContent==='글 왼쪽에 요약 넣기 끝' && activeListItem().nextElementSibling?.textContent==='기업분석 채우기'`,'The second Backspace did not move to the preceding checklist line or changed the following line');
+
+      await setContent('<ul><li>상위<ol><li>앞 번호<ul><li>바로 윗줄</li></ul></li></ol><ul><li><br></li><li>그 아래</li></ul></li></ul>');
+      await putCaret('ol + ul > li');
+      await press('Backspace');await press('Backspace');
+      await check(`activeListItem()?.textContent==='바로 윗줄' && document.querySelector('ol + ul > li')?.textContent==='그 아래'`,'The caret skipped a preceding row in a different nested list');
+
+      await setContent('<ul><li>부모<ul><li data-note-checked="false"><span class="notes-checklist-text"><br></span><ol><li>자식 번호</li></ol></li><li>다음 항목</li></ul></li></ul>');
+      await putCaret('.notes-checklist-text');
+      await press('Backspace');
+      await check(`activeListItem()?.matches('[data-note-list-text]') && !document.querySelector('[data-note-checkbox]')`,'First Backspace did not remove the checkbox');
+      await press('Backspace');
+      await check(`activeListItem()?.firstChild.textContent==='부모' && document.querySelector('li[data-note-list-text="continuation"] > ol > li')?.textContent==='자식 번호' && document.querySelector('ol').parentElement.nextElementSibling?.textContent==='다음 항목'`,'Removing the markerless row displaced its children or siblings');
+      await js(`document.querySelector('#reopen').click()`);
+      await new Promise(resolve=>setTimeout(resolve,70));
+      await check(`document.querySelector('li[data-note-list-text="continuation"] > span').hidden && document.querySelector('li[data-note-list-text="continuation"] > ol > li')?.textContent==='자식 번호'`,'Hidden row and its descendants changed after reopening');
+
+      await setContent('<div>첫 줄</div><ul><li><b>대상</b> 문구<ul><li>하위 보존</li></ul></li><li data-note-checked="true"><span class="notes-checklist-text">체크 유지</span></li></ul><div>마지막 줄</div>');
+      await js(`(() => {
+        const setData=DataTransfer.prototype.setData;
+        DataTransfer.prototype.setData=function(type,value) {
+          if (type==='text/plain') globalThis.cutText=value;
+          return setData.call(this,type,value);
+        };
+      })()`);
+      await putCaret('li > b');
+      await press('A',['control']);
+      await check(`getSelection().toString()==='대상 문구'`,'Ctrl+A included text outside the current list line');
+      const beforeCut=await js('checklistText');
+      await press('X',['control']);
+      if(await js('cutText')!=='대상 문구')throw Error('Ctrl+X did not copy only the current list line to the clipboard');
+      await check(`document.querySelector('li > ul > li')?.textContent==='하위 보존' && document.querySelector('li[data-note-checked="true"]')?.textContent==='체크 유지' && document.querySelector('.notes-text-editor').lastElementChild.textContent==='마지막 줄' && !document.querySelector('.notes-text-editor').textContent.includes('대상 문구')`,'Ctrl+X altered neighboring or nested blocks');
+      await press('Z',['control']);
+      await check(`checklistText===${JSON.stringify(beforeCut)}`,'Ctrl+Z did not restore the cut line and formatting');
+      await press('Z',['control','shift']);
+      await check(`!document.querySelector('.notes-text-editor').textContent.includes('대상 문구') && document.querySelector('li > ul > li')?.textContent==='하위 보존'`,'Redo of the cut changed nested content');
+
+      await putCaret('.notes-checklist-text');
+      await press('X',['control']);
+      if(await js('cutText')!=='체크 유지')throw Error('Cutting a checked line did not copy its own text');
+      // A cut inside one line removes only its text; the (now empty) checklist row stays, like the installed app.
+      await check(`document.querySelector('li[data-note-checked="true"] .notes-checklist-text')?.textContent==='' && document.querySelector('li > ul > li')?.textContent==='하위 보존'`,'Cutting a checklist row did not remove only its text or changed a different line');
+
+      await setContent('<div>앞 줄<br><b>중간 줄</b><br>뒤 줄</div><div>다음 블록</div>');
+      await putCaret('div > b');
+      await press('X',['control']);
+      if(await js('cutText')!=='중간 줄')throw Error('Ctrl+X at a caret did not copy the current hard-break line');
+      await check(`document.querySelector('.notes-text-editor').textContent==='앞 줄뒤 줄다음 블록'`,'Ctrl+X changed text beyond the hard line breaks');
+
+      await setContent('<div>first</div><div><br></div><div>last</div>');
+      await putCaret('.notes-text-editor > div:nth-child(2)');
+      await press('X',['control']);
+      await check(`[...document.querySelector('.notes-text-editor').children].map(row=>row.textContent).join('|')==='first|last'`,'Ctrl+X left a blank row behind');
+      await press('Z',['control']);
+      await check(`document.querySelector('.notes-text-editor').children.length===3`,'Undo did not restore the blank row');
+
+      console.log(JSON.stringify({autoNumberedUndoToLiteral:true,autoNumberedRedo:true,joinPrecedingList:true,joinUndoRedo:true,nestedBulletEmptyEnter:true,numberedShortcut:true,numberedNesting:true,numberedPersistence:true,listTypeConversion:true,koreanSlash:true,backspaceExit:true,typingAfterExit:true,middleDeletion:true,markerlessPersistence:true,scopedCut:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

@@ -32,12 +32,14 @@ if(!process.versions.electron){
         await wait(()=>schedule(study)&&schedule(control)&&!busy(study)&&!busy(control));
         await wait(()=>cell(study,80).style.backgroundColor&&getComputedStyle(cell(study,80)).backgroundColor===cell(study,80).style.backgroundColor);
         const block=start=>study.querySelector('[data-plan-start="'+start+'"]');
-        assert(study.querySelectorAll('.ds-plan-name').length===2&&!block(60),'Different recorded activity left a plan outline or removed unrelated plans');
+        assert(block(630)&&block(660)&&!block(60),'Different recorded activity left a plan outline or removed unrelated plans');
+        assert(study.querySelectorAll('.ds-plan-name').length===1,'A plan wrapped over two rows must show its label once');
         assert(getComputedStyle(cell(study,630)).backgroundColor==='rgb(255, 255, 255)','Plan cell has a colored background');
         assert(!cell(study,60).classList.contains('ds-td-plan'),'Removed plan still hides the empty grid');
         for(let minute=630;minute<659;minute++)assert(getComputedStyle(cell(study,minute)).borderRightWidth==='0px','Internal grid line remains in the plan block');
         const planBlock=block(630),outline=getComputedStyle(planBlock);
-        assert(outline.boxShadow.includes('rgb(226, 226, 252)')&&outline.boxShadow.includes('3px')&&outline.boxShadow.includes('inset'),'Plan outline is not a solid pale 3px inset frame');
+        assert(outline.backgroundImage.split('linear-gradient').length-1===4&&outline.backgroundImage.includes('rgb(226, 226, 252)')
+          &&outline.backgroundSize.split(',').every(size=>size.includes('3px'))&&outline.boxShadow==='none','Plan outline is not a solid pale 3px frame of four edges');
         for(const side of ['Top','Right','Bottom','Left'])assert(outline['border'+side+'Width']==='0px','Plan frame still changes the box size');
         assert(getComputedStyle(planBlock.querySelector('.ds-plan-name')).color==='rgb(99, 102, 241)','Plan label does not use its activity color');
         assert(Number(outline.zIndex)>2,'Plan outline can be covered by adjacent cells');
@@ -82,8 +84,10 @@ if(!process.versions.electron){
         await wait(()=>plannerPreviewWrites.length===2&&cell(study,645).classList.contains('ds-td-filled'));
         assert(block(630)&&block(660),'Matching activity removed the planned outline');
         assert(study.querySelectorAll('.ds-plan-name').length===0,'Actual recording did not clear the plan labels');
-        const labels=()=>Array.from({length:30},(_,i)=>cell(study,630+i).querySelector('.ds-cell-name')).filter(Boolean);
-        assert(labels().length===1&&cell(study,645).querySelector('.ds-cell-name'),'Adjacent records repeat the activity label instead of centering one label');
+        // One label spans the whole joined run (18:30-19:00 → grid columns 32-62) and is centered by text-align.
+        const labels=()=>[...study.querySelectorAll('.ds-table > .ds-cell-name')].filter(label=>label.textContent==='계획 공부'&&label.style.gridColumn==='32 / 62');
+        assert(labels().length===1&&!study.querySelector('[data-schedule-minute] .ds-cell-name')&&getComputedStyle(labels()[0]).textAlign==='center',
+          'Adjacent records repeat the activity label instead of centering one label');
         assert(getComputedStyle(cell(study,644)).borderRightWidth==='0px','Adjacent records retain an internal divider');
         assert(study.querySelector('.ds-header-right').textContent.includes('계획 공부 30m')&&study.querySelector('.ds-header-right').textContent.includes('실제 공부 20m'),'Merged records changed the actual duration totals');
         cell(study,660).click();await tick();cell(study,674).click();await tick();
