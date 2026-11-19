@@ -63,6 +63,11 @@ jobs:
       - name: Build Windows installer
         run: npm run electron:build
 
+      # 태그·package.json·latest.yml·설치 파일·빌드된 앱 버전이 모두 같은지 확인 (다르면 릴리스하지 않음)
+      - name: Verify release version
+        shell: pwsh
+        run: node scripts/check-version.mjs --release-dir release --expect "1.1.$env:GITHUB_RUN_NUMBER"
+
       - name: Publish GitHub Release
         shell: pwsh
         env:
