@@ -53,7 +53,10 @@ async function main() {
   const version = await latestReleaseVersion();
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   console.log(`빌드: 커밋 ${commit}, 버전 ${version} (GitHub 최신 릴리스와 같게)`);
-  const build = spawnSync(`npm run app:local -- -c.extraMetadata.version=${version}`, { cwd: root, stdio: 'inherit', shell: true });
+  // electronDist: 설치된 electron 패키지의 dist를 복사해 쓴다. electron-builder가 Electron zip을 풀어
+  // win-unpacked.tmp → win-unpacked로 이름을 바꾸는 단계가 이 PC에서 EPERM으로 계속 실패해서다(2026-11-20).
+  const build = spawnSync(`npm run app:local -- -c.extraMetadata.version=${version} -c.electronDist=node_modules/electron/dist`,
+    { cwd: root, stdio: 'inherit', shell: true });
   if (build.status !== 0) fail('빌드에 실패했습니다. 설치본은 바꾸지 않았습니다.');
 
   const built = path.join(root, 'release', 'win-unpacked', 'resources', 'app.asar');
