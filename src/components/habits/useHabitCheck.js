@@ -1,19 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
-import { nextCellValue, statusOf, stepCount } from '../../features/habits/habitCore.mjs';
+import { crossedBadge, nextCellValue, statusOf, stepCount } from '../../features/habits/habitCore.mjs';
 
-// 습관 칸 체크: 저장 중 표시, 실패 안내, 완료 직후 짧은 축하 효과(Fogg의 Celebration)를 맡는다.
+// 습관 칸 체크: 저장 중 표시, 실패 안내, 완료 직후 짧은 축하 효과(Fogg의 Celebration), 새 배지 알림을 맡는다.
 export function useHabitCheck(setLog) {
   const [pending, setPending] = useState(null);
   const [failure, setFailure] = useState('');
   const [celebrating, setCelebrating] = useState(null);
+  const [badge, setBadge] = useState(null); // { habitId, milestone }
   const timer = useRef(null);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  const badgeTimer = useRef(null);
+  useEffect(() => () => { clearTimeout(timer.current); clearTimeout(badgeTimer.current); }, []);
 
   const save = async (habit, day, value) => {
     const key = `${habit.id}:${day}`;
     if (pending === key) return;
     const before = statusOf(habit, day);
-    const after = statusOf({ ...habit, logs: { ...habit.logs, [day]: value ?? undefined } }, day);
+    const changed = { ...habit, logs: { ...habit.logs, [day]: value ?? undefined } };
+    const after = statusOf(changed, day);
+    const milestone = crossedBadge(habit, changed);
     setPending(key);
     setFailure('');
     try {
@@ -23,6 +27,11 @@ export function useHabitCheck(setLog) {
         clearTimeout(timer.current);
         setCelebrating(key);
         timer.current = setTimeout(() => setCelebrating(null), 900);
+      }
+      if (milestone) {
+        clearTimeout(badgeTimer.current);
+        setBadge({ habitId: habit.id, milestone });
+        badgeTimer.current = setTimeout(() => setBadge(null), 3500);
       }
     } catch { setFailure('기록을 저장하지 못했어요. 연결 상태를 확인해 주세요.'); }
     finally { setPending(current => (current === key ? null : current)); }
@@ -34,5 +43,6 @@ export function useHabitCheck(setLog) {
     step: (habit, day, delta) => save(habit, day, stepCount(habit, day, delta)),
     isPending: (habit, day) => pending === `${habit.id}:${day}`,
     isCelebrating: (habit, day) => celebrating === `${habit.id}:${day}`,
+    badgeFor: habit => (badge?.habitId === habit.id ? badge.milestone : null),
   };
 }

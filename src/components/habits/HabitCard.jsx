@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import HabitBadges, { BadgeToast } from './HabitBadges';
+import { AutomaticityCheck, AutomaticityTrend } from './AutomaticityCheck';
 import {
-  WEEKDAY_LABELS, completion, countLabel, countOf, historyWeeks, isCountHabit, percent, scheduleLabel, shortDay,
+  WEEKDAY_LABELS, automaticityOf, completion, countLabel, countOf, historyWeeks, isCountHabit, percent, scheduleLabel, shortDay,
   statusOf, streakOf, totalDone, weekCells, weekDoneCount, weekStart, weeklyTarget,
 } from '../../features/habits/habitCore.mjs';
 
@@ -60,6 +62,7 @@ function History({ habit, today }) {
         {week.days.map(d => <span key={d.day} className={`habit-heat ${d.state}`} title={`${shortDay(d.day)} · ${CELL_TEXT[d.state]}`} />)}
       </div>)}
     </div>
+    <AutomaticityTrend habit={habit} />
     <div className="habit-heatmap-legend" aria-hidden="true">
       <span><i className="habit-heat full" />완료</span><span><i className="habit-heat tiny" />최소</span>
       <span><i className="habit-heat skip" />쉬는 날</span><span><i className="habit-heat missed" />빠짐</span>
@@ -67,7 +70,7 @@ function History({ habit, today }) {
   </div>;
 }
 
-export default function HabitCard({ habit, today, check, onEdit, onArchive }) {
+export default function HabitCard({ uid, habit, today, check, onEdit, onArchive, onAutomaticity }) {
   const [showHistory, setShowHistory] = useState(false);
   const streak = streakOf(habit, today);
   const notStarted = today < habit.startDate;
@@ -80,6 +83,7 @@ export default function HabitCard({ habit, today, check, onEdit, onArchive }) {
       <h3 className="habit-card-title">{habit.emoji && <span className="habit-emoji">{habit.emoji}</span>}{habit.name}</h3>
       <span className="habit-badge">{scheduleLabel(habit.schedule)}{isCountHabit(habit) && ` · 하루 ${habit.target.value}${habit.target.unit || '회'}`}</span>
       <StreakBadge habit={habit} today={today} />
+      {automaticityOf(habit).settled && <span className="habit-settled" title="자동화 점검에서 두 번 연속 4점 이상">🌳 자리 잡음</span>}
       <span className="habit-card-menu">
         <button type="button" className="block-manage-btn" onClick={onEdit}>수정</button>
         <button type="button" className="block-manage-btn" onClick={onArchive} title="기록은 남기고 목록에서 뺍니다">보관</button>
@@ -88,6 +92,7 @@ export default function HabitCard({ habit, today, check, onEdit, onArchive }) {
 
     {habit.anchor && <p className="habit-anchor">⏰ {habit.anchor} → {habit.name}</p>}
     {habit.tinyVersion && <p className="habit-tiny">최소 버전: {habit.tinyVersion}</p>}
+    {!notStarted && <HabitBadges habit={habit} />}
 
     <div className="habit-week" role="group" aria-label={`${habit.name} 이번 주 기록`}>
       {weekCells(habit, today).map(cell => <button key={cell.day} type="button"
@@ -100,6 +105,8 @@ export default function HabitCard({ habit, today, check, onEdit, onArchive }) {
         <span className="habit-cell-mark" aria-hidden="true">{CELL_MARK[cell.state]}</span>
       </button>)}
     </div>
+
+    {onAutomaticity && <AutomaticityCheck uid={uid} habit={habit} today={today} onAnswer={onAutomaticity} />}
 
     <footer className="habit-card-foot">
       {notStarted ? <span>{habit.startDate}에 시작해요</span> : <>
@@ -114,6 +121,7 @@ export default function HabitCard({ habit, today, check, onEdit, onArchive }) {
       {showHistory ? '기록 접기 ▲' : '기록 보기 ▼'}
     </button>
     {showHistory && <History habit={habit} today={today} />}
+    <BadgeToast habit={habit} milestone={check.badgeFor(habit)} />
     {check.isCelebrating(habit, today) && <span className="habit-confetti" aria-hidden="true">🎉</span>}
   </article>;
 }

@@ -1,6 +1,7 @@
 import { countLabel, countOf, dueToday, isCountHabit, statusOf } from '../../features/habits/habitCore.mjs';
 import { useHabitCheck } from '../habits/useHabitCheck';
 import { StreakBadge, TodayActions } from '../habits/HabitCard';
+import { BadgeToast } from '../habits/HabitBadges';
 import '../../styles/habits.css';
 
 const MARK = { full: '✓', tiny: '◐', skip: '💤' };
@@ -56,6 +57,7 @@ export default function TodayHabitsBlock({ habitsData, onOpen }) {
           </li>;
         })}
       </ul>}
+    {list.map(habit => <BadgeToast key={habit.id} habit={habit} milestone={check.badgeFor(habit)} />)}
     {check.failure && <p role="alert" className="habit-error">{check.failure}</p>}
   </section>;
 }

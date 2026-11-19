@@ -307,3 +307,52 @@ export function normalizeHabit(input) {
   }
   return { value: { name, emoji, anchor, tinyVersion, schedule, target, startDate: input.startDate } };
 }
+
+// ===== 배지: 누적 횟수 기준 =====
+// 자동화는 연속 여부가 아니라 반복이 쌓이며 생기므로(Lally 외 2010) 연속 기록이 끊겨도 배지 진행은 남는다.
+export const BADGE_MILESTONES = [
+  { count: 7, tier: 'bronze', label: '첫 일주일' },
+  { count: 30, tier: 'silver', label: '30회' },
+  { count: 66, tier: 'gold', label: '66회' },
+  { count: 100, tier: 'navy', label: '100회' },
+];
+
+export function badgesOf(habit) {
+  const total = totalDone(habit);
+  const earned = BADGE_MILESTONES.filter(b => total >= b.count);
+  const next = BADGE_MILESTONES.find(b => total < b.count) ?? null;
+  return { total, earned, next: next && { ...next, remaining: next.count - total } };
+}
+
+// 기록을 바꾼 뒤 새로 받은 배지(없으면 null)
+export function crossedBadge(before, after) {
+  const a = totalDone(before), b = totalDone(after);
+  return BADGE_MILESTONES.findLast(m => a < m.count && b >= m.count) ?? null;
+}
+
+// ===== 자동화 자가 체크 =====
+// 주 1회 "생각하지 않아도 저절로 하게 되나요?"를 1~5점으로 묻는다(자동화 척도 SRBAI를 한 문항으로 줄임).
+// 66일 같은 고정 기준 대신 사람마다 다른 속도를 직접 잰다. 점수는 automaticity 맵({ 주의 월요일: 1~5 })에 둔다.
+export const AUTOMATICITY_LABELS = ['', '전혀 아니에요', '가끔 그래요', '반반이에요', '대체로 그래요', '완전히 그래요'];
+export const SETTLED_SCORE = 4;
+export const AUTOMATICITY_MIN_DONE = 3;
+export const isValidScore = score => Number.isInteger(score) && score >= 1 && score <= 5;
+
+export function automaticityOf(habit) {
+  const history = Object.entries(habit?.automaticity ?? {})
+    .filter(([week, score]) => isDay(week) && isValidScore(score))
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([week, score]) => ({ week, score }));
+  const latest = history.at(-1) ?? null;
+  // 최근 두 번 연속 4점 이상이면 자리 잡은 것으로 본다(곡선이 평평해진 지점).
+  const lastTwo = history.slice(-2);
+  const settled = lastTwo.length === 2 && lastTwo.every(h => h.score >= SETTLED_SCORE);
+  return { history, latest, settled };
+}
+
+// 이번 주에 물어볼지: 시작한 지 일주일이 지났고, 세 번 이상 했고, 이번 주에 아직 답하지 않았을 때
+export function automaticityDue(habit, today) {
+  if (!habit || habit.archived || today < addDays(habit.startDate, 7)) return false;
+  if (totalDone(habit) < AUTOMATICITY_MIN_DONE) return false;
+  return !isValidScore(habit.automaticity?.[weekStart(today)]);
+}

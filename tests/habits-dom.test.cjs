@@ -181,13 +181,51 @@ if(!process.versions.electron){
         failWrites=false;
       `);
 
+// 배지: 5회 → 다음 배지까지 2회. 목요일·오늘을 채워 7회가 되면 동메달 알림
+      await step(`
+        const water=()=>card('물 마시기');
+        assert(water().querySelector('.habit-badges-next').textContent.includes('2회'),'Wrong next badge: '+water().querySelector('.habit-badges-next').textContent);
+        assert(water().querySelectorAll('.habit-badges .habit-medal.earned').length===0,'No badge should be earned yet');
+        water().querySelectorAll('.habit-cell')[3].click();
+        await wait(()=>cells('물 마시기')[3]==='full','Thursday was not filled');
+        assert(!water().querySelector('.habit-badge-toast'),'Six is not a milestone');
+        button(water(),'오늘 완료').click();
+        await wait(()=>water().querySelector('.habit-badge-toast'),'No badge notice at 7');
+        assert(water().querySelector('.habit-badge-toast').textContent.includes('누적 7회'),'Wrong badge notice');
+        assert(water().querySelectorAll('.habit-badges .habit-medal.earned').length===1,'Bronze badge was not shown as earned');
+        assert(water().querySelector('.habit-badges-next').textContent.includes('23회'),'Next badge count did not move');
+      `);
+
+      // 자동화 점검: 나중에는 이번 주 동안 숨김(이 기기), 답하면 저장되고 두 번 연속 4점 이상이면 '자리 잡음'
+      await step(`
+        const water=()=>card('물 마시기');
+        const auto=()=>water().querySelector('.habit-auto');
+        assert(auto(),'Self-check should be asked this week');
+        assert(!water().querySelector('.habit-settled'),'One answer is not enough to be settled');
+        button(auto(),'나중에').click();
+        await wait(()=>!auto(),'Later did not hide the self-check');
+        assert(localStorage.getItem('planer:habit-auto-later:tester:water:2026-11-16')==='1','Later was not remembered');
+        localStorage.removeItem('planer:habit-auto-later:tester:water:2026-11-16');
+        button(water(),'보관').click();
+        await wait(()=>!water(),'Archive failed');
+        button(document.querySelector('.habits-archive'),'되돌리기').click();
+        await wait(()=>water()&&auto(),'Self-check did not come back');
+        auto().querySelector('[aria-label="4점 대체로 그래요"]').click();
+        await wait(()=>!auto(),'Answer did not close the self-check');
+        assert(lastWrite()===JSON.stringify(['auto','water','2026-11-16',4]),'Wrong score write: '+lastWrite());
+        assert(water().querySelector('.habit-settled'),'Two answers of 4+ should mark the habit settled');
+        button(water(),'기록 보기 ▼').click();
+        await wait(()=>water().querySelectorAll('.habit-auto-dot').length===2,'Score trend missing');
+        button(water(),'기록 접기 ▲').click();
+      `);
+
       if(process.env.PLANER_HABITS_SHOT){
         // 화면 확인용 캡처: 숨긴 창은 예전 화면이 찍혀서 잠깐 띄운다(포커스는 가져가지 않음)
         await win.webContents.executeJavaScript(`[...document.querySelectorAll('.habit-history-toggle')].forEach(b=>b.click())`);
         win.showInactive();await new Promise(resolve=>setTimeout(resolve,800));
         fs.writeFileSync(process.env.PLANER_HABITS_SHOT,(await win.webContents.capturePage()).toPNG());
       }
-      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true}));app.exit(0);
+      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,badges:true,selfCheck:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

@@ -3,7 +3,7 @@ import {
   query, where, onSnapshot, serverTimestamp, getDocs, writeBatch,
 } from "firebase/firestore";
 import { db } from "../../firebase/config";
-import { dayKey, isDay, isValidLog } from "./habitCore.mjs";
+import { dayKey, isDay, isValidLog, isValidScore, weekStart } from "./habitCore.mjs";
 
 // 새벽 5시 기준으로 하루가 바뀜 (다른 화면도 이 함수를 쓴다)
 export const todayStr = () => dayKey();
@@ -34,6 +34,12 @@ export const setArchived = (habitId, archived) =>
 export const setHabitLog = (habitId, day, value) => {
   if (!isDay(day) || !isValidLog(value)) throw new Error("Invalid habit log");
   return updateDoc(doc(db, "habits", habitId), new FieldPath("logs", day), value ?? deleteField());
+};
+
+// 자동화 자가 체크 점수(1~5)를 그 주의 월요일 칸에 둔다.
+export const setAutomaticity = (habitId, week, score) => {
+  if (!isDay(week) || weekStart(week) !== week || !isValidScore(score)) throw new Error("Invalid automaticity score");
+  return updateDoc(doc(db, "habits", habitId), new FieldPath("automaticity", week), score);
 };
 
 // 예전 구조(habitLogs 컬렉션)에 남은 기록이 있으면 함께 지운다.

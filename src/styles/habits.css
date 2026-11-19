@@ -173,3 +173,40 @@
 .habit-trend.up { color: var(--green); font-weight: 700; }
 .habit-trend.down { color: #b45309; font-weight: 700; }
 .habit-unit-input { width: 64px; font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; }
+
+/* ===== 3단계: 배지·자동화 점검 ===== */
+.habit-medal .learning-medal { display: block; width: 20px; height: 24px; object-fit: contain; }
+.habit-medal { display: inline-flex; filter: grayscale(1); opacity: 0.25; }
+.habit-medal.earned { filter: none; opacity: 1; }
+.habit-badges { display: flex; align-items: center; gap: 4px; }
+.habit-badges-next { margin-left: 6px; font-size: 0.72rem; color: var(--text-light); }
+.habit-badge-toast {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-top: 4px;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-sm); font-size: 0.8rem;
+  animation: habit-pop 0.45s ease-out;
+}
+.habit-badge-toast .learning-medal { width: 26px; height: 30px; }
+.habit-settled {
+  font-size: 0.7rem; font-weight: 700; color: #166534; background: var(--green-light);
+  border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+}
+.habit-auto { background: var(--primary-light); border-radius: var(--radius-sm); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.habit-auto-q { font-size: 0.8rem; }
+.habit-auto-scale { display: flex; gap: 4px; align-items: center; }
+.habit-auto-btn {
+  width: 32px; height: 28px; border-radius: 6px; border: 1px solid #c7d2fe; background: var(--surface);
+  font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--primary-dark); cursor: pointer;
+}
+.habit-auto-btn:hover:not(:disabled) { background: var(--primary); border-color: var(--primary); color: #fff; }
+.habit-auto-later { margin-left: auto; background: none; border: none; font: inherit; font-size: 0.74rem; color: var(--text-muted); cursor: pointer; }
+.habit-auto-later:hover { color: var(--text); }
+.habit-auto-ends { display: flex; justify-content: space-between; width: 176px; font-size: 0.66rem; color: var(--text-light); }
+.habit-auto-trend { font-size: 0.74rem; color: var(--text-muted); display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.habit-auto-trend strong { color: #166534; }
+.habit-auto-dot {
+  display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px;
+  font-size: 0.66rem; font-weight: 700; color: #fff; background: #94a3b8;
+}
+.habit-auto-dot.s3 { background: #60a5fa; }
+.habit-auto-dot.s4 { background: #34d399; }
+.habit-auto-dot.s5 { background: var(--green); }

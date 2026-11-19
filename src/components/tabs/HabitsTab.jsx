@@ -7,7 +7,7 @@ import { scheduleLabel, totalDone } from '../../features/habits/habitCore.mjs';
 import '../../styles/habits.css';
 
 export default function HabitsTab({ uid, habitsData }) {
-  const { habits, today, loading, error, addHabit, updateHabit, archiveHabit, restoreHabit, deleteHabit, setLog } = habitsData;
+  const { habits, today, loading, error, addHabit, updateHabit, archiveHabit, restoreHabit, deleteHabit, setLog, setAutomaticity } = habitsData;
   const check = useHabitCheck(setLog);
   const [editing, setEditing] = useState(null); // null | 'new' | 습관
   const [failure, setFailure] = useState('');
@@ -42,7 +42,7 @@ export default function HabitsTab({ uid, habitsData }) {
         <button type="button" className="btn btn-login" onClick={() => setEditing('new')}>첫 습관 만들기</button>
       </div>
       : <div className="habits-grid">
-        {active.map(habit => <HabitCard key={habit.id} habit={habit} today={today} check={check}
+        {active.map(habit => <HabitCard key={habit.id} uid={uid} habit={habit} today={today} check={check} onAutomaticity={setAutomaticity}
           onEdit={() => setEditing(habit)}
           onArchive={() => run(() => archiveHabit(habit.id), '습관을 보관하지 못했어요.')} />)}
       </div>}

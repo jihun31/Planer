@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useCollection } from "../../lib/useCollection";
 import { dayKey } from "./habitCore.mjs";
-import { subscribeHabits, addHabit, updateHabit, setArchived, setHabitLog, deleteHabit } from "./habitService";
+import { subscribeHabits, addHabit, updateHabit, setArchived, setHabitLog, deleteHabit, setAutomaticity } from "./habitService";
 
 // 앱을 켜 둔 채 새벽 5시를 넘기면 '오늘'이 바뀌도록 1분마다 확인한다.
 export function useDayKey() {
@@ -24,5 +24,6 @@ export const useHabits = (uid) => {
     restoreHabit: (habitId) => setArchived(habitId, false),
     deleteHabit: (habitId) => deleteHabit(uid, habitId),
     setLog: setHabitLog,
+    setAutomaticity,
   };
 };

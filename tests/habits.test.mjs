@@ -250,3 +250,42 @@ test('history weeks cover the last 26 weeks ending this week', () => {
   const weekly = habit({ type: 'weekly', count: 2 }, { '2026-11-10': 'full' });
   assert.equal(historyWeeks(weekly, today, 2)[0].days[0].state, 'empty');
 });
+
+test('badges follow the running total, so a broken streak keeps its progress', async () => {
+  const { badgesOf, crossedBadge } = await import('../src/features/habits/habitCore.mjs');
+  const days = n => logsOn(Array.from({ length: n }, (_, i) => addDays('2026-10-01', i * 2)));
+  assert.deepEqual(badgesOf(habit({ type: 'daily' })).next, { count: 7, tier: 'bronze', label: '첫 일주일', remaining: 7 });
+  const six = habit({ type: 'daily' }, days(6));
+  assert.equal(badgesOf(six).earned.length, 0);
+  const seven = habit({ type: 'daily' }, { ...days(6), '2026-11-20': 'tiny' });
+  assert.deepEqual(badgesOf(seven).earned.map(b => b.tier), ['bronze']);
+  assert.equal(badgesOf(seven).next.remaining, 23);
+  assert.equal(crossedBadge(six, seven).tier, 'bronze');
+  assert.equal(crossedBadge(seven, six), null); // 취소는 배지를 주지 않음
+  assert.equal(crossedBadge(seven, seven), null);
+  // 쉬는 날은 세지 않음
+  assert.equal(badgesOf(habit({ type: 'daily' }, { ...days(6), '2026-11-20': 'skip' })).earned.length, 0);
+  const all = habit({ type: 'daily' }, logsOn(Array.from({ length: 120 }, (_, i) => addDays('2026-07-01', i))), '2026-07-01');
+  assert.deepEqual(badgesOf(all).earned.map(b => b.count), [7, 30, 66, 100]);
+  assert.equal(badgesOf(all).next, null);
+});
+
+test('automaticity self-check: asked weekly after a week and three repetitions; settled after two 4+ answers', async () => {
+  const { automaticityDue, automaticityOf, isValidScore } = await import('../src/features/habits/habitCore.mjs');
+  const today = '2026-11-20';
+  const base = habit({ type: 'daily' }, logsOn(['2026-11-10', '2026-11-11', '2026-11-12']), '2026-11-09');
+  assert.ok(automaticityDue(base, today));
+  assert.ok(!automaticityDue({ ...base, startDate: '2026-11-14' }, today)); // 시작 일주일 전
+  assert.ok(!automaticityDue({ ...base, logs: logsOn(['2026-11-10', '2026-11-11']) }, today)); // 2회뿐
+  assert.ok(!automaticityDue({ ...base, automaticity: { '2026-11-16': 3 } }, today)); // 이번 주 답함
+  assert.ok(automaticityDue({ ...base, automaticity: { '2026-11-09': 3 } }, today)); // 지난주 답은 이번 주와 별개
+  assert.ok(!automaticityDue({ ...base, archived: true }, today));
+  assert.deepEqual(automaticityOf(base), { history: [], latest: null, settled: false });
+  const answered = automaticityOf({ automaticity: { '2026-11-16': 4, '2026-11-02': 2, '2026-11-09': 5, bad: 3, '2026-10-26': 9 } });
+  assert.deepEqual(answered.history.map(h => h.score), [2, 5, 4]);
+  assert.equal(answered.latest.week, '2026-11-16');
+  assert.equal(answered.settled, true);
+  assert.equal(automaticityOf({ automaticity: { '2026-11-09': 5, '2026-11-16': 3 } }).settled, false);
+  assert.equal(automaticityOf({ automaticity: { '2026-11-16': 5 } }).settled, false); // 한 번만으론 부족
+  assert.ok(isValidScore(1) && isValidScore(5) && !isValidScore(0) && !isValidScore(6) && !isValidScore(2.5));
+});
