@@ -93,7 +93,7 @@ async function releaseCommit(tag) {
   } catch { return null; }
 }
 
-function defaultAsar() {
+export function defaultAsar() {
   // The repository lives outside the install folder (the updater wipes that folder on install).
   const candidates = [
     process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Planer', 'resources', 'app.asar'),
@@ -102,7 +102,7 @@ function defaultAsar() {
   return candidates.find(file => fs.existsSync(file));
 }
 
-async function latestReleaseVersion() {
+export async function latestReleaseVersion() {
   const publish = (pkg.build?.publish || []).find(item => item.provider === 'github');
   if (!publish) throw new Error('package.json build.publish에 github 설정이 없습니다');
   const url = `https://github.com/${publish.owner}/${publish.repo}/releases/latest/download/latest.yml`;
