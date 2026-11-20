@@ -15,19 +15,11 @@ import MonthlyStats from '../planner/MonthlyStats';
 import DailySchedule from '../planner/DailySchedule';
 import '../../styles/planner.css';
 
-const effectiveNow = () => {
-  const d = new Date();
-  if (d.getHours() < 5) d.setDate(d.getDate() - 1);
-  return d;
-};
-const nowDateStr = plannerDate;
-
 function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, control = false, active = false, restTarget, onRestReturn }) {
-  const today = nowDateStr();
-  const now   = effectiveNow();
+  const today = plannerDate();
   const [selectedDate, setSelectedDate] = useState(today);
-  const [calYear,  setCalYear]  = useState(now.getFullYear());
-  const [calMonth, setCalMonth] = useState(now.getMonth());
+  const [calYear,  setCalYear]  = useState(() => Number(today.slice(0, 4)));
+  const [calMonth, setCalMonth] = useState(() => Number(today.slice(5, 7)) - 1);
   const timerStart = useRef(null);
   const recordSelection = useRef(null);
   const plannerData = usePlanner(control ? null : uid, calYear, calMonth, selectedDate);

@@ -10,7 +10,9 @@
 // 기록 값(logs[day]): 'full' | 'tiny' | 'skip'(쉬는 날) | 숫자(횟수 목표 습관의 그날 횟수)
 // 쉬는 날은 해야 하는 날에서 빠진다. 연속 기록에 들어가지도, 끊지도 않는다.
 
-export const DAY_START_HOUR = 5;
+import { DAY_START_HOUR, plannerDate } from '../planner/scheduleTime.mjs';
+
+export { DAY_START_HOUR };
 export const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 // 화면에 그리는 요일 순서(월요일 시작)
 export const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -36,11 +38,8 @@ export const weekdayOf = day => parseDay(day).getDay();
 export const weekStart = day => addDays(day, -((weekdayOf(day) + 6) % 7));
 export const shortDay = day => `${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))}`;
 
-export function dayKey(now = new Date()) {
-  const d = new Date(now);
-  if (d.getHours() < DAY_START_HOUR) d.setDate(d.getDate() - 1);
-  return formatDay(d);
-}
+// 시간 관리와 같은 하루 기준(새벽 5시)
+export const dayKey = (now = new Date()) => plannerDate(now);
 
 // 시작일 추천: 주·월의 시작은 새 출발 효과(Dai·Milkman·Riis 2014)가 있는 날이다.
 export function startSuggestions(today) {

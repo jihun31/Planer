@@ -1,7 +1,10 @@
 // 돈까스봇 계산 규칙 (bot/core.py와 같은 규칙). 결과가 같은지 tests/tonkatsu-core.test.mjs가 확인합니다.
 // 날짜는 모두 'YYYY-MM-DD' 문자열이고, 한국 시간 새벽 5시를 하루의 시작으로 봅니다 (PC 시간대와 무관).
 
-export const DAY_START_HOUR = 5;
+// 시각은 앱과 같은 새벽 5시. 다만 PC 시간대가 아니라 한국 시간으로 센다 (bot/core.py도 같은 값)
+import { DAY_START_HOUR } from '../planner/scheduleTime.mjs';
+
+export { DAY_START_HOUR };
 export const WEEKDAY_NAMES = ['월', '화', '수', '목', '금', '토', '일'];
 export const PLAN_CATEGORIES = ['Daily', 'Routine', 'Weekly', 'Monthly', 'Interval', 'OneTime', 'Limit'];
 export const CATEGORY_KR = { Daily: '일일', Routine: '요일', Weekly: '주간', Monthly: '월간', Interval: '반복', OneTime: '목표', Limit: '제한' };

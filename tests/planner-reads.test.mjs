@@ -126,8 +126,11 @@ function harness() {
       }
     },
   });
-  const source = fs.readFileSync(new URL('../src/features/planner/usePlanner.js', import.meta.url), 'utf8')
-    .replace(/import[\s\S]*?from\s*["'][^"']+["'];/g, '').replace('export const usePlanner', 'const usePlanner');
+  // usePlanner reads through the shared planner-records hook and live-data hook.
+  const source = ['../src/lib/useCollection.js', '../src/features/planner/usePlannerRecords.js', '../src/features/planner/usePlanner.js']
+    .map(file => fs.readFileSync(new URL(file, import.meta.url), 'utf8')
+      .replace(/import[\s\S]*?from\s*["'][^"']+["'];/g, '').replace(/export (const|function) /g, '$1 '))
+    .join('\n');
   vm.runInContext(source + '\nglobalThis.hook = usePlanner;', context);
   return {
     watchers, writes,

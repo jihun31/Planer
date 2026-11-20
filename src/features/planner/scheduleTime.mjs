@@ -1,8 +1,11 @@
 // Stored minute offsets always retain the original 08:00 origin.
 export const DEFAULT_RANGE = Object.freeze({ startHour: 8, endHour: 3 });
+// The app's day starts at 05:00 local time; earlier hours belong to the previous date.
+// Every screen with a "today" (planner, learning, habits) uses this one rule.
+export const DAY_START_HOUR = 5;
 export function plannerDate(value = new Date()) {
   const d = new Date(value);
-  if (d.getHours() < 5) d.setDate(d.getDate() - 1);
+  if (d.getHours() < DAY_START_HOUR) d.setDate(d.getDate() - 1);
   return localDate(d);
 }
 function localDate(d) {
