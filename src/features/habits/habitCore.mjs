@@ -208,6 +208,31 @@ export function weekCells(habit, today) {
   });
 }
 
+// 날짜 지정(매월 n일) 습관: 해야 하는 날 count칸(지난날 최대 count-1번 + 다가올 날). 주간 칸 대신 쓴다.
+export function monthDayCells(habit, today, count = 7) {
+  const days = [];
+  for (let day = today, i = 0; days.length < count - 1 && i < MAX_LOOKBACK_DAYS && day >= habit.startDate; day = addDays(day, -1), i += 1) {
+    if (isDue(habit, day)) days.unshift(day);
+  }
+  for (let day = addDays(today, 1), i = 0; days.length < count && i < MAX_LOOKBACK_DAYS; day = addDays(day, 1), i += 1) {
+    if (isDue(habit, day)) days.push(day);
+  }
+  return days.map(day => ({ day, state: dayState(habit, day, today), editable: day <= today && day >= habit.startDate }));
+}
+
+// 월 N회 습관: 최근 count달(이번 달 포함)의 달성. state는 full | open(이번 달) | missed | skip(쉬는 날로 목표 0) | before
+export function monthCells(habit, today, count = 7) {
+  const current = monthStart(today);
+  const firsts = [current];
+  while (firsts.length < count) firsts.unshift(monthStart(addDays(firsts[0], -1)));
+  return firsts.map(first => {
+    const target = monthlyTarget(habit, first), done = doneIn(habit, PERIODS.monthly, first);
+    const state = habit.startDate > monthEnd(first) ? 'before' : target > 0 && done >= target ? 'full'
+      : first === current ? 'open' : target === 0 ? 'skip' : 'missed';
+    return { first, month: Number(first.slice(5, 7)), done, target, state, current: first === current };
+  });
+}
+
 // 히트맵: 최근 weeks주(이번 주 포함), 오래된 주부터. 각 주는 월~일 7칸.
 export function historyWeeks(habit, today, weeks = HISTORY_WEEKS) {
   const thisMonday = weekStart(today);
@@ -303,6 +328,17 @@ export function scheduleLabel(schedule) {
   return `주 ${schedule?.count ?? 1}회`;
 }
 
+// 일주일에 평균 몇 번 하는지. 습관 목록을 자주 하는 순서로 놓을 때 쓴다.
+export function weeklyFrequency(schedule) {
+  if (schedule?.type === 'daily') return 7;
+  if (schedule?.type === 'weekdays') return schedule.days?.length ?? 0;
+  if (schedule?.type === 'monthdays') return ((schedule.days?.length ?? 0) * 12) / 52;
+  if (schedule?.type === 'monthly') return ((schedule.count ?? 1) * 12) / 52;
+  return schedule?.count ?? 1;
+}
+// 자주 하는 습관부터(매일 → 주 3회 → 주 1회 → 월 1회). 같으면 원래 순서
+export const byFrequency = habits => [...habits].sort((a, b) => weeklyFrequency(b.schedule) - weeklyFrequency(a.schedule));
+
 export const countLabel = (habit, n) => `${n}/${countTarget(habit)}${habit.target?.unit || '회'}`;
 export const percent = rate => (rate === null ? '–' : `${Math.round(rate * 100)}%`);
 
@@ -349,28 +385,6 @@ export function normalizeHabit(input) {
     tinyVersion = ''; // 횟수 습관은 한 번이라도 하면 최소로 친다
   }
   return { value: { name, emoji, anchor, tinyVersion, schedule, target, startDate: input.startDate } };
-}
-
-// ===== 배지: 누적 횟수 기준 =====
-// 자동화는 연속 여부가 아니라 반복이 쌓이며 생기므로(Lally 외 2010) 연속 기록이 끊겨도 배지 진행은 남는다.
-export const BADGE_MILESTONES = [
-  { count: 7, tier: 'bronze', label: '첫 일주일' },
-  { count: 30, tier: 'silver', label: '30회' },
-  { count: 66, tier: 'gold', label: '66회' },
-  { count: 100, tier: 'navy', label: '100회' },
-];
-
-export function badgesOf(habit) {
-  const total = totalDone(habit);
-  const earned = BADGE_MILESTONES.filter(b => total >= b.count);
-  const next = BADGE_MILESTONES.find(b => total < b.count) ?? null;
-  return { total, earned, next: next && { ...next, remaining: next.count - total } };
-}
-
-// 기록을 바꾼 뒤 새로 받은 배지(없으면 null)
-export function crossedBadge(before, after) {
-  const a = totalDone(before), b = totalDone(after);
-  return BADGE_MILESTONES.findLast(m => a < m.count && b >= m.count) ?? null;
 }
 
 // ===== 자동화 자가 체크 =====

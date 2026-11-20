@@ -251,23 +251,38 @@ test('history weeks cover the last 26 weeks ending this week', () => {
   assert.equal(historyWeeks(weekly, today, 2)[0].days[0].state, 'empty');
 });
 
-test('badges follow the running total, so a broken streak keeps its progress', async () => {
-  const { badgesOf, crossedBadge } = await import('../src/features/habits/habitCore.mjs');
-  const days = n => logsOn(Array.from({ length: n }, (_, i) => addDays('2026-10-01', i * 2)));
-  assert.deepEqual(badgesOf(habit({ type: 'daily' })).next, { count: 7, tier: 'bronze', label: '첫 일주일', remaining: 7 });
-  const six = habit({ type: 'daily' }, days(6));
-  assert.equal(badgesOf(six).earned.length, 0);
-  const seven = habit({ type: 'daily' }, { ...days(6), '2026-11-20': 'tiny' });
-  assert.deepEqual(badgesOf(seven).earned.map(b => b.tier), ['bronze']);
-  assert.equal(badgesOf(seven).next.remaining, 23);
-  assert.equal(crossedBadge(six, seven).tier, 'bronze');
-  assert.equal(crossedBadge(seven, six), null); // 취소는 배지를 주지 않음
-  assert.equal(crossedBadge(seven, seven), null);
-  // 쉬는 날은 세지 않음
-  assert.equal(badgesOf(habit({ type: 'daily' }, { ...days(6), '2026-11-20': 'skip' })).earned.length, 0);
-  const all = habit({ type: 'daily' }, logsOn(Array.from({ length: 120 }, (_, i) => addDays('2026-07-01', i))), '2026-07-01');
-  assert.deepEqual(badgesOf(all).earned.map(b => b.count), [7, 30, 66, 100]);
-  assert.equal(badgesOf(all).next, null);
+test('habits sort from the most frequent schedule to the least', async () => {
+  const { byFrequency, weeklyFrequency } = await import('../src/features/habits/habitCore.mjs');
+  const list = [
+    { id: 'monthly', schedule: { type: 'monthly', count: 1 } },
+    { id: 'weekly1', schedule: { type: 'weekly', count: 1 } },
+    { id: 'daily', schedule: { type: 'daily' } },
+    { id: 'monthdays', schedule: { type: 'monthdays', days: [1, 15] } },
+    { id: 'weekly3', schedule: { type: 'weekly', count: 3 } },
+    { id: 'mwf', schedule: { type: 'weekdays', days: [1, 3, 5] } },
+  ];
+  assert.deepEqual(byFrequency(list).map(h => h.id), ['daily', 'weekly3', 'mwf', 'weekly1', 'monthdays', 'monthly']);
+  assert.equal(weeklyFrequency({ type: 'daily' }), 7);
+  assert.deepEqual(list.map(h => h.id)[0], 'monthly'); // 원본 배열은 그대로
+});
+
+test('monthly habits get month-sized cells instead of a week strip', async () => {
+  const { monthDayCells, monthCells } = await import('../src/features/habits/habitCore.mjs');
+  const today = '2026-11-20';
+  const first = habit({ type: 'monthdays', days: [1] }, { '2026-10-01': 'full', '2026-11-01': 'skip' }, '2026-08-15');
+  assert.deepEqual(monthDayCells(first, today).map(c => [c.day, c.state, c.editable]), [
+    ['2026-09-01', 'missed', true], ['2026-10-01', 'full', true], ['2026-11-01', 'skip', true],
+    ['2026-12-01', 'future', false], ['2027-01-01', 'future', false], ['2027-02-01', 'future', false], ['2027-03-01', 'future', false],
+  ]);
+  // 지난날은 최대 6번만
+  assert.equal(monthDayCells(habit({ type: 'monthdays', days: [1] }, {}, '2025-01-01'), today).filter(c => c.day <= today).length, 6);
+
+  const twice = habit({ type: 'monthly', count: 2 }, { '2026-09-03': 'full', '2026-09-10': 'tiny', '2026-10-05': 'full', '2026-11-02': 'full' }, '2026-09-01');
+  assert.deepEqual(monthCells(twice, today).map(c => [c.month, c.state, c.done, c.target]), [
+    [5, 'before', 0, 0], [6, 'before', 0, 0], [7, 'before', 0, 0], [8, 'before', 0, 0],
+    [9, 'full', 2, 2], [10, 'missed', 1, 2], [11, 'open', 1, 2],
+  ]);
+  assert.equal(monthCells(twice, today).at(-1).current, true);
 });
 
 test('automaticity self-check: asked weekly after a week and three repetitions; settled after two 4+ answers', async () => {

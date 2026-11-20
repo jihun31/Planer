@@ -3,7 +3,7 @@ import HabitForm from '../habits/HabitForm';
 import HabitCard from '../habits/HabitCard';
 import { useHabitCheck } from '../habits/useHabitCheck';
 import WeekReview from '../habits/WeekReview';
-import { scheduleLabel, totalDone } from '../../features/habits/habitCore.mjs';
+import { byFrequency, scheduleLabel, totalDone } from '../../features/habits/habitCore.mjs';
 import '../../styles/habits.css';
 
 export default function HabitsTab({ uid, habitsData }) {
@@ -11,7 +11,7 @@ export default function HabitsTab({ uid, habitsData }) {
   const check = useHabitCheck(setLog);
   const [editing, setEditing] = useState(null); // null | 'new' | 습관
   const [failure, setFailure] = useState('');
-  const active = habits.filter(h => !h.archived);
+  const active = byFrequency(habits.filter(h => !h.archived));
   const archived = habits.filter(h => h.archived);
 
   const run = async (action, message) => {
@@ -43,8 +43,7 @@ export default function HabitsTab({ uid, habitsData }) {
       </div>
       : <div className="habits-grid">
         {active.map(habit => <HabitCard key={habit.id} uid={uid} habit={habit} today={today} check={check} onAutomaticity={setAutomaticity}
-          onEdit={() => setEditing(habit)}
-          onArchive={() => run(() => archiveHabit(habit.id), '습관을 보관하지 못했어요.')} />)}
+          onEdit={() => setEditing(habit)} />)}
       </div>}
 
     {archived.length > 0 && <details className="habits-archive">
@@ -59,6 +58,7 @@ export default function HabitsTab({ uid, habitsData }) {
     </details>}
 
     {editing && <HabitForm habit={editing === 'new' ? null : editing} today={today} onClose={() => setEditing(null)}
+      onArchive={editing === 'new' ? null : () => archiveHabit(editing.id)}
       onSave={value => (editing === 'new' ? addHabit(value) : updateHabit(editing.id, value))} />}
   </div>;
 }

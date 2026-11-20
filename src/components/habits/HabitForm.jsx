@@ -8,7 +8,7 @@ const SCHEDULE_CHOICES = [['daily', '매일'], ['weekdays', '요일 지정'], ['
 const MONTH_DAYS = Array.from({ length: MONTH_DAY_MAX }, (_, i) => i + 1);
 
 // 습관 추가·수정 창. "[이미 하는 일] 하고 나서 → [작은 행동]" 형태로 받는다(Fogg의 앵커, Gollwitzer의 if-then 계획).
-export default function HabitForm({ habit, today, onSave, onClose }) {
+export default function HabitForm({ habit, today, onSave, onArchive, onClose }) {
   const [form, setForm] = useState(() => ({
     name: habit?.name ?? '',
     emoji: habit?.emoji ?? '',
@@ -41,6 +41,13 @@ export default function HabitForm({ habit, today, onSave, onClose }) {
     setFailure('');
     try { await onSave(result.value); onClose(); }
     catch { setFailure('습관을 저장하지 못했어요. 연결 상태를 확인해 주세요.'); setBusy(false); }
+  };
+  const archive = async () => {
+    if (busy) return;
+    setBusy(true);
+    setFailure('');
+    try { await onArchive(); onClose(); }
+    catch { setFailure('습관을 보관하지 못했어요. 연결 상태를 확인해 주세요.'); setBusy(false); }
   };
 
   return <div className="modal-overlay" onClick={onClose}>
@@ -134,6 +141,8 @@ export default function HabitForm({ habit, today, onSave, onClose }) {
         </fieldset>
 
         <div className="habit-form-actions">
+          {habit && onArchive && <button type="button" className="block-manage-btn habit-archive-btn" disabled={busy}
+            title="기록은 남기고 목록에서 뺍니다" onClick={archive}>보관</button>}
           {(form.name.trim() && result.error) && <span className="habit-error">{result.error}</span>}
           {failure && <span className="habit-error" role="alert">{failure}</span>}
           <button type="button" className="btn-signout" onClick={onClose}>취소</button>

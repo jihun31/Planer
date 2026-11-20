@@ -59,7 +59,7 @@ if(!process.versions.electron){
         button(today(),'최소만').click();
         await wait(()=>today().querySelector('.habit-check.tiny'),'Tiny version was not recorded');
         assert(cells('물 마시기')[4]==='tiny','Card cell did not follow the tiny log');
-        button(card('물 마시기'),'오늘 기록 취소').click();
+        card('물 마시기').querySelector('[aria-label="오늘 기록 취소"]').click();
         await wait(()=>cells('물 마시기')[4]==='open','Card undo did not clear today');
       `);
 
@@ -176,12 +176,14 @@ if(!process.versions.electron){
         button(card('물 잔'),'+1').click();
         await wait(()=>circle().classList.contains('full'),'Reaching the target should complete it');
         assert(card('물 잔').querySelector('.habit-count.habit-met').textContent.includes('3/3잔'),'Card does not show the met target');
-        assert(lastWrite()===JSON.stringify(['log','h2','2026-11-20',3]),'Wrong count write: '+lastWrite());
+        assert(lastWrite()===JSON.stringify(['log','h3','2026-11-20',3]),'Wrong count write: '+lastWrite());
       `);
 
       // 보관 → 목록에서 빠지고 보관함에, 되돌리기
       await step(`
-        button(card('운동'),'보관').click();
+        card('운동').querySelector('[aria-label="수정"]').click();
+        await wait(()=>document.querySelector('.habit-form'),'Edit form did not open');
+        button(document.querySelector('.habit-form'),'보관').click();
         await wait(()=>!card('운동')&&document.querySelector('.habits-archive'),'Archive did not move the habit');
         assert(document.querySelector('.habits-archive summary').textContent.includes('1개'),'Archive count wrong');
         button(document.querySelector('.habits-archive'),'되돌리기').click();
@@ -197,19 +199,34 @@ if(!process.versions.electron){
         failWrites=false;
       `);
 
-// 배지: 5회 → 다음 배지까지 2회. 목요일·오늘을 채워 7회가 되면 동메달 알림
+      // 카드 모양: 오늘 칸은 상태와 관계없이 강조 테두리, 기록해도 아래 줄 높이는 그대로, 트리거·최소 버전은 한 줄
       await step(`
         const water=()=>card('물 마시기');
-        assert(water().querySelector('.habit-badges-next').textContent.includes('2회'),'Wrong next badge: '+water().querySelector('.habit-badges-next').textContent);
-        assert(water().querySelectorAll('.habit-badges .habit-medal.earned').length===0,'No badge should be earned yet');
+        assert(!document.querySelector('.habit-badges'),'Badges should be gone');
+        assert(water().querySelector('.habit-info').textContent.replace(/\\s+/g,' ').includes('⏰ 아침에 일어나서')&&water().querySelector('.habit-info').textContent.includes('최소: 한 모금'),'Info line: '+water().querySelector('.habit-info').textContent);
+        assert(!water().querySelector('.habit-info').textContent.includes('→'),'Anchor line should not repeat the name');
+        assert(!button(water(),'보관')&&water().querySelector('.habit-edit-btn[aria-label="수정"]'),'Card should only have the pencil button');
+        const todayCell=()=>water().querySelector('.habit-cell.today');
+        const border=()=>getComputedStyle(todayCell()).borderTopColor;
+        assert(todayCell().querySelector('.habit-cell-mark').textContent==='○','Open today should be ○');
+        const openBorder=border(),footHeight=water().querySelector('.habit-card-foot').offsetHeight;
         water().querySelectorAll('.habit-cell')[3].click();
         await wait(()=>cells('물 마시기')[3]==='full','Thursday was not filled');
-        assert(!water().querySelector('.habit-badge-toast'),'Six is not a milestone');
         button(water(),'오늘 완료').click();
-        await wait(()=>water().querySelector('.habit-badge-toast'),'No badge notice at 7');
-        assert(water().querySelector('.habit-badge-toast').textContent.includes('누적 7회'),'Wrong badge notice');
-        assert(water().querySelectorAll('.habit-badges .habit-medal.earned').length===1,'Bronze badge was not shown as earned');
-        assert(water().querySelector('.habit-badges-next').textContent.includes('23회'),'Next badge count did not move');
+        await wait(()=>water().querySelector('.habit-state-label.full'),'Done label missing');
+        assert(todayCell().querySelector('.habit-cell-mark').textContent==='●'&&border()===openBorder,'Done today should keep the accent border: '+border()+' vs '+openBorder);
+        assert(water().querySelector('.habit-card-foot').offsetHeight===footHeight,'Footer height changed: '+water().querySelector('.habit-card-foot').offsetHeight+' vs '+footHeight);
+        await wait(()=>!document.querySelector('.celebrate'),'Celebration did not end');
+        water().querySelector('[aria-label="오늘 기록 취소"]').click();
+        await wait(()=>cells('물 마시기')[4]==='open','Undo failed');
+        // 자주 하는 순서: 매일(물 마시기·물 잔) → 주 3회(운동) → 매월 1일(갤러리)
+        const names=[...document.querySelectorAll('.habit-card .habit-card-name')].map(item=>item.textContent);
+        assert(JSON.stringify(names)===JSON.stringify(['물 마시기','물 잔','운동','갤러리 정리']),'Wrong order: '+JSON.stringify(names));
+        // 매월 1일 습관은 주간 칸 대신 해야 하는 날 칸
+        const gallery=card('갤러리 정리');
+        const labels=[...gallery.querySelectorAll('.habit-cell-day')].map(item=>item.textContent);
+        assert(JSON.stringify(labels.slice(0,4))===JSON.stringify(['9/1','10/1','11/1','12/1']),'Gallery cells: '+JSON.stringify(labels));
+        assert(JSON.stringify(cells('갤러리 정리').slice(0,4))===JSON.stringify(['missed','full','missed','future']),'Gallery states: '+JSON.stringify(cells('갤러리 정리')));
       `);
 
       // 자동화 점검: 나중에는 이번 주 동안 숨김(이 기기), 답하면 저장되고 두 번 연속 4점 이상이면 '자리 잡음'
@@ -222,8 +239,10 @@ if(!process.versions.electron){
         await wait(()=>!auto(),'Later did not hide the self-check');
         assert(localStorage.getItem('planer:habit-auto-later:tester:water:2026-11-16')==='1','Later was not remembered');
         localStorage.removeItem('planer:habit-auto-later:tester:water:2026-11-16');
-        button(water(),'보관').click();
-        await wait(()=>!water(),'Archive failed');
+        water().querySelector('[aria-label="수정"]').click();
+        await wait(()=>document.querySelector('.habit-form'),'Edit form did not open');
+        button(document.querySelector('.habit-form'),'보관').click();
+        await wait(()=>!water()&&!document.querySelector('.habit-form'),'Archive failed');
         button(document.querySelector('.habits-archive'),'되돌리기').click();
         await wait(()=>water()&&auto(),'Self-check did not come back');
         auto().querySelector('[aria-label="4점 대체로 그래요"]').click();
@@ -241,7 +260,7 @@ if(!process.versions.electron){
         win.showInactive();await new Promise(resolve=>setTimeout(resolve,800));
         fs.writeFileSync(process.env.PLANER_HABITS_SHOT,(await win.webContents.capturePage()).toPNG());
       }
-      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,badges:true,selfCheck:true}));app.exit(0);
+      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,cardLayout:true,selfCheck:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

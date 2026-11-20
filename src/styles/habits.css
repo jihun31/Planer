@@ -9,23 +9,37 @@
   display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
 .habits-empty strong { color: var(--text); }
-.habits-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.habits-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; align-items: start; }
 
 .habit-card {
   position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow-sm); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
 }
-.habit-card-hdr { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.habit-card-title { font-size: 0.98rem; font-weight: 700; display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
-.habit-emoji { font-size: 1.1rem; }
+/* 헤더: 제목(최대 두 줄) + 연필 버튼. 빈도·연속 기록은 제목 아래 줄로 내려서 제목이 길어도 버튼이 밀리지 않는다 */
+.habit-card-hdr { display: flex; align-items: flex-start; gap: 8px; }
+.habit-card-head { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.habit-card-title { font-size: 0.98rem; font-weight: 700; display: flex; align-items: flex-start; gap: 6px; min-width: 0; line-height: 1.35; }
+.habit-card-name {
+  min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.habit-emoji { font-size: 1.1rem; line-height: 1.2; }
+.habit-card-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 20px; }
+.habit-edit-btn {
+  flex-shrink: 0; width: 34px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer;
+}
+.habit-edit-btn:hover { border-color: var(--primary); color: var(--primary); }
 .habit-badge {
   font-size: 0.7rem; font-weight: 600; color: var(--primary-dark); background: var(--primary-light);
   border-radius: 999px; padding: 2px 8px; white-space: nowrap;
 }
 .habit-streak { font-size: 0.75rem; font-weight: 700; color: #c2410c; white-space: nowrap; }
-.habit-card-menu { margin-left: auto; display: flex; gap: 4px; }
-.habit-anchor { font-size: 0.82rem; color: var(--text); overflow-wrap: anywhere; }
-.habit-tiny { font-size: 0.76rem; color: var(--text-muted); overflow-wrap: anywhere; }
+/* 트리거 · 최소 버전 한 줄. 넘치면 말줄임(전체는 마우스를 올리면 보임) */
+.habit-info { display: flex; align-items: baseline; gap: 6px; min-height: 1.4em; font-size: 0.8rem; white-space: nowrap; overflow: hidden; }
+.habit-info > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.habit-anchor { color: var(--text); flex: 0 1 auto; }
+.habit-tiny { color: var(--text-muted); flex: 0 1000 auto; }
+.habit-anchor + .habit-tiny::before { content: '·'; margin-right: 6px; color: var(--text-light); }
 
 .habit-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .habit-cell {
@@ -37,17 +51,30 @@
 .habit-cell:disabled { cursor: default; }
 .habit-cell-day { font-size: 0.68rem; font-weight: 600; color: var(--text-muted); }
 .habit-cell-mark { font-size: 0.9rem; line-height: 1.2; min-height: 1.1em; }
-.habit-cell.today { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
 .habit-cell.full { background: var(--green); border-color: var(--green); color: #fff; }
 .habit-cell.full .habit-cell-day { color: #ecfdf5; }
 .habit-cell.tiny { background: var(--green-light); border-color: var(--green); color: var(--green); }
 .habit-cell.missed { color: var(--red); }
 .habit-cell.off, .habit-cell.before { background: transparent; border-style: dashed; }
+.habit-cell.month { cursor: default; }
+.habit-cell.month .habit-cell-mark { font-size: 0.72rem; font-weight: 600; }
+.habit-cell.month.missed .habit-cell-mark { color: var(--red); }
 
-.habit-card-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.76rem; color: var(--text-muted); }
+.habit-card-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 32px; font-size: 0.76rem; color: var(--text-muted); }
 .habit-met { color: var(--green); font-weight: 700; }
-.habit-warn { color: #b45309; }
-.habit-today-actions { margin-left: auto; display: flex; gap: 4px; }
+.habit-warn { font-size: 0.72rem; color: #b45309; white-space: nowrap; }
+.habit-today-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.habit-card-foot .habit-today-actions { height: 32px; }
+/* 기록한 뒤: 버튼 자리에 상태 표시 + 작은 취소 */
+.habit-state-label { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 6px; font-weight: 700; white-space: nowrap; }
+.habit-state-label.full { background: var(--green-light); color: var(--green); }
+.habit-state-label.tiny { background: var(--green-light); color: var(--green); }
+.habit-undo-btn {
+  background: none; border: none; padding: 4px 6px; font: inherit; font-size: 0.74rem; color: var(--text-light);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.habit-undo-btn:hover { color: var(--text); }
+.habit-undo-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .habit-do-btn {
   font-size: 0.75rem; font-weight: 700; padding: 4px 11px; border-radius: 6px; border: none;
   background: var(--green); color: #fff; cursor: pointer;
@@ -118,12 +145,15 @@
 .habit-inline input { width: 56px; }
 .habit-form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .habit-form-actions .habit-error { margin-right: auto; }
+.habit-form-actions .habit-archive-btn { margin-right: auto; }
 
 /* ===== 2단계: 쉬는 날·횟수·기록·지난주 돌아보기 ===== */
 .habit-cell.skip { background: #eef2f7; border-color: #cbd5e1; color: var(--text-muted); }
-.habit-cell.skip .habit-cell-mark { font-size: 0.75rem; }
 .habit-cell.empty { color: var(--text-light); }
 .habit-rest-label, .habit-count { font-weight: 600; color: var(--text-muted); }
+.habit-state-label.habit-rest-label { background: #eef2f7; }
+/* 오늘 칸은 상태와 상관없이 항상 같은 강조 테두리. 상태는 칸 안 기호(● ◐ – ○)로만 구분한다 */
+.habit-week .habit-cell.today { border: 1px solid var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
 .habit-check.skip { background: #eef2f7; border-color: #cbd5e1; font-size: 0.7rem; }
 .habit-check.count { color: var(--green); font-size: 0.72rem; border-color: var(--green); }
 .habit-check.count.full { color: #fff; }
@@ -178,18 +208,7 @@
 .habit-trend.down { color: #b45309; font-weight: 700; }
 .habit-unit-input { width: 64px; font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; }
 
-/* ===== 3단계: 배지·자동화 점검 ===== */
-.habit-medal .learning-medal { display: block; width: 20px; height: 24px; object-fit: contain; }
-.habit-medal { display: inline-flex; filter: grayscale(1); opacity: 0.25; }
-.habit-medal.earned { filter: none; opacity: 1; }
-.habit-badges { display: flex; align-items: center; gap: 4px; }
-.habit-badges-next { margin-left: 6px; font-size: 0.72rem; color: var(--text-light); }
-.habit-badge-toast {
-  display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-top: 4px;
-  background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-sm); font-size: 0.8rem;
-  animation: habit-pop 0.45s ease-out;
-}
-.habit-badge-toast .learning-medal { width: 26px; height: 30px; }
+/* ===== 3단계: 자동화 점검 ===== */
 .habit-settled {
   font-size: 0.7rem; font-weight: 700; color: #166534; background: var(--green-light);
   border-radius: 999px; padding: 2px 8px; white-space: nowrap;
