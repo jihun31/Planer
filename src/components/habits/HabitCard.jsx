@@ -1,12 +1,10 @@
-import { useState } from 'react';
-import { AutomaticityCheck, AutomaticityTrend } from './AutomaticityCheck';
+import { AutomaticityCheck } from './AutomaticityCheck';
 import {
-  WEEKDAY_LABELS, automaticityOf, completion, countLabel, countOf, historyWeeks, isCountHabit, monthCells, monthDayCells, percent,
+  DAY_STATE_TEXT, WEEKDAY_LABELS, automaticityOf, countLabel, countOf, isCountHabit, monthCells, monthDayCells,
   periodProgress, scheduleLabel, shortDay, statusOf, streakOf, totalDone, weekCells,
 } from '../../features/habits/habitCore.mjs';
 
-const CELL_TEXT = { full: '완료', tiny: '최소만 함', skip: '쉬는 날', missed: '빠짐', open: '아직 안 함', empty: '안 함',
-  future: '예정', off: '하지 않는 날', before: '시작 전' };
+const CELL_TEXT = DAY_STATE_TEXT;
 const CELL_MARK = { full: '●', tiny: '◐', skip: '–', missed: '×', open: '○', empty: '', future: '·', off: '', before: '' };
 
 export function StreakBadge({ habit, today }) {
@@ -51,28 +49,6 @@ export function TodayActions({ habit, today, check, compact = false }) {
   </span>;
 }
 
-function History({ habit, today }) {
-  const weeks = historyWeeks(habit, today);
-  const rate = completion(habit, weeks[0].monday, today, today);
-  return <div className="habit-history">
-    <div className="habit-history-head">
-      <span>최근 {weeks.length}주</span>
-      <span>달성률 <strong>{percent(rate.rate)}</strong> ({rate.done}/{rate.total})</span>
-    </div>
-    <div className="habit-heatmap" role="img" aria-label={`최근 ${weeks.length}주 달성률 ${percent(rate.rate)}`}>
-      <div className="habit-heatmap-days" aria-hidden="true">{['월', '', '수', '', '금', '', '일'].map((d, i) => <span key={i}>{d}</span>)}</div>
-      {weeks.map(week => <div key={week.monday} className="habit-heatmap-week">
-        {week.days.map(d => <span key={d.day} className={`habit-heat ${d.state}`} title={`${shortDay(d.day)} · ${CELL_TEXT[d.state]}`} />)}
-      </div>)}
-    </div>
-    <AutomaticityTrend habit={habit} />
-    <div className="habit-heatmap-legend" aria-hidden="true">
-      <span><i className="habit-heat full" />완료</span><span><i className="habit-heat tiny" />최소</span>
-      <span><i className="habit-heat skip" />쉬는 날</span><span><i className="habit-heat missed" />빠짐</span>
-    </div>
-  </div>;
-}
-
 const PencilIcon = () => <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor"
   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
   <path d="M15.2 5.2l3.6 3.6M4 20l1-4.6L15.6 4.8a1.4 1.4 0 0 1 2 0l1.6 1.6a1.4 1.4 0 0 1 0 2L8.6 19 4 20z" />
@@ -115,26 +91,23 @@ function HabitStrip({ habit, today, check }) {
 }
 
 export default function HabitCard({ uid, habit, today, check, onEdit, onAutomaticity }) {
-  const [showHistory, setShowHistory] = useState(false);
   const streak = streakOf(habit, today);
   const notStarted = today < habit.startDate;
   const progress = periodProgress(habit, today);
   const info = [habit.anchor && `⏰ ${habit.anchor}`, habit.tinyVersion && `최소: ${habit.tinyVersion}`].filter(Boolean).join(' · ');
 
   return <article className={`habit-card ${check.isCelebrating(habit, today) ? 'celebrate' : ''}`}>
+    {/* 제목 · 빈도 · 연속 기록 · 연필 버튼을 한 줄에. 제목만 줄어들어서(최대 두 줄) 오른쪽 요소가 밀리지 않는다 */}
     <header className="habit-card-hdr">
-      <div className="habit-card-head">
-        <h3 className="habit-card-title" title={habit.name}>
-          {habit.emoji && <span className="habit-emoji">{habit.emoji}</span>}<span className="habit-card-name">{habit.name}</span>
-        </h3>
-        <div className="habit-card-meta">
-          <span className="habit-badge">{scheduleLabel(habit.schedule)}{isCountHabit(habit) && ` · 하루 ${habit.target.value}${habit.target.unit || '회'}`}</span>
-          <StreakBadge habit={habit} today={today} />
-          {automaticityOf(habit).settled && <span className="habit-settled" title="자동화 점검에서 두 번 연속 4점 이상">🌳 자리 잡음</span>}
-          {!notStarted && streak.missedLast && !statusOf(habit, today) &&
-            <span className="habit-warn" title="두 번 연속만 피하면 연속 기록이 이어져요">지난번에 빠졌어요</span>}
-        </div>
-      </div>
+      <h3 className="habit-card-title" title={habit.name}>
+        {habit.emoji && <span className="habit-emoji">{habit.emoji}</span>}<span className="habit-card-name">{habit.name}</span>
+      </h3>
+      <span className="habit-badge">{scheduleLabel(habit.schedule)}{isCountHabit(habit) && ` · 하루 ${habit.target.value}${habit.target.unit || '회'}`}</span>
+      <StreakBadge habit={habit} today={today} />
+      {!notStarted && streak.missedLast && !statusOf(habit, today) &&
+        <span className="habit-warn" role="img" aria-label="지난번에 빠졌어요" title="지난번에 빠졌어요. 두 번 연속만 피하면 연속 기록이 이어져요">⚠</span>}
+      {automaticityOf(habit).settled && <span className="habit-settled" role="img" aria-label="자리 잡음"
+        title="자리 잡음: 자동화 점검에서 두 번 연속 4점 이상">🌳</span>}
       <button type="button" className="habit-edit-btn" aria-label="수정" title="수정·보관" onClick={onEdit}><PencilIcon /></button>
     </header>
 
@@ -157,10 +130,6 @@ export default function HabitCard({ uid, habit, today, check, onEdit, onAutomati
       </>}
     </footer>
 
-    <button type="button" className="habit-history-toggle" aria-expanded={showHistory} onClick={() => setShowHistory(v => !v)}>
-      {showHistory ? '기록 접기 ▲' : '기록 보기 ▼'}
-    </button>
-    {showHistory && <History habit={habit} today={today} />}
     {check.isCelebrating(habit, today) && <span className="habit-confetti" aria-hidden="true">🎉</span>}
   </article>;
 }

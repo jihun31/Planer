@@ -199,6 +199,10 @@ export function dayState(habit, day, today) {
   return day === today ? 'open' : 'missed';
 }
 
+// 하루 칸 상태 이름(화면 표시용)
+export const DAY_STATE_TEXT = { full: '완료', tiny: '최소만 함', skip: '쉬는 날', missed: '빠짐', open: '아직 안 함', empty: '안 함',
+  future: '예정', off: '하지 않는 날', before: '시작 전' };
+
 // 이번 주(월~일) 칸
 export function weekCells(habit, today) {
   const monday = weekStart(today);

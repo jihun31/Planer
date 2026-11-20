@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import HabitForm from '../habits/HabitForm';
 import HabitCard from '../habits/HabitCard';
+import HabitHistory from '../habits/HabitHistory';
 import { useHabitCheck } from '../habits/useHabitCheck';
 import WeekReview from '../habits/WeekReview';
 import { byFrequency, scheduleLabel, totalDone } from '../../features/habits/habitCore.mjs';
@@ -45,6 +46,7 @@ export default function HabitsTab({ uid, habitsData }) {
         {active.map(habit => <HabitCard key={habit.id} uid={uid} habit={habit} today={today} check={check} onAutomaticity={setAutomaticity}
           onEdit={() => setEditing(habit)} />)}
       </div>}
+    {!loading && active.length > 0 && <HabitHistory habits={active} today={today} />}
 
     {archived.length > 0 && <details className="habits-archive">
       <summary>보관한 습관 {archived.length}개</summary>

@@ -87,15 +87,22 @@ if(!process.versions.electron){
         await wait(()=>!today().querySelector('.habit-check.skip'),'Pressing the circle did not cancel the rest day');
       `);
 
-      // 기록 보기: 26주 히트맵과 달성률
+      // 기록: 카드에는 없고, 아래 패널에서 습관을 바꿔 가며 26주 히트맵과 달성률을 본다
       await step(`
-        button(card('물 마시기'),'기록 보기 ▼').click();
-        await wait(()=>card('물 마시기').querySelector('.habit-heatmap'),'History did not open');
-        assert(card('물 마시기').querySelectorAll('.habit-heatmap-week').length===26,'Heatmap should have 26 weeks');
-        assert(card('물 마시기').querySelectorAll('.habit-heat.full').length>=5,'Heatmap misses completed days');
-        assert(/달성률 \\d+%/.test(card('물 마시기').querySelector('.habit-history-head').textContent),'No completion rate');
-        button(card('물 마시기'),'기록 접기 ▲').click();
-        await wait(()=>!card('물 마시기').querySelector('.habit-heatmap'),'History did not close');
+        assert(!document.querySelector('.habit-card .habit-history-toggle')&&!document.querySelector('.habit-card .habit-bigmap'),'Cards should not hold history');
+        const panel=()=>document.querySelector('.habit-history-panel');
+        const tab=name=>[...panel().querySelectorAll('[role="tab"]')].find(item=>item.textContent.includes(name));
+        assert(panel(),'History panel missing');
+        assert(tab('물 마시기').getAttribute('aria-selected')==='true','First habit should be shown first');
+        assert(panel().querySelectorAll('.habit-bigmap-week').length===26,'Heatmap should have 26 weeks');
+        assert(panel().querySelectorAll('.habit-bigmap .habit-heat.full').length===5,'Heatmap misses completed days');
+        assert(panel().querySelector('.habit-bigmap .habit-heat.today'),'Today is not marked');
+        assert(/\\d+%/.test(panel().querySelector('.habit-history-stat strong').textContent),'No completion rate');
+        tab('갤러리 정리').click();
+        await wait(()=>tab('갤러리 정리').getAttribute('aria-selected')==='true','Tab did not switch');
+        assert(panel().querySelectorAll('.habit-bigmap .habit-heat.full').length===1,'Switched heatmap shows the wrong habit');
+        tab('물 마시기').click();
+        await wait(()=>panel().querySelectorAll('.habit-bigmap .habit-heat.full').length===5,'Did not switch back');
       `);
 
       // 지난주 돌아보기: 11/9~11/15 2/7, 그 전 주 1/7 → 올라감. 닫으면 이번 주 동안 안 보임
@@ -249,14 +256,11 @@ if(!process.versions.electron){
         await wait(()=>!auto(),'Answer did not close the self-check');
         assert(lastWrite()===JSON.stringify(['auto','water','2026-11-16',4]),'Wrong score write: '+lastWrite());
         assert(water().querySelector('.habit-settled'),'Two answers of 4+ should mark the habit settled');
-        button(water(),'기록 보기 ▼').click();
-        await wait(()=>water().querySelectorAll('.habit-auto-dot').length===2,'Score trend missing');
-        button(water(),'기록 접기 ▲').click();
+        await wait(()=>document.querySelectorAll('.habit-history-panel .habit-auto-dot').length===2,'Score trend missing');
       `);
 
       if(process.env.PLANER_HABITS_SHOT){
         // 화면 확인용 캡처: 숨긴 창은 예전 화면이 찍혀서 잠깐 띄운다(포커스는 가져가지 않음)
-        await win.webContents.executeJavaScript(`[...document.querySelectorAll('.habit-history-toggle')].forEach(b=>b.click())`);
         win.showInactive();await new Promise(resolve=>setTimeout(resolve,800));
         fs.writeFileSync(process.env.PLANER_HABITS_SHOT,(await win.webContents.capturePage()).toPNG());
       }
