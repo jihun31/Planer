@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-function PriorityNotesBlock({ data }) {
+function PriorityNotesBlock({ data, embedded = false }) {
   const { notes, loading, error, addNote, updateNote, deleteNote, moveNote } = data;
   const [text, setText] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -53,10 +53,10 @@ function PriorityNotesBlock({ data }) {
   };
 
   return (
-    <section className="today-block priority-block" aria-label="우선순위">
-      <div className="today-block-hdr">
+    <section className={embedded ? 'priority-block' : 'today-block priority-block'} aria-label="우선순위">
+      {!embedded && <div className="today-block-hdr">
         <span className="today-block-title">📝 우선순위</span>
-      </div>
+      </div>}
       <form className="priority-add-form" onSubmit={handleAdd}>
         <input className="today-add-input" value={text} onChange={event => setText(event.target.value)}
           placeholder="우선순위 메모 추가" aria-label="우선순위 메모" />

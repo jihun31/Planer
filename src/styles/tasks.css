@@ -518,11 +518,30 @@
 .task-done .task-title { text-decoration: line-through; color: var(--text-muted); }
 
 /* ===== 오늘 할 일 탭 ===== */
+.today-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 하루 계획(넓게) + 오른쪽 열(습관·할 일·목표) */
 .today-layout {
   display: grid;
-  grid-template-columns: minmax(0, 4fr) minmax(0, 3fr) minmax(0, 3fr);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 16px;
   align-items: start;
+}
+
+.today-plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  padding: 16px 20px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
 }
 
 .today-main {
@@ -530,12 +549,57 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
-  padding: 14px 16px;
+}
+
+/* 계획표는 하루 계획 카드 안에 들어가므로 자체 카드 모양을 없앤다 */
+.day-plan-block.day-plan-embedded {
+  padding: 18px 0 0;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+}
+.day-plan-block.day-plan-embedded .day-plan-heading { margin-bottom: 14px; }
+
+/* 맨 위 1순위 줄 */
+.priority-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
 }
+.priority-bar-pin { flex-shrink: 0; }
+.priority-bar-rank {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.priority-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.priority-bar-muted { flex: 1; font-size: 0.84rem; color: var(--text-light); }
+.priority-bar-btn { flex-shrink: 0; margin-left: auto; }
+/* 메모 몇 줄뿐이라 스크롤 대신 ⋯ 메뉴가 팝업 밖으로 펼쳐지게 둔다 */
+.modal-box.priority-modal { max-width: 460px; }
+.modal-box.priority-modal,
+.priority-modal .modal-bdy { overflow: visible; }
 
 .today-date-header {
   display: flex;
@@ -547,7 +611,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .today-date-left {
@@ -586,10 +651,6 @@
   border-color: #a7f3d0;
 }
 
-.today-add-form {
-  display: flex;
-  gap: 8px;
-}
 
 .today-add-input {
   flex: 1;
@@ -660,78 +721,92 @@
   color: var(--text);
 }
 
-.today-empty {
+/* 오전/오후/저녁 3열 */
+.today-lanes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.today-lane,
+.today-lane-extra {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.today-lane .today-task-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.today-lane-label {
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 56px 20px;
-  color: var(--text-light);
-  font-size: 0.88rem;
-  text-align: center;
-}
-
-.today-empty span { font-size: 2.2rem; margin-bottom: 4px; }
-
-.today-empty-hint {
-  font-size: 0.8rem;
-  color: var(--text-light);
-  line-height: 1.6;
-  margin-top: 4px;
-}
-
-/* 오전/오후/저녁 슬롯 선택 */
-.today-slot-btns {
-  display: flex;
-  gap: 6px;
-}
-
-.today-slot-btn {
-  padding: 5px 16px;
-  border-radius: 20px;
-  border: 1.5px solid var(--border);
-  background: none;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.12s;
-}
-
-.today-slot-btn:hover { border-color: var(--primary); color: var(--primary); }
-
-.today-slot-btn.slot-active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
-}
-
-/* 시간대별 그룹 */
-.today-grouped-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.today-slot-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.today-slot-label {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 700;
   color: var(--text-muted);
-  letter-spacing: 0.06em;
-  padding: 0 2px;
 }
+.today-lane-label span { font-weight: 500; color: var(--text-light); }
+
+.today-lane .today-task-item,
+.today-lane-extra .today-task-item { padding: 7px 2px; gap: 8px; }
+.today-lane .today-task-title,
+.today-lane-extra .today-task-title { min-width: 0; overflow-wrap: anywhere; font-size: 0.88rem; }
+.today-lane .today-task-item:hover,
+.today-lane-extra .today-task-item:hover { background: var(--surface); }
+
+.today-lane-input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+  outline: none;
+}
+.today-lane-input:focus { border-style: solid; border-color: var(--primary); background: var(--surface); }
 
 /* 오늘 날짜 네비게이션 */
 .today-day-nav {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.today-quick-days { display: flex; gap: 4px; }
+.today-quick-days button {
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.today-quick-days button:hover { border-color: var(--primary); color: var(--primary); }
+.today-quick-days button[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.today-date-input {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
 }
 
 .day-nav-arrow {
@@ -760,9 +835,8 @@
   text-align: center;
 }
 
-/* 두 번째와 세 번째 열 */
-.today-middle,
-.today-right {
+/* 오른쪽 열 */
+.today-side {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -776,11 +850,6 @@
   border-radius: var(--radius);
   padding: 14px 16px;
   box-shadow: var(--shadow-sm);
-}
-
-@media (min-width: 1101px) {
-  .today-layout { align-items: stretch; }
-  .today-middle > .today-block { flex: 1; }
 }
 
 .today-block-hdr {
@@ -798,18 +867,35 @@
   color: var(--text);
 }
 
-.today-main-hdr { margin-bottom: 0; }
+.today-block-count,
+.today-block-sub { margin-left: 6px; font-size: 0.75rem; font-weight: 500; color: var(--text-light); }
 
-.today-middle .task-list { padding: 0; gap: 0; }
-.today-middle .task-item {
+/* 할 일: 지난 마감 / 14일 이내 / 나중에 */
+.todo-groups { display: flex; flex-direction: column; gap: 12px; }
+.todo-group-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.todo-group-label span { font-weight: 500; color: var(--text-light); }
+.todo-group-overdue .todo-group-label { color: #b91c1c; }
+.todo-group-later > summary { display: list-item; cursor: pointer; }
+.todo-group-later[open] > summary { margin-bottom: 4px; }
+
+.todo-backlog .task-list { padding: 0; gap: 0; }
+.todo-backlog .task-item {
   padding: 10px 2px;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
 }
-.today-middle .task-item:last-child { border-bottom: 0; }
-.today-middle .task-item:hover { background: var(--bg); }
+.todo-backlog .task-item:last-child { border-bottom: 0; }
+.todo-backlog .task-item:hover { background: var(--bg); }
 
 .goal-period-groups { display: flex; flex-direction: column; gap: 14px; }
 .goal-period-group { min-width: 0; }
@@ -823,8 +909,8 @@
   font-weight: 700;
 }
 .goal-period-label span { font-weight: 500; color: var(--text-light); }
-.today-right .sidebar-list { gap: 9px; }
-.today-right .sidebar-sub-title { white-space: normal; overflow: visible; }
+.today-side .sidebar-list { gap: 9px; }
+.today-side .sidebar-sub-title { white-space: normal; overflow: visible; }
 
 .block-manage-btn {
   font-size: 0.7rem;
@@ -1054,13 +1140,13 @@
 }
 
 @media (max-width: 1100px) {
-  .today-layout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .today-right { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .today-layout { grid-template-columns: minmax(0, 1fr); }
+  .today-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 }
 
 @media (max-width: 700px) {
-  .today-layout { grid-template-columns: 1fr; }
-  .today-right { grid-column: auto; display: flex; }
+  .today-side { display: flex; }
+  .today-lanes { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* 할 일 수정, 활동 색상 변경 */

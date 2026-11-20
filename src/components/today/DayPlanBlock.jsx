@@ -15,7 +15,7 @@ const daysLabel=days=>WEEKDAYS.filter(day=>days?.includes(day.value)).map(day=>d
 const clockTime=minute=>planTime(minute%1440);
 const defaults=date=>({title:'',activityId:null,activityColor:null,scope:'date',weekdays:[weekdayFor(date)]});
 
-export function DayPlanBlock({date,onDateChange,data,activities=[],allActivities=activities,range,settingsReady=true,settingsError=null,activitiesReady=true,activitiesError=null}) {
+export function DayPlanBlock({date,onDateChange,data,embedded=false,activities=[],allActivities=activities,range,settingsReady=true,settingsError=null,activitiesReady=true,activitiesError=null}) {
   const [form,setForm]=useState(()=>defaults(date)),[editing,setEditing]=useState(null);
   const [selection,setSelection]=useState(null);
   const [busy,setBusy]=useState(false),[failure,setFailure]=useState('');
@@ -75,16 +75,16 @@ export function DayPlanBlock({date,onDateChange,data,activities=[],allActivities
     void run(()=>data.saveRoutine({...routine,effectiveDate,deleted:remove||!routine.deleted,
       ...(remove?{removed:true}:{})},{routineId:routine.routineId}),reset);
   }
-  return <section className="day-plan-block" aria-labelledby={`${scopeId}-heading`}>
+  return <section className={`day-plan-block${embedded?' day-plan-embedded':''}`} aria-labelledby={`${scopeId}-heading`}>
     <div className="day-plan-heading">
       <div><h2 id={`${scopeId}-heading`}>계획표</h2><p>시작 칸과 끝 칸을 선택하고 활동을 등록하세요. 채워진 칸을 누르면 수정할 수 있습니다.</p></div>
-      <div className="day-plan-date"><input type="date" aria-label="계획 날짜" value={date} min="1000-01-01" max="9999-12-31" disabled={busy}
+      {!embedded&&<div className="day-plan-date"><input type="date" aria-label="계획 날짜" value={date} min="1000-01-01" max="9999-12-31" disabled={busy}
         onChange={event=>{if(isCalendarDate(event.target.value))onDateChange(event.target.value);}} /><span>{daysLabel([weekdayFor(date)])}요일</span>
         <div className="day-plan-date-nav">
           <button type="button" aria-label="계획표 이전 날짜" title="이전 날짜" disabled={busy||!isCalendarDate(previousDate)} onClick={()=>onDateChange(previousDate)}>{'<'}</button>
           <button type="button" aria-label="계획표 다음 날짜" title="다음 날짜" disabled={busy||!isCalendarDate(nextDate)} onClick={()=>onDateChange(nextDate)}>{'>'}</button>
         </div>
-      </div>
+      </div>}
     </div>
     {data.error && <div className="day-plan-error" role="alert">계획을 불러오지 못했습니다. 연결 상태와 계정 접근 권한을 확인해 주세요.
       <button type="button" onClick={data.retry}>다시 연결</button></div>}
@@ -143,11 +143,11 @@ export function DayPlanBlock({date,onDateChange,data,activities=[],allActivities
     </details>
   </section>;
 }
-export default function ConnectedDayPlanBlock({uid,date,onDateChange,scheduleHistory=[],settingsReady=true,settingsError=null}) {
+export default function ConnectedDayPlanBlock({uid,date,onDateChange,embedded=false,scheduleHistory=[],settingsReady=true,settingsError=null}) {
   const data=useDayPlans(uid,date);
   const [listenActivities,setListenActivities]=useState(()=>subscribeActivities);
   const [allActivities,activitiesReady,activitiesError]=useCollection(uid,listenActivities);
   const retry=()=>{data.retry();setListenActivities(()=>(...args)=>subscribeActivities(...args));};
-  return <DayPlanBlock date={date} onDateChange={onDateChange} data={{...data,retry}} activities={allActivities.filter(activity=>!activity.archived)} allActivities={allActivities}
+  return <DayPlanBlock date={date} onDateChange={onDateChange} embedded={embedded} data={{...data,retry}} activities={allActivities.filter(activity=>!activity.archived)} allActivities={allActivities}
     range={rangeForDate(scheduleHistory,date)} settingsReady={settingsReady} settingsError={settingsError} activitiesReady={activitiesReady} activitiesError={activitiesError}/>;
 }

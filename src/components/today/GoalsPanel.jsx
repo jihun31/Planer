@@ -146,11 +146,13 @@ function GoalPopup({ goals, subGoals, onClose, onAddGoal, onDeleteGoal, onUpdate
 }
 
 /* ── 오른쪽 사이드바 블록 ── */
-function DeadlineGoalsBlock({ goals, subGoals, onManage }) {
+// withinDays를 주면 마감이 그 안에 드는 세부 목표만 보여준다(오늘 탭은 다가오는 마감만).
+function DeadlineGoalsBlock({ goals, subGoals, onManage, withinDays = null }) {
   const goalMap = Object.fromEntries(goals.map(g => [g.id, g]));
   const sorted = subGoals
     .filter(s => !s.completed)
     .map(s => ({ ...s, daysLeft: getDaysRemaining(s) }))
+    .filter(s => withinDays === null || s.daysLeft <= withinDays)
     .sort((a, b) => {
       if (a.year === b.year && a.month === b.month) {
         return (a.createdAt?.seconds ?? Infinity) - (b.createdAt?.seconds ?? Infinity);
@@ -166,11 +168,12 @@ function DeadlineGoalsBlock({ goals, subGoals, onManage }) {
   return (
     <div className="today-block">
       <div className="today-block-hdr">
-        <span className="today-block-title">⏰ 월별 목표</span>
+        <span className="today-block-title">⏰ 월별 목표
+          {withinDays !== null && <span className="today-block-sub">{withinDays}일 이내 마감</span>}</span>
         <button className="block-manage-btn" onClick={onManage}>관리</button>
       </div>
       {sorted.length === 0 ? (
-        <p className="today-block-empty">세부 목표가 없습니다</p>
+        <p className="today-block-empty">{withinDays === null ? '세부 목표가 없습니다' : `${withinDays}일 안에 마감되는 목표가 없습니다`}</p>
       ) : (
         <div className="goal-period-groups">
           {groups.map(group => (

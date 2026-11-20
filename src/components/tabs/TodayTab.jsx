@@ -2,7 +2,7 @@ import { useState } from "react";
 import { todayStr } from "../../features/habits/habitService";
 import { GoalPopup, DeadlineGoalsBlock } from "../today/GoalsPanel";
 import { TaskPopup, AllTasksBlock } from "../today/TasksPanel";
-import PriorityNotesBlock from "../today/PriorityNotesBlock";
+import PriorityBar from "../today/PriorityBar";
 import TodayMain from "../today/TodayMain";
 import DayPlanBlock from '../today/DayPlanBlock';
 import TodayHabitsBlock from '../today/TodayHabitsBlock';
@@ -18,24 +18,27 @@ function TodayTab({ uid, tasks: tasksData, todos: todosData, goalsData, priority
   const [taskPopup,    setTaskPopup]    = useState(false);
 
   return (
-    <div className="today-layout">
-      <TodayMain
-        tasks={tasks} selectedDate={selectedDate}
-        onAdd={addTask} onToggle={toggleTask} onDelete={deleteTask}
-        onDateChange={setSelectedDate}
-      />
+    <div className="today-page">
+      <PriorityBar data={priorityData} />
 
-      <div className="today-middle">
-        <AllTasksBlock tasks={todos} onDelete={deleteTodo} onManage={() => setTaskPopup(true)} />
+      <div className="today-layout">
+        {/* 하루 계획: 날짜별 할 일과 계획표가 같은 날짜를 쓴다 */}
+        <section className="today-plan-card" aria-label="하루 계획">
+          <TodayMain
+            tasks={tasks} selectedDate={selectedDate}
+            onAdd={addTask} onToggle={toggleTask} onDelete={deleteTask}
+            onDateChange={setSelectedDate}
+          />
+          <DayPlanBlock uid={uid} date={selectedDate} onDateChange={setSelectedDate} embedded
+            scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
+        </section>
+
+        <div className="today-side">
+          {habitsData && <TodayHabitsBlock habitsData={habitsData} onOpen={onOpenHabits} />}
+          <AllTasksBlock tasks={todos} onDelete={deleteTodo} onManage={() => setTaskPopup(true)} />
+          <DeadlineGoalsBlock goals={goals} subGoals={subGoals} withinDays={14} onManage={() => setGoalPopup(true)} />
+        </div>
       </div>
-
-      <div className="today-right">
-        {habitsData && <TodayHabitsBlock habitsData={habitsData} onOpen={onOpenHabits} />}
-        <PriorityNotesBlock data={priorityData} />
-        <DeadlineGoalsBlock goals={goals} subGoals={subGoals} onManage={() => setGoalPopup(true)} />
-      </div>
-
-      <DayPlanBlock uid={uid} date={selectedDate} onDateChange={setSelectedDate} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError} />
 
       {goalPopup && (
         <GoalPopup
