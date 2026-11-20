@@ -254,6 +254,7 @@ body {
 /* ===== 탭 네비게이션 ===== */
 .tab-nav {
   display: flex;
+  align-items: center;
   overflow-x: auto;
   gap: 6px;
   padding: 12px 28px;
@@ -282,37 +283,57 @@ body {
   font-weight: 600;
 }
 
-/* 한 탭 안의 하위 화면 전환 (예: 시간 관리 › 기록 / 통제) */
+/* 한 탭 안의 하위 화면 전환 (예: 시간 관리 › 기록 / 통제). 탭 바 오른쪽 끝에 붙는다. */
 .subtab-nav {
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-  margin-bottom: 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: auto;
+  padding-left: 16px;
 }
 
 .subtab-btn {
-  padding: 7px 18px;
+  position: relative;
+  padding: 8px 12px;
   background: transparent;
   border: none;
-  border-radius: 9px;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
+  transition: color 0.2s;
 }
 
-.subtab-btn:hover { background: var(--primary-light); color: var(--primary-dark); }
-
-.subtab-active {
-  background: var(--primary-light);
-  color: var(--primary-dark);
-  font-weight: 600;
+.subtab-btn + .subtab-btn::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  width: 1px;
+  height: 12px;
+  transform: translateY(-50%);
+  background: var(--border);
 }
+
+.subtab-btn::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.2s;
+}
+
+.subtab-btn:hover { color: var(--primary-dark); }
+
+.subtab-active { color: var(--primary-dark); font-weight: 600; }
+.subtab-active::after { background: var(--primary); }
 
 /* ===== 메인 콘텐츠 ===== */
 .main {
@@ -356,6 +377,17 @@ body {
 .schedule-settings-timer { border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 20px; }
 .schedule-settings-timer h3 { font-size: .9rem; margin-bottom: 12px; }
 .schedule-settings-timer label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: .85rem; }
+.tab-order { margin-top: 18px; font-size: .85rem; }
+.tab-order-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.tab-order-reset { padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-muted); font: inherit; font-size: .78rem; cursor: pointer; }
+.tab-order-reset:disabled { opacity: .45; cursor: default; }
+.tab-order-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.tab-order-list li { display: flex; align-items: center; gap: 4px; padding: 6px 8px 6px 12px; }
+.tab-order-list li + li { border-top: 1px solid var(--border); }
+.tab-order-name { flex: 1; }
+.tab-order-list button { width: 28px; height: 26px; border: none; border-radius: 6px; background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
+.tab-order-list button:hover:not(:disabled) { background: var(--primary-light); color: var(--primary-dark); }
+.tab-order-list button:disabled { opacity: .3; cursor: default; }
 .schedule-settings-timer label + label { margin-top:12px; }
 .schedule-settings-timer input { width: 17px; height: 17px; margin: 0; accent-color: var(--primary); cursor: pointer; }
 .schedule-settings-hours { display: flex; flex-wrap: wrap; gap: 20px; margin: 20px 0; }

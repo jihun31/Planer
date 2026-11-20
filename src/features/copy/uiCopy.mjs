@@ -23,7 +23,7 @@ export const UI_COPY = {
     "arrowAction": "각 탭에서 날짜 이동",
     "shortcutsNote": "",
     "settingsHeading": "설정",
-    "settings": "설정에서 커스텀 기능을 사용할 수 있습니다.\n1. 통제 화면, 습관·메모·캘린더 탭 숨기기\n2. 타이머 설정: 팝업 표시 여부·기본 위치, 통제 활동 자동 기록\n3. 하루 시간표 범위 수정, 반대편 화면의 블록 표시 방식 설정"
+    "settings": "설정에서 커스텀 기능을 사용할 수 있습니다.\n1. 통제 화면, 습관·메모·캘린더 탭 숨기기, 탭 순서 바꾸기\n2. 타이머 설정: 팝업 표시 여부·기본 위치, 통제 활동 자동 기록\n3. 하루 시간표 범위 수정, 반대편 화면의 블록 표시 방식 설정"
   },
   "settings": {
     "title": "설정",
@@ -34,11 +34,13 @@ export const UI_COPY = {
     "timerPopupRight": "오른쪽 아래",
     "studyGap": "통제 자동 기록",
     "studyGapNote": "타이머를 시작할 때 직전 기록 이후의 빈 시간을 통제 활동으로 기록합니다.",
-    "tabsHeading": "탭 표시",
+    "tabsHeading": "탭 표시·순서",
     "controlTab": "시간 관리의 통제 화면 표시",
     "habitsTab": "습관 탭 표시",
     "notesTab": "메모 탭 표시",
     "calendarTab": "캘린더 탭 표시",
+    "tabOrder": "탭 순서",
+    "tabOrderReset": "기본 순서로",
     "calendarHeading": "시간 관리·통제 캘린더",
     "rangeNote": "달력에 표시할 하루의 시간 범위",
     "start": "시작",

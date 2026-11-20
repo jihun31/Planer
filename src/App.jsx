@@ -18,7 +18,8 @@ import { useTonkatsu } from './features/tonkatsu/useTonkatsu';
 import { useHabits } from './features/habits/useHabits';
 import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
 import { useTabVisibility } from './features/navigation/useTabVisibility';
-import { HOME_VIEW, availableViews, resolveView, stepView, tabOfView, viewForTab, visibleTabs } from './features/navigation/appTabs.mjs';
+import { useTabOrder } from './features/navigation/useTabOrder';
+import { HOME_VIEW, availableViews, orderTabs, resolveView, stepView, tabOfView, viewForTab, visibleTabs } from './features/navigation/appTabs.mjs';
 
 // 오늘 할 일 말고는 처음 열 때 코드를 받는다. 시작 뒤 한가할 때 미리 받아 두어 탭 전환은 기다리지 않는다.
 const lazyViews = {
@@ -67,7 +68,8 @@ function App() {
   const discord = useDiscordLink(user?.uid);
   const discordId = discord.link?.discordId || null;
   const tabContext = useMemo(() => ({ discord: Boolean(discordId) }), [discordId]);
-  const tabs = useMemo(() => visibleTabs(tabVisibility, tabContext), [tabVisibility, tabContext]);
+  const [tabOrder] = useTabOrder(user?.uid);
+  const tabs = useMemo(() => visibleTabs(tabVisibility, tabContext, orderTabs(tabOrder)), [tabVisibility, tabContext, tabOrder]);
   const currentView = resolveView(tabs, activeView);
   const currentTab = tabOfView(tabs, currentView);
   const goalsData   = useGoals(user?.uid);
@@ -237,18 +239,19 @@ function App() {
             {tab.label}
           </button>
         ))}
-      </nav>
-
-      <main className="main">
-        {dataError && <p role="alert">
-          데이터를 불러오지 못했습니다. 인터넷 연결과 계정 접근 권한을 확인해 주세요.
-        </p>}
+        {/* 선택한 탭에 하위 화면이 있으면 탭 바 오른쪽 끝에서 전환한다(본문 위에 줄을 더 만들지 않는다). */}
         {currentTab && currentTab.views.length > 1 && <div className="subtab-nav" role="group" aria-label={`${currentTab.label} 화면 선택`}>
           {currentTab.views.map(view => <button key={view.id} type="button" aria-pressed={currentView === view.id}
             className={`subtab-btn ${currentView === view.id ? 'subtab-active' : ''}`} onClick={() => activateView(view.id)}>
             {view.label}
           </button>)}
         </div>}
+      </nav>
+
+      <main className="main">
+        {dataError && <p role="alert">
+          데이터를 불러오지 못했습니다. 인터넷 연결과 계정 접근 권한을 확인해 주세요.
+        </p>}
         {availableViews(tabContext).map(view => <div key={view.id} hidden={currentView !== view.id}>
           {(view.eager || openedViews[view.id]) && <Suspense fallback={viewLoading}>{panels[view.id]()}</Suspense>}
         </div>)}

@@ -4,7 +4,8 @@ import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs'
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
 import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition } from '../features/planner/timerPreferences';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
-import { HIDEABLE_VIEW_IDS } from '../features/navigation/appTabs.mjs';
+import { useTabOrder } from '../features/navigation/useTabOrder';
+import { DEFAULT_TAB_ORDER, HIDEABLE_VIEW_IDS, moveTab, orderTabs, tabAvailable } from '../features/navigation/appTabs.mjs';
 import { useEditableCopy } from '../features/copy/useEditableCopy';
 import DiscordLinkSection from './DiscordLinkSection';
 export default function ScheduleSettings({ uid, history, ready, error, onClose, discord, serverInfo }) {
@@ -16,6 +17,15 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
   const [timerFailure, setTimerFailure] = useState('');
   const [tabVisibility,setTabVisible] = useTabVisibility(uid);
   const [tabFailure,setTabFailure] = useState('');
+  const [tabOrder,setTabOrder] = useTabOrder(uid);
+  const orderContext = { discord: Boolean(discord?.link?.discordId) };
+  const orderedTabs = orderTabs(tabOrder).filter(tab => tabAvailable(tab,orderContext));
+  const shownTabIds = orderedTabs.map(tab => tab.id);
+  const isDefaultOrder = shownTabIds.join() === DEFAULT_TAB_ORDER.filter(id => shownTabIds.includes(id)).join();
+  const saveTabOrder = order => {
+    try {setTabOrder(order);setTabFailure('');}
+    catch {setTabFailure('탭 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
+  };
   const current = rangeForDate(history, plannerDate());
   const display = oppositeDisplayFromHistory(history);
   const [startHour, setStartHour] = useState(current.startHour);
@@ -68,6 +78,22 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
           catch {setTabFailure('탭 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
         }} />
       </label>)}
+      <div className="tab-order">
+        <div className="tab-order-heading">
+          <span>{copy.field('tabOrder')}</span>
+          <button type="button" className="tab-order-reset" disabled={copy.editing || isDefaultOrder}
+            onClick={() => saveTabOrder(null)}>{copy.field('tabOrderReset')}</button>
+        </div>
+        <ol className="tab-order-list">
+          {orderedTabs.map((tab,index) => <li key={tab.id}>
+            <span className="tab-order-name">{tab.label}</span>
+            <button type="button" aria-label={`${tab.label} 앞으로`} title="앞으로" disabled={copy.editing || index === 0}
+              onClick={() => saveTabOrder(moveTab(tabOrder,tab.id,-1,shownTabIds))}>↑</button>
+            <button type="button" aria-label={`${tab.label} 뒤로`} title="뒤로" disabled={copy.editing || index === orderedTabs.length - 1}
+              onClick={() => saveTabOrder(moveTab(tabOrder,tab.id,1,shownTabIds))}>↓</button>
+          </li>)}
+        </ol>
+      </div>
       {tabFailure && <p role="alert">{tabFailure}</p>}
     </section>
     <form onSubmit={save}>
