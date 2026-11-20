@@ -6,12 +6,12 @@ import { readTabOrder, readTabVisibility } from '../src/features/navigation/tabV
 import { APP_TABS, DEFAULT_TAB_ORDER, HIDEABLE_VIEW_IDS, HOME_VIEW, availableViews, moveTab, normalizeTabOrder, orderTabs,
   resolveView, stepView, tabAvailable, tabOfView, viewForTab, viewOrder, visibleTabs } from '../src/features/navigation/appTabs.mjs';
 
-const allShown = {control:true,habits:true,calendar:true,notes:true};
+const allShown = {control:true,habits:true,notes:true,calendar:true,learning:true,checkin:true};
 const topIds = tabs => tabs.map(tab => tab.id);
 
 test('one registry defines the tabs; planner and control live under one time-management tab', () => {
   assert.equal(new Set(APP_TABS.map(tab => tab.id)).size,APP_TABS.length);
-  assert.deepEqual(HIDEABLE_VIEW_IDS,['control','habits','notes','calendar']);
+  assert.deepEqual(HIDEABLE_VIEW_IDS,['control','habits','notes','calendar','learning','checkin']);
   const tabs = visibleTabs(allShown,{discord:false});
   // 학습 기록은 기본적으로 인증 바로 왼쪽(맨 뒤쪽)
   assert.deepEqual(topIds(tabs),['today','time','habits','notes','calendar','learning']);
@@ -29,8 +29,14 @@ test('one registry defines the tabs; planner and control live under one time-man
 test('only optional views are hidden, preserving navigation order and the default visible views', () => {
   assert.deepEqual(readTabVisibility(null),allShown);
   assert.deepEqual(readTabVisibility('invalid'),allShown);
-  assert.deepEqual(readTabVisibility('{"notes":false}'),{control:true,habits:true,calendar:true,notes:false});
   const order = visibility => viewOrder(visibleTabs(visibility,{}));
+  assert.deepEqual(readTabVisibility('{"notes":false}'),{...allShown,notes:false});
+  // 오늘 할 일·시간 관리(기록)만 숨길 수 없다
+  assert.deepEqual(viewOrder(visibleTabs({control:false,habits:false,notes:false,calendar:false,learning:false,checkin:false},{discord:true})),
+    ['today','planner']);
+  assert.deepEqual(viewOrder(visibleTabs({today:false,planner:false,time:false},{})),viewOrder(visibleTabs(allShown,{})));
+  assert.deepEqual(order({learning:false}),['today','planner','control','habits','notes','calendar']);
+  assert.deepEqual(topIds(visibleTabs({checkin:false},{discord:true})),['today','time','habits','notes','calendar','learning']);
   assert.deepEqual(order({control:false,notes:false}),['today','planner','habits','calendar','learning']);
   assert.deepEqual(order({habits:false}),['today','planner','control','notes','calendar','learning']);
   assert.deepEqual(order({control:false,notes:true}),['today','planner','habits','notes','calendar','learning']);

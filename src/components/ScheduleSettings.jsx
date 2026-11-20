@@ -22,6 +22,10 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
   const orderedTabs = orderTabs(tabOrder).filter(tab => tabAvailable(tab,orderContext));
   const shownTabIds = orderedTabs.map(tab => tab.id);
   const isDefaultOrder = shownTabIds.join() === DEFAULT_TAB_ORDER.filter(id => shownTabIds.includes(id)).join();
+  const saveTabVisible = (id,visible) => {
+    try {setTabVisible(id,visible);setTabFailure('');}
+    catch {setTabFailure('탭 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
+  };
   const saveTabOrder = order => {
     try {setTabOrder(order);setTabFailure('');}
     catch {setTabFailure('탭 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
@@ -71,29 +75,33 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
       {timerFailure && <p role="alert">{timerFailure}</p>}
     </section>
     <section className="schedule-settings-timer">
-      <h3>{copy.field('tabsHeading')}</h3>
-      {HIDEABLE_VIEW_IDS.map(tab => <label key={tab}>{copy.field(`${tab}Tab`)}
-        <input type="checkbox" disabled={copy.editing} checked={tabVisibility[tab]} onChange={event => {
-          try {setTabVisible(tab,event.target.checked);setTabFailure('');}
-          catch {setTabFailure('탭 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
-        }} />
-      </label>)}
-      <div className="tab-order">
-        <div className="tab-order-heading">
-          <span>{copy.field('tabOrder')}</span>
-          <button type="button" className="tab-order-reset" disabled={copy.editing || isDefaultOrder}
-            onClick={() => saveTabOrder(null)}>{copy.field('tabOrderReset')}</button>
-        </div>
-        <ol className="tab-order-list">
-          {orderedTabs.map((tab,index) => <li key={tab.id}>
+      <div className="tab-order-heading">
+        <h3>{copy.field('tabsHeading')}</h3>
+        <button type="button" className="tab-order-reset" disabled={copy.editing || isDefaultOrder}
+          onClick={() => saveTabOrder(null)}>{copy.field('tabOrderReset')}</button>
+      </div>
+      <p>{copy.field('tabsNote')}</p>
+      <ol className="tab-order-list">
+        {orderedTabs.map((tab,index) => {
+          const hideable = HIDEABLE_VIEW_IDS.includes(tab.id);
+          const shown = !hideable || tabVisibility[tab.id];
+          // 탭 안의 숨길 수 있는 하위 화면(예: 시간 관리의 통제)
+          const subViews = (tab.views ?? []).filter(view => HIDEABLE_VIEW_IDS.includes(view.id));
+          return <li key={tab.id} className={shown ? '' : 'tab-order-hidden'}>
+            <input type="checkbox" aria-label={`${tab.label} 표시`} title={hideable ? '표시' : '항상 표시'}
+              disabled={copy.editing || !hideable} checked={shown} onChange={event => saveTabVisible(tab.id,event.target.checked)} />
             <span className="tab-order-name">{tab.label}</span>
+            {subViews.map(view => <label key={view.id} className="tab-order-sub">
+              <input type="checkbox" disabled={copy.editing} checked={tabVisibility[view.id]}
+                onChange={event => saveTabVisible(view.id,event.target.checked)} />{view.label}
+            </label>)}
             <button type="button" aria-label={`${tab.label} 앞으로`} title="앞으로" disabled={copy.editing || index === 0}
               onClick={() => saveTabOrder(moveTab(tabOrder,tab.id,-1,shownTabIds))}>↑</button>
             <button type="button" aria-label={`${tab.label} 뒤로`} title="뒤로" disabled={copy.editing || index === orderedTabs.length - 1}
               onClick={() => saveTabOrder(moveTab(tabOrder,tab.id,1,shownTabIds))}>↓</button>
-          </li>)}
-        </ol>
-      </div>
+          </li>;
+        })}
+      </ol>
       {tabFailure && <p role="alert">{tabFailure}</p>}
     </section>
     <form onSubmit={save}>

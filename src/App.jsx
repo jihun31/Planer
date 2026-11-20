@@ -191,7 +191,8 @@ function App() {
       priorityData={priorityData} habitsData={habitsData} scheduleHistory={scheduleHistory} settingsReady={settingsReady} settingsError={settingsError}
       onOpenHabits={tabOfView(tabs, 'habits') ? () => activateView('habits') : null} />,
     planner: () => <>
-      <LearningSummary learning={learning} onOpen={() => activateView('learning')} />
+      {/* 학습 기록 탭을 숨기면 요약도 함께 숨긴다(누르면 갈 곳이 없다). */}
+      {tabOfView(tabs, 'learning') && <LearningSummary learning={learning} onOpen={() => activateView('learning')} />}
       {afterBlockMigration(<PlannerTab key={user.uid} {...plannerProps} active={currentView === 'planner'}
         restTarget={restTarget?.uid === user.uid ? restTarget : null} />)}
     </>,
