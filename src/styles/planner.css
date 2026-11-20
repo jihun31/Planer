@@ -846,9 +846,8 @@
 }
 .btn-cancel-sel:hover { border-color: var(--red); color: var(--red); }
 
-/* ===== 플로팅 타이머 팝업 (인앱 & PiP 공통) ===== */
-.float-timer,
-.popup-timer {
+/* ===== 앱 안의 플로팅 타이머 ===== */
+.float-timer {
   background: var(--surface, #fff);
   border: 2px solid var(--ft-color, var(--primary));
   border-radius: 10px;

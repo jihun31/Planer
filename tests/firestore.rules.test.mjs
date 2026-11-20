@@ -5,7 +5,7 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { doc, setDoc, getDoc, updateDoc, deleteDoc, getDocs, collection, query, where, writeBatch, onSnapshot, orderBy, limit, startAfter, Timestamp } from 'firebase/firestore';
 import { createNoteSnapshotHub } from '../src/features/notes/noteSnapshotHub.mjs';
 
-const collections = ['goals', 'subGoals', 'tasks', 'todos', 'plannerActivities', 'scheduleBlocks', 'controlActivities', 'controlBlocks', 'habits', 'habitLogs', 'progressItems', 'progressLogs'];
+const collections = ['goals', 'subGoals', 'tasks', 'todos', 'plannerActivities', 'scheduleBlocks', 'controlActivities', 'controlBlocks', 'habits', 'habitLogs'];
 
 test('day plans isolate owners, preserve routine history and validate atomic revisions', async()=>{
   const {serverTimestamp}=await import('firebase/firestore');

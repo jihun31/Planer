@@ -117,38 +117,6 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* ===== 빈 상태 ===== */
-.goals-empty-state {
-  text-align: center;
-  padding: 64px 0 48px;
-}
-
-.empty-big-icon {
-  font-size: 3.4rem;
-  display: block;
-  margin-bottom: 14px;
-}
-
-.empty-main {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 8px;
-}
-
-.empty-sub {
-  font-size: 0.83rem;
-  color: var(--text-muted);
-  line-height: 1.7;
-}
-
-.loading-text {
-  text-align: center;
-  color: var(--text-light);
-  padding: 60px 0;
-  font-size: 0.9rem;
-}
-
 /* ===== 장기 목표 카드 목록 ===== */
 .goal-cards {
   display: flex;
@@ -520,58 +488,6 @@
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-}
-
-/* ===== 목표 등록 탭 ===== */
-.goal-tab-page {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.goal-tab-forms {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-
-.goal-tab-form-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--surface);
-  border-radius: var(--radius);
-  padding: 16px 20px;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-}
-
-.goal-tab-form-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.form-section-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  margin-bottom: 2px;
-}
-
-.goal-cards-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-
-@media (max-width: 1000px) {
-  .goal-tab-forms    { grid-template-columns: 1fr; }
-  .goal-cards-grid   { grid-template-columns: 1fr; }
 }
 
 /* 공통 form-input (add-goal-form 에서 사용) */

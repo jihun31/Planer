@@ -8,7 +8,6 @@ test('all cascading deletion queries include authenticated owner', async () => {
   for (const [file, method, id] of [
     ['goals/goalService.js', 'deleteGoal', 'goal'],
     ['habits/habitService.js', 'deleteHabit', 'habit'],
-    ['progress/progressService.js', 'deleteProgressItem', 'item'],
   ]) {
     const queries = [];
     const context = vm.createContext({

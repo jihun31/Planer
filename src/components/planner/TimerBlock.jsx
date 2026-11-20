@@ -29,7 +29,6 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   const [startTs, setStartTs]         = useState(null);
   const [elapsed, setElapsed]         = useState(0);
   const [saving, setSaving]           = useState(false);
-  const [popupWin, setPopupWin]       = useState(null);
   const [electronPopupOpen, setElectronPopupOpen] = useState(false);
   const handleStopRef = useRef(null);
   const stoppingRef   = useRef(false);
@@ -65,15 +64,6 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     }, 1000);
     return () => clearInterval(id);
   }, [running, startTs]);
-
-  // window.open 팝업 닫힘 감지
-  useEffect(() => {
-    if (!popupWin) return;
-    const id = setInterval(() => {
-      if (popupWin.closed) setPopupWin(null);
-    }, 500);
-    return () => clearInterval(id);
-  }, [popupWin]);
 
   // Electron: 팝업 창에서 정지 명령을 받으면 handleStop 실행
   useEffect(() => {
@@ -175,53 +165,17 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     void checkGap(request);
   };
 
+  // 앱 안의 떠 있는 타이머를 별도 '항상 위' 창으로 옮기거나 다시 닫는다.
   const handlePopup = () => {
-    // Electron 환경
-    if (isElectron) {
-      if (electronPopupOpen) {
-        window.electronAPI.closeTimerPopup();
-        setElectronPopupOpen(false);
-      } else {
-        const actName = isCustom ? customName : (curAct?.name ?? '');
-        window.electronAPI.openTimerPopup({
-          actName,
-          color: timerColor,
-          startTs,
-          startLabel,
-          position: popupPosition,
-        });
-        setElectronPopupOpen(true);
-      }
+    if (!isElectron) return;
+    if (electronPopupOpen) {
+      window.electronAPI.closeTimerPopup();
+      setElectronPopupOpen(false);
       return;
     }
-
-    // 브라우저 환경 (window.open)
-    if (popupWin && !popupWin.closed) {
-      popupWin.close();
-      setPopupWin(null);
-      return;
-    }
-    const sw = window.screen.availWidth;
-    const sh = window.screen.availHeight;
-    const sx = window.screen.availLeft || 0;
-    const sy = window.screen.availTop || 0;
-    const pw = 188, ph = 120;
-    const popup = window.open(
-      '',
-      'timer-popup',
-      `toolbar=no,menubar=no,location=no,status=no,scrollbars=no,resizable=no,` +
-      `width=${pw},height=${ph},left=${sx + (popupPosition === 'left' ? 24 : sw - pw - 24)},top=${sy + sh - ph - 60}`
-    );
-    if (!popup) {
-      alert('팝업이 차단됐습니다. 주소창 오른쪽의 팝업 허용 버튼을 클릭해주세요.');
-      return;
-    }
-    document.querySelectorAll('style').forEach(s =>
-      popup.document.head.appendChild(s.cloneNode(true))
-    );
-    popup.document.title = '⏱ 타이머';
-    popup.document.body.style.cssText = 'margin:0;padding:0;';
-    setPopupWin(popup);
+    const actName = isCustom ? customName : (curAct?.name ?? '');
+    window.electronAPI.openTimerPopup({ actName, color: timerColor, startTs, startLabel, position: popupPosition });
+    setElectronPopupOpen(true);
   };
 
   const handleStop = async () => {
@@ -236,7 +190,6 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       window.electronAPI.closeTimerPopup();
       setElectronPopupOpen(false);
     }
-    if (popupWin && !popupWin.closed) { popupWin.close(); setPopupWin(null); }
 
     const session = sessionRef.current;
     pendingSave.current = { startTs: session.startTs, segments: timerSegments(session.startTs, endTs), metadata: session.metadata };
@@ -354,12 +307,12 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       {gap && <StudyGapDialog key={`${gap.startTs}-${gap.error ? 'error' : 'ready'}`} uid={uid} gap={gap}
         onContinue={continueStart} onRetry={() => checkGap(startRequest.current)} onCancel={cancelStart} />}
 
-      {running && sessionPopupEnabled && !popupWin && !electronPopupOpen && createPortal(
+      {running && sessionPopupEnabled && !electronPopupOpen && createPortal(
         <div className={`float-timer${popupPosition === 'left' ? ' float-timer-left' : ''}`} style={{ '--ft-color': timerColor }}>
           <div className="ft-header">
             <span className="ft-dot" style={{ background: timerColor }} />
             <span className="ft-name">{isCustom ? customName : (curAct?.name ?? '')}</span>
-            <button className="ft-pin" onClick={handlePopup} title="항상 위에 고정">📌</button>
+            {isElectron && <button className="ft-pin" onClick={handlePopup} title="항상 위에 고정">📌</button>}
           </div>
           <div className="ft-time" style={{ color: timerColor }}>{fmtElapsed(elapsed)}</div>
           {startLabel && <div className="ft-start" style={{ color: timerColor }}>{startLabel} 시작</div>}
@@ -371,22 +324,6 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
         document.body
       )}
 
-      {running && popupWin && !popupWin.closed && createPortal(
-        <div className="popup-timer" style={{ '--ft-color': timerColor }}>
-          <div className="ft-header">
-            <span className="ft-dot" style={{ background: timerColor }} />
-            <span className="ft-name">{isCustom ? customName : (curAct?.name ?? '')}</span>
-            <button className="ft-pin" onClick={handlePopup} title="고정 해제">🔓</button>
-          </div>
-          <div className="ft-time" style={{ color: timerColor }}>{fmtElapsed(elapsed)}</div>
-          {startLabel && <div className="ft-start" style={{ color: timerColor }}>{startLabel} 시작</div>}
-          <button className="ft-stop" style={{ borderColor: timerColor, color: timerColor }}
-            disabled={saving} onClick={handleStop}>
-            {saving ? '저장 중...' : '■ 정지 & 기록'}
-          </button>
-        </div>,
-        popupWin.document.body
-      )}
       {rest.panel}
     </div>
   );

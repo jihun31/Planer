@@ -9,7 +9,7 @@ import { useTodos } from "./features/todos/useTodos";
 import { usePriorityNotes } from "./features/priorities/usePriorityNotes";
 import { useLegacyBlockMigration } from './features/planner/useLegacyBlockMigration';
 import { loginWithGoogle, logout, cancelLogin, loginErrorMessage } from "./features/auth/authService";
-import TodayTab from "./components/tabs/TasksTab";
+import TodayTab from "./components/tabs/TodayTab";
 import PlannerTab from "./components/tabs/PlannerTab";
 import { restTimer } from './components/planner/restTimer';
 import LearningTab, { LearningSummary } from './components/tabs/LearningTab';

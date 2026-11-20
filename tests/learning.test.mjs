@@ -86,7 +86,7 @@ test('weekly and streak badges use the same eight medal tiers in the same order'
   const stats = learningStats([],[],now);
   const week = stats.badges.filter(b => b.type === 'week');
   const streak = stats.badges.filter(b => b.type === 'streak');
-  const tiers = ['bronze','silver','gold','navy','champagne','rose','platinum','legend'];
+  const tiers = ['bronze','silver','gold','navy','champagne','emerald','platinum','legend'];
   assert.deepEqual(streak.map(b => b.target),[3,7,14,30,60,100,200,365]);
   assert.deepEqual(week.map(b => badgeTier(b.type,b.target)),tiers);
   assert.deepEqual(streak.map(b => badgeTier(b.type,b.target)),tiers);

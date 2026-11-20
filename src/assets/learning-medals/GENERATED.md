@@ -7,8 +7,10 @@ Prompt set: preserve the original vertical ribbon and circular medal proportions
 front-facing flat illustrated style, restrained two-tone shading, and transparent
 background; keep all decoration inside the medal footprint, without text.
 
-- `medal-navy-diamond.png`: navy ribbon, warm gold disc, centered diamond.
-- `medal-champagne-star.png`: burgundy ribbon, champagne disc, four-point star.
+The first versions (navy diamond, champagne star, rose sun) were edited into the
+`-v2` files below and are no longer kept. Of the Kenney originals, only the
+flatshadow medals the app shows are kept.
+
 - `medal-navy-diamond-v2.png`: 40-hour / 30-day emblem update. Edit prompt:
   preserve the existing ribbon, disc, rim, proportions and transparent framing;
   replace only the center with a midnight-navy diamond, two flat facets and a
@@ -18,7 +20,6 @@ background; keep all decoration inside the medal footprint, without text.
   replace only the star with a simple burgundy flame, one curling tip and a
   small gold inner cutout, readable at the existing icon size. Generated with
   the built-in image generation tool.
-- `medal-rose-sun.png`: forest-green ribbon, rose-gold disc, eight-ray sun.
 - `medal-emerald-sun-v2.png`: replaces the plain sun at the 60-hour / 100-day tier.
   Edit prompt: preserve the original footprint and green ribbon; brighten the
   rose-gold disc, add a warm-gold lip and concentric rim, and use a pointed solar

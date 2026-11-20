@@ -5,7 +5,7 @@ service cloud.firestore {
       return name in [
         'goals', 'subGoals', 'tasks', 'todos',
         'plannerActivities', 'scheduleBlocks', 'controlActivities', 'controlBlocks',
-        'habits', 'habitLogs', 'progressItems', 'progressLogs'
+        'habits', 'habitLogs'
       ];
     }
     function signedIn() {

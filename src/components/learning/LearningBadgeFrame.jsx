@@ -1,6 +1,6 @@
 import { useId } from 'react';
 
-const ranks = { rose:2, platinum:3, legend:4 };
+const ranks = { emerald:2, platinum:3, legend:4 };
 
 // Keep all ornament inside the card; the frame never participates in its layout.
 export default function LearningBadgeFrame({ tier }) {
