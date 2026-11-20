@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import EmojiPicker from './EmojiPicker';
 import { COUNT_MAX, NAME_MAX, TEXT_MAX, UNIT_MAX, WEEKDAY_LABELS, WEEK_ORDER, normalizeHabit, startSuggestions } from '../../features/habits/habitCore.mjs';
 
 // 습관 추가·수정 창. "[이미 하는 일] 하고 나서 → [작은 행동]" 형태로 받는다(Fogg의 앵커, Gollwitzer의 if-then 계획).
@@ -41,15 +42,15 @@ export default function HabitForm({ habit, today, onSave, onClose }) {
         <button type="button" className="modal-close" onClick={onClose} aria-label="닫기">✕</button>
       </div>
       <div className="modal-bdy">
-        <label className="habit-field">
-          <span>무엇을 할까요?</span>
+        {/* label로 감싸면 제목을 눌러도 이모지 창이 열려서 div로 둔다 */}
+        <div className="habit-field">
+          <span>무엇을 할까요? <em>왼쪽에서 이모지를 고를 수 있어요(선택)</em></span>
           <div className="habit-name-row">
-            <input className="today-add-input habit-emoji-input" value={form.emoji} maxLength={8} placeholder="🏃"
-              aria-label="이모지" onChange={e => set('emoji', e.target.value)} />
+            <EmojiPicker value={form.emoji} onChange={emoji => set('emoji', emoji)} />
             <input className="today-add-input" value={form.name} maxLength={NAME_MAX} placeholder="예: 운동 30분" autoFocus
               aria-label="습관 이름" onChange={e => set('name', e.target.value)} />
           </div>
-        </label>
+        </div>
 
         <label className="habit-field">
           <span>언제 할까요? <em>이미 매일 하는 일 뒤에 붙이면 잊지 않아요</em></span>

@@ -118,6 +118,22 @@ if(!process.versions.electron){
         assert(button(form,'추가').disabled,'Empty name should not be addable');
         assert(button(form,'주 N회').getAttribute('aria-pressed')==='true','Default schedule should be weekly');
         setValue(form.querySelector('[aria-label="습관 이름"]'),'운동');
+        // 이모지: 칸을 누르면 고르기 창, 하나 고르면 닫히고 칸에 표시. Esc는 창만 닫고 추가 창은 그대로
+        form.querySelector('[aria-label="이모지 고르기"]').click();
+        await wait(()=>form.querySelector('.habit-emoji-pop'),'Emoji picker did not open');
+        assert(form.querySelectorAll('.habit-emoji-opt').length>=40,'Too few emoji choices');
+        form.querySelector('.habit-emoji-pop').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+        await wait(()=>!form.querySelector('.habit-emoji-pop'),'Escape did not close the picker');
+        assert(document.querySelector('.habit-form'),'Escape in the picker closed the whole form');
+        form.querySelector('[aria-label="이모지 고르기"]').click();
+        await wait(()=>form.querySelector('.habit-emoji-pop'),'Picker did not reopen');
+        form.querySelector('.habit-emoji-opt[aria-label="🏃"]').click();
+        await wait(()=>!form.querySelector('.habit-emoji-pop')&&form.querySelector('.habit-emoji-btn').textContent==='🏃','Picked emoji not shown');
+        form.querySelector('.habit-emoji-btn').click();
+        await wait(()=>form.querySelector('.habit-emoji-pop'),'Picker did not open to change');
+        setValue(form.querySelector('[aria-label="이모지 직접 입력"]'),'🥊');
+        button(form.querySelector('.habit-emoji-custom'),'넣기').click();
+        await wait(()=>form.querySelector('.habit-emoji-btn').textContent==='🥊','Custom emoji not used');
         setValue(form.querySelector('[aria-label="언제 할지"]'),'퇴근하고 집에 오면');
         setValue(form.querySelector('[aria-label="최소 버전"]'),'운동복 입기');
         await new Promise(resolve=>setTimeout(resolve,30));
@@ -127,7 +143,7 @@ if(!process.versions.electron){
         button(form,'추가').click();
         await wait(()=>!document.querySelector('.habit-form')&&card('운동'),'Habit was not added');
         const added=writes.at(-1);
-        assert(added[0]==='add'&&added[1].schedule.type==='weekly'&&added[1].schedule.count===3&&added[1].startDate==='2026-11-23'&&added[1].anchor==='퇴근하고 집에 오면','Wrong add: '+JSON.stringify(added));
+        assert(added[0]==='add'&&added[1].schedule.type==='weekly'&&added[1].schedule.count===3&&added[1].startDate==='2026-11-23'&&added[1].anchor==='퇴근하고 집에 오면'&&added[1].emoji==='🥊','Wrong add: '+JSON.stringify(added));
         assert(card('운동').textContent.includes('2026-11-23에 시작해요'),'Future habit should say when it starts');
         assert(![...today().querySelectorAll('.habit-today-name')].some(item=>item.textContent.includes('운동')),'Not-started habit should not be in today');
       `);

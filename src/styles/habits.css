@@ -210,3 +210,24 @@
 .habit-auto-dot.s3 { background: #60a5fa; }
 .habit-auto-dot.s4 { background: #34d399; }
 .habit-auto-dot.s5 { background: var(--green); }
+
+/* 이모지 고르기 */
+.habit-emoji-picker { position: relative; flex: 0 0 auto; }
+.habit-emoji-btn {
+  width: 44px; height: 100%; min-height: 38px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); font-size: 1.25rem; cursor: pointer;
+}
+.habit-emoji-btn.empty { color: var(--text-light); font-size: 1rem; }
+.habit-emoji-btn:hover, .habit-emoji-btn[aria-expanded="true"] { border-color: var(--primary); }
+.habit-emoji-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 10; width: 300px; padding: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column; gap: 8px; font-weight: 400;
+}
+.habit-emoji-group-label { font-size: 0.68rem; color: var(--text-light); }
+.habit-emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.habit-emoji-opt { font-size: 1.15rem; padding: 3px 0; border: 1px solid transparent; border-radius: 6px; background: none; cursor: pointer; }
+.habit-emoji-opt:hover { background: var(--bg); }
+.habit-emoji-opt.on { border-color: var(--primary); background: var(--primary-light); }
+.habit-emoji-custom { display: flex; gap: 4px; align-items: center; border-top: 1px solid var(--border); padding-top: 8px; }
+.habit-emoji-custom input { flex: 1; min-width: 0; font: inherit; font-size: 0.8rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; }
