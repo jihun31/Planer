@@ -1,25 +1,248 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isPlannerCollection(name) {
-      return name in [
-        'goals', 'subGoals', 'tasks', 'todos',
-        'plannerActivities', 'scheduleBlocks', 'controlActivities', 'controlBlocks',
-        'habits', 'habitLogs'
-      ];
-    }
     function signedIn() {
       return request.auth != null;
     }
-    match /{collectionName}/{documentId} {
-      allow read, delete: if isPlannerCollection(collectionName)
-        && signedIn() && resource.data.uid == request.auth.uid;
-      allow create: if isPlannerCollection(collectionName)
-        && signedIn() && request.resource.data.uid == request.auth.uid;
-      allow update: if isPlannerCollection(collectionName)
-        && signedIn()
-        && resource.data.uid == request.auth.uid
-        && request.resource.data.uid == request.auth.uid;
+
+    // ===== 최상위 컬렉션(문서에 uid 필드를 두는 예전 구조) =====
+    // 컬렉션마다 match를 따로 둔다. 규칙은 match 중 하나만 허용해도 통과하므로 와일드카드 match를 두면 아래 검사가 무력해진다.
+    // 만들 때는 문서 전체를, 고칠 때는 바뀐 필드만 검사한다(검사 전에 만든 예전 문서도 계속 고칠 수 있게).
+    function ownsDoc() {
+      return signedIn() && resource.data.uid == request.auth.uid;
+    }
+    function createsOwn(fields, required) {
+      return signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(fields)
+        && request.resource.data.keys().hasAll(required);
+    }
+    function changes() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+    function updatesOwn(fields) {
+      return ownsDoc() && changes().hasOnly(fields);
+    }
+    function changed(field) {
+      return field in changes();
+    }
+    function isDate(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+    function isColor(v) {
+      return v is string && v.matches('^#[0-9a-fA-F]{6}$');
+    }
+    function isDocId(v) {
+      return v is string && v.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+    function isText(v, min, max) {
+      return v is string && v.size() >= min && v.size() <= max;
+    }
+    function createdNow() {
+      return request.resource.data.createdAt == request.time;
+    }
+    // 'YYYY-MM-DD'를 키로 쓰는 맵(습관 기록·자동화 점수)의 키를 한 번에 검사한다.
+    function dateKeyed(m, maxSize) {
+      return m is map && m.size() <= maxSize
+        && (m.size() == 0 || m.keys().join(',').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}(,[0-9]{4}-[0-9]{2}-[0-9]{2})*$'));
+    }
+
+    // 목표·세부 목표
+    match /goals/{goalId} {
+      allow read, delete: if ownsDoc();
+      allow create: if createsOwn(['uid', 'title', 'color', 'createdAt'], ['uid', 'title', 'color', 'createdAt'])
+        && isText(request.resource.data.title, 1, 200)
+        && isColor(request.resource.data.color)
+        && createdNow();
+      allow update: if updatesOwn(['title', 'color'])
+        && (!changed('title') || isText(request.resource.data.title, 1, 200))
+        && (!changed('color') || isColor(request.resource.data.color));
+    }
+    match /subGoals/{subGoalId} {
+      allow read, delete: if ownsDoc();
+      allow create: if createsOwn(
+          ['uid', 'goalId', 'title', 'type', 'year', 'month', 'weekOfMonth', 'completed', 'createdAt'],
+          ['uid', 'goalId', 'title', 'type', 'year', 'month', 'weekOfMonth', 'completed', 'createdAt'])
+        && isDocId(request.resource.data.goalId)
+        && get(/databases/$(database)/documents/goals/$(request.resource.data.goalId)).data.uid == request.auth.uid
+        && isText(request.resource.data.title, 1, 500)
+        && request.resource.data.year is int && request.resource.data.year >= 2000 && request.resource.data.year <= 2100
+        && request.resource.data.month is int && request.resource.data.month >= 1 && request.resource.data.month <= 12
+        && ((request.resource.data.type == 'month' && request.resource.data.weekOfMonth == null)
+          || (request.resource.data.type == 'week' && request.resource.data.weekOfMonth is int
+            && request.resource.data.weekOfMonth >= 1 && request.resource.data.weekOfMonth <= 5))
+        && request.resource.data.completed == false
+        && createdNow();
+      allow update: if updatesOwn(['completed']) && request.resource.data.completed is bool;
+    }
+
+    // 할 일(오늘 탭)·할 일 목록
+    match /tasks/{taskId} {
+      allow read, delete: if ownsDoc();
+      allow create: if createsOwn(
+          ['uid', 'title', 'dueDate', 'timeSlot', 'completed', 'createdAt', 'createdAtMs'],
+          ['uid', 'title', 'dueDate', 'completed', 'createdAt'])
+        && isText(request.resource.data.title, 1, 500)
+        && (request.resource.data.dueDate == null || isDate(request.resource.data.dueDate))
+        && (!('timeSlot' in request.resource.data) || request.resource.data.timeSlot in ['오전', '오후', '저녁'])
+        && (!('createdAtMs' in request.resource.data) || request.resource.data.createdAtMs is int)
+        && request.resource.data.completed == false
+        && createdNow();
+      allow update: if updatesOwn(['completed']) && request.resource.data.completed is bool;
+    }
+    match /todos/{todoId} {
+      allow read, delete: if ownsDoc();
+      // 달력에서 일정과 함께 등록하면 calendarEventId가 붙는다.
+      allow create: if createsOwn(['uid', 'title', 'dueDate', 'completed', 'calendarEventId', 'createdAt'], ['uid', 'title', 'dueDate', 'completed', 'createdAt'])
+        && isText(request.resource.data.title, 1, 500)
+        && (request.resource.data.dueDate == null || isDate(request.resource.data.dueDate))
+        && (!('calendarEventId' in request.resource.data) || isDocId(request.resource.data.calendarEventId))
+        && request.resource.data.completed == false
+        && createdNow();
+      allow update: if updatesOwn(['title', 'dueDate'])
+        && (!changed('title') || isText(request.resource.data.title, 1, 500))
+        && (!changed('dueDate') || request.resource.data.dueDate == null || isDate(request.resource.data.dueDate));
+    }
+
+    // 학습·통제 활동. 지우지 않고 보관(archived)한다. 학습 활동은 기록을 정리한 뒤 영구 삭제할 수 있다.
+    match /plannerActivities/{activityId} {
+      allow read, delete: if ownsDoc();
+      allow create: if createsOwn(['uid', 'name', 'color', 'createdAt'], ['uid', 'name', 'color', 'createdAt'])
+        && isText(request.resource.data.name, 1, 200)
+        && isColor(request.resource.data.color)
+        && createdNow();
+      allow update: if updatesOwn(['order', 'color', 'archived', 'archivedAt'])
+        && (!changed('order') || (request.resource.data.order is int && request.resource.data.order >= 0))
+        && (!changed('color') || isColor(request.resource.data.color))
+        && (!changed('archived') || request.resource.data.archived is bool)
+        && (!changed('archivedAt') || request.resource.data.archivedAt == request.time);
+    }
+    function controlGroupColor(group, color) {
+      return (group == 'controlled' && color == '#2563eb') || (group == 'foolish' && color == '#dc2626');
+    }
+    match /controlActivities/{activityId} {
+      allow read, delete: if ownsDoc();
+      allow create: if createsOwn(['uid', 'name', 'color', 'group', 'createdAt'], ['uid', 'name', 'color', 'group', 'createdAt'])
+        && isText(request.resource.data.name, 1, 200)
+        && controlGroupColor(request.resource.data.group, request.resource.data.color)
+        && createdNow();
+      allow update: if updatesOwn(['order', 'archived', 'archivedAt', 'group', 'color'])
+        && (!changed('order') || (request.resource.data.order is int && request.resource.data.order >= 0))
+        && (!changed('archived') || request.resource.data.archived is bool)
+        && (!changed('archivedAt') || request.resource.data.archivedAt == request.time)
+        && (!(changed('group') || changed('color')) || controlGroupColor(request.resource.data.group, request.resource.data.color));
+    }
+
+    // 학습·통제 기록(시간표 칸). 분은 그날 08:00 기준이고, 하루는 05:00에 바뀐다.
+    function blockFields() {
+      return ['uid', 'kind', 'date', 'startMin', 'endMin', 'activityId', 'activityName', 'activityColor',
+        'customName', 'customColor', 'learningIncluded', 'group', 'source', 'createdAt'];
+    }
+    function validBlock(d) {
+      return d.kind in ['study', 'control']
+        && isDate(d.date)
+        && d.startMin is int && d.endMin is int
+        && d.startMin >= -480 && d.endMin > d.startMin && d.endMin <= 2400 && d.endMin - d.startMin <= 1440
+        && ((d.activityId == null && 'customName' in d && isText(d.customName, 1, 200))
+          || (isDocId(d.activityId) && !('customName' in d)))
+        && (!('activityName' in d) || isText(d.activityName, 0, 200))
+        && (!('activityColor' in d) || isColor(d.activityColor))
+        && (!('customColor' in d) || isColor(d.customColor))
+        && (!('learningIncluded' in d) || (d.kind == 'study' && d.learningIncluded is bool))
+        && (!('group' in d) || (d.kind == 'control' && d.group in ['controlled', 'foolish']))
+        && (!('source' in d) || (d.kind == 'control' && d.source == 'study-gap'));
+    }
+    match /scheduleBlocks/{blockId} {
+      allow read, delete: if ownsDoc();
+      allow create: if (createsOwn(blockFields(), ['uid', 'kind', 'date', 'startMin', 'endMin', 'activityId', 'createdAt'])
+          && validBlock(request.resource.data) && createdNow())
+        // 예전 controlBlocks를 옮겨 오는 복사본: 원본 그대로에 kind만 붙는다(원본 형식이 정해져 있지 않아 문서 ID로만 제한).
+        || (signedIn() && request.resource.data.uid == request.auth.uid
+          && request.resource.data.kind == 'control'
+          && blockId.matches('^legacy-control-' + request.auth.uid + '-[A-Za-z0-9_-]{1,128}$'));
+      // 타이머·빈 시간 기록은 같은 문서 ID로 다시 저장(재시도)할 수 있다: 이때는 createdAt만 바뀐다.
+      allow update: if (updatesOwn(['createdAt']) && createdNow())
+        || (updatesOwn(['activityName', 'activityColor', 'learningIncluded'])
+          && (!changed('activityName') || isText(request.resource.data.activityName, 0, 200))
+          && (!changed('activityColor') || isColor(request.resource.data.activityColor))
+          && (!changed('learningIncluded') || request.resource.data.learningIncluded is bool));
+    }
+    // 예전 구조. 앱은 읽어서 옮기거나 지우기만 한다.
+    match /controlBlocks/{blockId} {
+      allow read, delete: if ownsDoc();
+    }
+    match /habitLogs/{logId} {
+      allow read, delete: if ownsDoc();
+    }
+
+    // 습관. 기록은 logs 맵({ 'YYYY-MM-DD': 'full' | 'tiny' | 'skip' | 1~999 }), 자동화 점수는 automaticity 맵({ 월요일: 1~5 })
+    function habitFields() {
+      return ['uid', 'name', 'emoji', 'anchor', 'tinyVersion', 'schedule', 'target', 'startDate',
+        'logs', 'automaticity', 'archived', 'order', 'createdAt', 'updatedAt'];
+    }
+    function validSchedule(s) {
+      return s is map && (
+        (s.type == 'daily' && s.keys().hasOnly(['type']))
+        || (s.type == 'weekly' && s.keys().hasOnly(['type', 'count']) && s.count is int && s.count >= 1 && s.count <= 7)
+        || (s.type == 'weekdays' && s.keys().hasOnly(['type', 'days']) && s.days is list
+          && s.days.size() >= 1 && s.days.size() <= 7 && s.days.hasOnly([0, 1, 2, 3, 4, 5, 6])
+          && s.days.toSet().size() == s.days.size())
+      );
+    }
+    function validTarget(t) {
+      return t is map && (
+        (t.type == 'check' && t.keys().hasOnly(['type']))
+        || (t.type == 'count' && t.keys().hasOnly(['type', 'value', 'unit'])
+          && t.value is int && t.value >= 2 && t.value <= 99 && isText(t.unit, 0, 6))
+      );
+    }
+    function validLogValue(v) {
+      return (v is string && v in ['full', 'tiny', 'skip']) || (v is int && v >= 1 && v <= 999);
+    }
+    // 앱은 한 번에 하루 칸만 바꾼다. 새로 생긴 값(이전 맵에 없던 값)이 많아야 하나라 그 값만 검사하면
+    // 맵 전체가 늘 올바른 상태로 유지된다(검사를 시작하기 전에 있던 값은 예외).
+    function validLogChange(before, after) {
+      return dateKeyed(after, 4000)
+        && after.diff(before).affectedKeys().size() <= 1
+        && (after.values().removeAll(before.values()).size() == 0
+          || validLogValue(after.values().removeAll(before.values())[0]));
+    }
+    function validHabitField(field, d) {
+      return (field == 'name' && isText(d.name, 1, 40))
+        || (field == 'emoji' && isText(d.emoji, 0, 16))
+        || (field == 'anchor' && isText(d.anchor, 0, 80))
+        || (field == 'tinyVersion' && isText(d.tinyVersion, 0, 80))
+        || (field == 'schedule' && validSchedule(d.schedule))
+        || (field == 'target' && validTarget(d.target))
+        || (field == 'startDate' && isDate(d.startDate))
+        || (field == 'archived' && d.archived is bool)
+        || (field == 'updatedAt' && d.updatedAt == request.time)
+        || (field == 'automaticity' && dateKeyed(d.automaticity, 600) && d.automaticity.values().hasOnly([1, 2, 3, 4, 5]));
+    }
+    function editedOk(field) {
+      return !changed(field) || validHabitField(field, request.resource.data);
+    }
+    match /habits/{habitId} {
+      allow read, delete: if ownsDoc();
+      allow create: if createsOwn(habitFields(),
+          ['uid', 'name', 'emoji', 'anchor', 'tinyVersion', 'schedule', 'target', 'startDate', 'logs', 'archived', 'order', 'createdAt'])
+        && !('automaticity' in request.resource.data) && !('updatedAt' in request.resource.data)
+        && validHabitField('name', request.resource.data)
+        && validHabitField('emoji', request.resource.data)
+        && validHabitField('anchor', request.resource.data)
+        && validHabitField('tinyVersion', request.resource.data)
+        && validHabitField('schedule', request.resource.data)
+        && validHabitField('target', request.resource.data)
+        && validHabitField('startDate', request.resource.data)
+        && request.resource.data.logs is map && request.resource.data.logs.size() == 0
+        && request.resource.data.archived == false
+        && request.resource.data.order is int
+        && createdNow();
+      allow update: if updatesOwn(['name', 'emoji', 'anchor', 'tinyVersion', 'schedule', 'target', 'startDate',
+          'archived', 'updatedAt', 'logs', 'automaticity'])
+        && editedOk('name') && editedOk('emoji') && editedOk('anchor') && editedOk('tinyVersion')
+        && editedOk('schedule') && editedOk('target') && editedOk('startDate')
+        && editedOk('archived') && editedOk('updatedAt') && editedOk('automaticity')
+        && (!changed('logs') || validLogChange(resource.data.get('logs', {}), request.resource.data.logs));
     }
     match /calendarEvents/{eventId} {
       function validEvent() {

@@ -268,21 +268,51 @@ before(async () => {
   });
 });
 after(async () => { await env?.cleanup(); });
+// 컬렉션마다 앱이 실제로 만드는 문서와 고치는 필드. 형식 검사는 planner-data.rules.test.mjs에서 따로 본다.
+const legacyCollections = ['controlBlocks', 'habitLogs'];
+async function sampleRecord(name, uid) {
+  const { serverTimestamp } = await import('firebase/firestore');
+  const createdAt = serverTimestamp();
+  return {
+    goals: { data: { uid, title: 'private', color: '#6366f1', createdAt }, update: { title: 'changed' } },
+    subGoals: { data: { uid, goalId: uid + '-goal', title: 'private', type: 'month', year: 2026, month: 11, weekOfMonth: null, completed: false, createdAt }, update: { completed: true } },
+    tasks: { data: { uid, title: 'private', dueDate: null, completed: false, createdAt, createdAtMs: 1 }, update: { completed: true } },
+    todos: { data: { uid, title: 'private', dueDate: '2026-11-20', completed: false, createdAt }, update: { title: 'changed' } },
+    plannerActivities: { data: { uid, name: 'private', color: '#22c55e', createdAt }, update: { order: 1 } },
+    scheduleBlocks: { data: { uid, kind: 'study', date: '2026-11-20', startMin: 0, endMin: 30, activityId: 'english', createdAt }, update: { activityColor: '#22c55e' } },
+    controlActivities: { data: { uid, name: 'private', color: '#2563eb', group: 'controlled', createdAt }, update: { order: 1 } },
+    habits: { data: { uid, name: 'private', emoji: '', anchor: '', tinyVersion: '', schedule: { type: 'daily' }, target: { type: 'check' }, startDate: '2026-11-20', logs: {}, archived: false, order: 1, createdAt }, update: { archived: true } },
+    controlBlocks: { data: { uid, title: 'private' }, update: { title: 'changed' } },
+    habitLogs: { data: { uid, title: 'private' }, update: { title: 'changed' } },
+  }[name];
+}
 for (const name of collections) {
   test(name + ': owners can CRUD; other users and anonymous clients are rejected', async () => {
     const alice = env.authenticatedContext('alice').firestore();
     const bob = env.authenticatedContext('bob').firestore();
     const guest = env.unauthenticatedContext().firestore();
-    await assertSucceeds(setDoc(doc(alice, name, 'alice-item'), { uid: 'alice', title: 'private' }));
+    const { data, update } = await sampleRecord(name, 'alice');
+    const forged = (await sampleRecord(name, 'alice')).data;
+    if (name === 'subGoals') await setDoc(doc(alice, 'goals', 'alice-goal'), (await sampleRecord('goals', 'alice')).data);
+    if (legacyCollections.includes(name)) {
+      // 예전 구조는 앱이 새로 만들거나 고치지 않는다.
+      await assertFails(setDoc(doc(alice, name, 'alice-item'), data));
+      await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), name, 'alice-item'), data));
+      await assertFails(updateDoc(doc(alice, name, 'alice-item'), update));
+    } else {
+      await assertSucceeds(setDoc(doc(alice, name, 'alice-item'), data));
+      await assertSucceeds(updateDoc(doc(alice, name, 'alice-item'), update));
+    }
     await assertSucceeds(getDoc(doc(alice, name, 'alice-item')));
-    await assertSucceeds(updateDoc(doc(alice, name, 'alice-item'), { title: 'changed' }));
     await assertFails(getDoc(doc(bob, name, 'alice-item')));
-    await assertFails(updateDoc(doc(bob, name, 'alice-item'), { title: 'attack' }));
+    await assertFails(updateDoc(doc(bob, name, 'alice-item'), update));
     await assertFails(deleteDoc(doc(bob, name, 'alice-item')));
     await assertFails(getDoc(doc(guest, name, 'alice-item')));
-    await assertFails(setDoc(doc(guest, name, 'guest'), { uid: 'alice' }));
-    await assertFails(setDoc(doc(bob, name, 'forged'), { uid: 'alice' }));
-    await assertFails(setDoc(doc(alice, name, 'missing-uid'), { title: 'missing' }));
+    await assertFails(setDoc(doc(guest, name, 'guest'), forged));
+    await assertFails(setDoc(doc(bob, name, 'forged'), forged));
+    const missingUid = { ...forged };
+    delete missingUid.uid;
+    await assertFails(setDoc(doc(alice, name, 'missing-uid'), missingUid));
     await assertFails(updateDoc(doc(alice, name, 'alice-item'), { uid: 'bob' }));
     await assertSucceeds(getDocs(query(collection(alice, name), where('uid', '==', 'alice'))));
     await assertFails(getDocs(collection(alice, name)));
@@ -292,12 +322,14 @@ for (const name of collections) {
 }
 test('date-limited IN queries remain owner-scoped and include legacy minute/slot records', async () => {
   const alice = env.authenticatedContext('alice').firestore();
-  const bob = env.authenticatedContext('bob').firestore();
-  for (const db of [alice, bob]) {
-    const uid = db === alice ? 'alice' : 'bob';
-    await setDoc(doc(db, 'scheduleBlocks', uid + '-sep'), { uid, date: '2026-09-30', startSlot: 1, endSlot: 2 });
-    await setDoc(doc(db, 'scheduleBlocks', uid + '-oct'), { uid, date: '2026-10-31', startMin: 1, endMin: 11 });
-  }
+  // 예전 형식(startSlot) 기록은 지금 규칙으로는 만들 수 없으므로 규칙을 끄고 넣는다.
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    for (const uid of ['alice', 'bob']) {
+      await setDoc(doc(db, 'scheduleBlocks', uid + '-sep'), { uid, date: '2026-09-30', startSlot: 1, endSlot: 2 });
+      await setDoc(doc(db, 'scheduleBlocks', uid + '-oct'), { uid, date: '2026-10-31', startMin: 1, endMin: 11 });
+    }
+  });
   const result = await assertSucceeds(getDocs(query(collection(alice, 'scheduleBlocks'),
     where('uid', '==', 'alice'), where('date', 'in', ['2026-10-31']))));
   assert.deepEqual(result.docs.map(d => d.id), ['alice-oct']);
@@ -306,9 +338,12 @@ test('date-limited IN queries remain owner-scoped and include legacy minute/slot
 test('cascade deletion cannot delete another users linked record', async () => {
   const alice = env.authenticatedContext('alice').firestore();
   const bob = env.authenticatedContext('bob').firestore();
-  await setDoc(doc(alice, 'goals', 'parent'), { uid: 'alice' });
-  await setDoc(doc(alice, 'subGoals', 'child-a'), { uid: 'alice', goalId: 'parent' });
-  await setDoc(doc(bob, 'subGoals', 'child-b'), { uid: 'bob', goalId: 'parent' });
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'goals', 'parent'), { uid: 'alice' });
+    await setDoc(doc(db, 'subGoals', 'child-a'), { uid: 'alice', goalId: 'parent' });
+    await setDoc(doc(db, 'subGoals', 'child-b'), { uid: 'bob', goalId: 'parent' });
+  });
   await assertFails(getDocs(query(collection(alice, 'subGoals'), where('goalId', '==', 'parent'))));
   const own = await assertSucceeds(getDocs(query(collection(alice, 'subGoals'),
     where('uid', '==', 'alice'), where('goalId', '==', 'parent'))));
