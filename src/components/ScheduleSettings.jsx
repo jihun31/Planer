@@ -5,7 +5,7 @@ import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.
 import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference } from '../features/planner/timerPreferences';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
 import { useTabOrder } from '../features/navigation/useTabOrder';
-import { DEFAULT_TAB_ORDER, HIDEABLE_VIEW_IDS, moveTab, orderTabs, tabAvailable } from '../features/navigation/appTabs.mjs';
+import { DEFAULT_TAB_ORDER, moveTab, orderTabs, tabAvailable, tabViews } from '../features/navigation/appTabs.mjs';
 import { useEditableCopy } from '../features/copy/useEditableCopy';
 import DiscordLinkSection from './DiscordLinkSection';
 export default function ScheduleSettings({ uid, history, ready, error, onClose, discord, serverInfo }) {
@@ -89,13 +89,17 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
       <p>{copy.field('tabsNote')}</p>
       <ol className="tab-order-list">
         {orderedTabs.map((tab,index) => {
-          const hideable = HIDEABLE_VIEW_IDS.includes(tab.id);
-          const shown = !hideable || tabVisibility[tab.id];
-          // 탭 안의 숨길 수 있는 하위 화면(예: 시간 관리의 통제)
-          const subViews = (tab.views ?? []).filter(view => HIDEABLE_VIEW_IDS.includes(view.id));
+          // 탭은 보기가 하나라도 보이면 표시된다. 모든 보기를 숨길 수 있어야 탭째 숨길 수 있다(탭 체크는 보기 전체를 켜고 끈다).
+          const views = tabViews(tab);
+          const hideableViews = views.filter(view => view.hideable);
+          const hideable = hideableViews.length === views.length;
+          const shown = views.some(view => !view.hideable || tabVisibility[view.id]);
+          // 탭 안의 숨길 수 있는 하위 화면(예: 시간 관리의 통제, 메모의 메모·캘린더)
+          const subViews = tab.views ? hideableViews : [];
           return <li key={tab.id} className={shown ? '' : 'tab-order-hidden'}>
             <input type="checkbox" aria-label={`${tab.label} 표시`} title={hideable ? '표시' : '항상 표시'}
-              disabled={copy.editing || !hideable} checked={shown} onChange={event => saveTabVisible(tab.id,event.target.checked)} />
+              disabled={copy.editing || !hideable} checked={shown}
+              onChange={event => hideableViews.forEach(view => saveTabVisible(view.id,event.target.checked))} />
             <span className="tab-order-name">{tab.label}</span>
             {subViews.map(view => <label key={view.id} className="tab-order-sub">
               <input type="checkbox" disabled={copy.editing} checked={tabVisibility[view.id]}

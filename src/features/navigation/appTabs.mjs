@@ -11,8 +11,10 @@ export const APP_TABS = [
     { id: 'control', label: '통제', hideable: true },
   ] },
   { id: 'habits', label: '🔁 습관', hideable: true },
-  { id: 'notes', label: '📝 메모', hideable: true },
-  { id: 'calendar', label: '📅 캘린더', hideable: true },
+  { id: 'memo', label: '📝 메모', views: [
+    { id: 'notes', label: '메모', hideable: true },
+    { id: 'calendar', label: '캘린더', hideable: true },
+  ] },
   { id: 'learning', label: '🌱 학습 기록', hideable: true },
   { id: 'checkin', label: '🔥 인증', requires: 'discord', hideable: true },
 ];
@@ -20,11 +22,15 @@ export const APP_TABS = [
 export const HOME_VIEW = 'today';
 export const DEFAULT_TAB_ORDER = APP_TABS.map(tab => tab.id);
 
+// 하나의 탭으로 합쳐진 예전 탭 id. 저장된 순서에서 먼저 나온 자리를 합친 탭이 이어받는다.
+const MERGED_TAB_IDS = { notes: 'memo', calendar: 'memo' };
+
 // 저장된 순서를 정리한다. 모르는 id·중복은 버리고, 빠진 탭(나중에 추가된 탭 등)은
 // 기본 순서에서 바로 앞에 있던 탭 뒤에 끼운다.
 export function normalizeTabOrder(order) {
   const result = [];
-  for (const id of Array.isArray(order) ? order : []) {
+  for (const saved of Array.isArray(order) ? order : []) {
+    const id = MERGED_TAB_IDS[saved] ?? saved;
     if (DEFAULT_TAB_ORDER.includes(id) && !result.includes(id)) result.push(id);
   }
   DEFAULT_TAB_ORDER.forEach((id, index) => {
@@ -70,7 +76,7 @@ export function visibleTabs(visibility, context, tabs = APP_TABS) {
     .filter(tab => tab.views.length > 0);
 }
 
-// Tab / Shift+Tab으로 오가는 순서: 하위 화면까지 펼친 보기 id 목록
+// 하위 화면까지 펼친 보기 id 목록(탭 순서대로)
 export const viewOrder = tabs => tabs.flatMap(tab => tab.views.map(view => view.id));
 
 export const tabOfView = (tabs, viewId) => tabs.find(tab => tab.views.some(view => view.id === viewId)) ?? null;
@@ -82,10 +88,13 @@ export function resolveView(tabs, viewId) {
   return tabs.find(tab => tab.id === owner?.id)?.views[0].id ?? HOME_VIEW;
 }
 
-export function stepView(tabs, viewId, delta) {
-  const order = viewOrder(tabs);
-  const index = order.indexOf(viewId);
-  return order[(index + delta + order.length) % order.length];
+// Tab / Shift+Tab: 같은 탭 안의 하위 화면(기록·통제, 메모·캘린더)을 차례로 바꾼다.
+// 하위 화면이 하나뿐인 탭이면 null(키 기본 동작을 그대로 둔다).
+export function stepSubView(tabs, viewId, delta) {
+  const views = tabOfView(tabs, viewId)?.views ?? [];
+  if (views.length < 2) return null;
+  const index = views.findIndex(view => view.id === viewId);
+  return views[(index + delta + views.length) % views.length].id;
 }
 
 // 상단 탭을 누르면 그 탭에서 마지막으로 본 화면으로 간다.

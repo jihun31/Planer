@@ -19,7 +19,7 @@ import { useHabits } from './features/habits/useHabits';
 import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
 import { useTabVisibility } from './features/navigation/useTabVisibility';
 import { useTabOrder } from './features/navigation/useTabOrder';
-import { HOME_VIEW, availableViews, orderTabs, resolveView, stepView, tabOfView, viewForTab, visibleTabs } from './features/navigation/appTabs.mjs';
+import { HOME_VIEW, availableViews, orderTabs, resolveView, stepSubView, tabOfView, viewForTab, visibleTabs } from './features/navigation/appTabs.mjs';
 
 // 오늘 할 일 말고는 처음 열 때 코드를 받는다. 시작 뒤 한가할 때 미리 받아 두어 탭 전환은 기다리지 않는다.
 const lazyViews = {
@@ -130,9 +130,12 @@ function App() {
       if (event.key !== 'Tab' || event.repeat || event.defaultPrevented || event.isComposing
         || event.altKey || event.ctrlKey || event.metaKey
         || isEditingTarget(event.target) || hasVisibleModal()) return;
+      // 탭 사이는 옮기지 않고, 하위 화면이 있는 탭에서만 그 안의 화면을 바꾼다.
+      const next = stepSubView(tabs, currentView, event.shiftKey ? -1 : 1);
+      if (!next) return;
       event.preventDefault();
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      activateView(stepView(tabs, currentView, event.shiftKey ? -1 : 1));
+      activateView(next);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

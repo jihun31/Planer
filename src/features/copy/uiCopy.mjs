@@ -18,7 +18,7 @@ export const UI_COPY = {
     "notes": "메모를 폴더로 나누어 관리합니다.\n사용법은 좌측 하단 '단축키' 버튼을 통해 확인할 수 있습니다.\n",
     "shortcutsHeading": "단축키",
     "tabKeys": "Tab / Shift + Tab",
-    "tabAction": "다음 화면 / 이전 화면으로 이동 (시간 관리의 기록·통제도 차례로 이동)",
+    "tabAction": "시간 관리에서는 기록 ↔ 통제, 메모에서는 메모 ↔ 캘린더 전환",
     "arrowKeys": "← →",
     "arrowAction": "각 탭에서 날짜 이동",
     "shortcutsNote": "",
