@@ -3,11 +3,11 @@ import HabitBadges, { BadgeToast } from './HabitBadges';
 import { AutomaticityCheck, AutomaticityTrend } from './AutomaticityCheck';
 import {
   WEEKDAY_LABELS, automaticityOf, completion, countLabel, countOf, historyWeeks, isCountHabit, percent, scheduleLabel, shortDay,
-  statusOf, streakOf, totalDone, weekCells, weekDoneCount, weekStart, weeklyTarget,
+  periodProgress, statusOf, streakOf, totalDone, weekCells,
 } from '../../features/habits/habitCore.mjs';
 
 const CELL_TEXT = { full: '완료', tiny: '최소만 함', skip: '쉬는 날', missed: '빠짐', open: '아직 안 함', empty: '안 함',
-  future: '예정', off: '쉬는 요일', before: '시작 전' };
+  future: '예정', off: '하지 않는 날', before: '시작 전' };
 const CELL_MARK = { full: '●', tiny: '◐', skip: '💤', missed: '×', open: '○', empty: '', future: '·', off: '–', before: '' };
 
 export function StreakBadge({ habit, today }) {
@@ -74,9 +74,7 @@ export default function HabitCard({ uid, habit, today, check, onEdit, onArchive,
   const [showHistory, setShowHistory] = useState(false);
   const streak = streakOf(habit, today);
   const notStarted = today < habit.startDate;
-  const weekly = habit.schedule?.type === 'weekly';
-  const target = weekly ? weeklyTarget(habit, weekStart(today)) : 0;
-  const doneThisWeek = weekly ? weekDoneCount(habit, today) : 0;
+  const progress = periodProgress(habit, today);
 
   return <article className={`habit-card ${check.isCelebrating(habit, today) ? 'celebrate' : ''}`}>
     <header className="habit-card-hdr">
@@ -110,7 +108,8 @@ export default function HabitCard({ uid, habit, today, check, onEdit, onArchive,
 
     <footer className="habit-card-foot">
       {notStarted ? <span>{habit.startDate}에 시작해요</span> : <>
-        {weekly && <span className={doneThisWeek >= target ? 'habit-met' : ''}>이번 주 {doneThisWeek}/{target}회</span>}
+        {progress && <span className={progress.done >= progress.target ? 'habit-met' : ''}>
+          {progress.label} {progress.done}/{progress.target}회</span>}
         <span>누적 {totalDone(habit)}회</span>
         {streak.missedLast && !statusOf(habit, today) && <span className="habit-warn">지난번에 빠졌어요. 두 번 연속만 피하면 이어져요</span>}
         <TodayActions habit={habit} today={today} check={check} />

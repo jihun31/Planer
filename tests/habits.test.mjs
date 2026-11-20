@@ -289,3 +289,56 @@ test('automaticity self-check: asked weekly after a week and three repetitions; 
   assert.equal(automaticityOf({ automaticity: { '2026-11-16': 5 } }).settled, false); // 한 번만으론 부족
   assert.ok(isValidScore(1) && isValidScore(5) && !isValidScore(0) && !isValidScore(6) && !isValidScore(2.5));
 });
+
+test('date-of-month habits are due on the chosen dates and fall back to the last day of short months', () => {
+  const h = habit({ type: 'monthdays', days: [1, 15, 31] });
+  assert.ok(isDue(h, '2026-11-15'));
+  assert.ok(isDue(h, '2026-12-01'));
+  assert.ok(!isDue(h, '2026-11-16'));
+  assert.ok(isDue(h, '2026-11-30'));  // 11월엔 31일이 없어 말일
+  assert.ok(!isDue(h, '2026-12-30'));
+  assert.ok(isDue(h, '2026-12-31'));
+  assert.ok(isDue(habit({ type: 'monthdays', days: [30] }), '2027-02-28'));
+  assert.equal(scheduleLabel(h.schedule), '매월 1·15·31일');
+  // 날짜 단위 연속 기록: 1일·15일 완료 → 2일 연속, 오늘(20일)은 해야 하는 날이 아님
+  const done = habit({ type: 'monthdays', days: [1, 15] }, logsOn(['2026-11-01', '2026-11-15']), '2026-11-01');
+  assert.deepEqual(streakOf(done, '2026-11-20'), { count: 2, unit: '일', missedLast: false, broken: false });
+  assert.equal(dueToday([done], '2026-11-20').length, 0);
+  assert.equal(dueToday([done], '2026-12-01').length, 1);
+  assert.deepEqual(normalizeHabit({ name: '정산', startDate: '2026-11-01', schedule: { type: 'monthdays', days: [15, 1, 1, 32, 0] } }).value.schedule,
+    { type: 'monthdays', days: [1, 15] });
+  assert.match(normalizeHabit({ name: '정산', startDate: '2026-11-01', schedule: { type: 'monthdays', days: [] } }).error, /날짜/);
+});
+
+test('monthly habits count completions per month, like weekly ones per week', async () => {
+  const { monthlyTarget, monthDoneCount, periodProgress } = await import('../src/features/habits/habitCore.mjs');
+  const today = '2026-11-20';
+  const m = (logs, startDate) => habit({ type: 'monthly', count: 4 }, logsOn(logs), startDate);
+  assert.equal(scheduleLabel({ type: 'monthly', count: 4 }), '월 4회');
+  const h = m(['2026-11-02', '2026-11-09', '2026-10-01', '2026-10-05', '2026-10-10', '2026-10-20']);
+  assert.equal(monthDoneCount(h, today), 2);
+  assert.equal(monthlyTarget(h, '2026-11-01'), 4);
+  assert.deepEqual(periodProgress(h, today), { label: '이번 달', done: 2, target: 4 });
+  assert.deepEqual(periodProgress(habit({ type: 'weekly', count: 2 }, logsOn(['2026-11-17'])), today), { label: '이번 주', done: 1, target: 2 });
+  assert.equal(periodProgress(habit({ type: 'daily' }), today), null);
+  // 10월 달성(4회) + 이번 달 진행 중 → 1달 연속, 단위 '달'
+  assert.deepEqual(streakOf(h, today), { count: 1, unit: '달', missedLast: false, broken: false });
+  // 9·10월 둘 다 못 채우면 끊김
+  assert.equal(streakOf(m(['2026-11-02'], '2026-09-01'), today).broken, true);
+  // 시작한 달은 남은 날만큼만, 쉬는 날만큼 줄여서 요구
+  assert.equal(monthlyTarget(m([], '2026-11-28'), '2026-11-01'), 3);
+  const skips = Object.fromEntries(Array.from({ length: 28 }, (_, i) => [addDays('2026-11-01', i), 'skip']));
+  assert.equal(monthlyTarget(habit({ type: 'monthly', count: 4 }, skips), '2026-11-01'), 2);
+  // 목표가 남았으면 오늘 목록에, 다 채우면 빠짐
+  assert.equal(dueToday([h], today).length, 1);
+  assert.equal(dueToday([m(['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05'])], today).length, 0);
+  // 지난달 빈 날은 'empty', 이번 달 남은 날은 'open'
+  assert.deepEqual(weekCells(m([], '2026-10-01'), '2026-12-02').map(c => c.state).slice(0, 3), ['empty', 'open', 'open']);
+  // 달성률: 10월 4/4 + 11월 진행 중 2회
+  assert.deepEqual(completion(h, '2026-10-01', today, today), { done: 6, total: 6, rate: 1 });
+  // 지난주 돌아보기에는 넣지 않음
+  assert.equal(weekReview([h], today).items.length, 0);
+  assert.match(normalizeHabit({ name: '독서', startDate: '2026-11-01', schedule: { type: 'monthly', count: 32 } }).error, /1~31/);
+  assert.deepEqual(normalizeHabit({ name: '독서', startDate: '2026-11-01', schedule: { type: 'monthly', count: '10', days: [1] } }).value.schedule,
+    { type: 'monthly', count: 10 });
+});

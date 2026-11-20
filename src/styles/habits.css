@@ -107,6 +107,10 @@
 }
 .habit-chip.day { padding: 5px 10px; }
 .habit-chip.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+/* 날짜 지정: 달력처럼 한 줄에 7칸 */
+.habit-month-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; max-width: 320px; }
+.habit-month-days .habit-chip { padding: 4px 0; text-align: center; }
+.habit-note { display: block; margin-top: 6px; font-size: 0.78rem; font-style: normal; color: var(--text-muted); }
 .habit-inline { font-size: 0.84rem; font-weight: 400; margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .habit-inline input, .habit-choice-row input[type="date"] {
   font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;

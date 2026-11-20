@@ -186,6 +186,12 @@ service cloud.firestore {
         || (s.type == 'weekdays' && s.keys().hasOnly(['type', 'days']) && s.days is list
           && s.days.size() >= 1 && s.days.size() <= 7 && s.days.hasOnly([0, 1, 2, 3, 4, 5, 6])
           && s.days.toSet().size() == s.days.size())
+        || (s.type == 'monthly' && s.keys().hasOnly(['type', 'count']) && s.count is int && s.count >= 1 && s.count <= 31)
+        || (s.type == 'monthdays' && s.keys().hasOnly(['type', 'days']) && s.days is list
+          && s.days.size() >= 1 && s.days.size() <= 31
+          && s.days.hasOnly([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+            21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+          && s.days.toSet().size() == s.days.size())
       );
     }
     function validTarget(t) {

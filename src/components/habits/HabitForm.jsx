@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import EmojiPicker from './EmojiPicker';
-import { COUNT_MAX, NAME_MAX, TEXT_MAX, UNIT_MAX, WEEKDAY_LABELS, WEEK_ORDER, normalizeHabit, startSuggestions } from '../../features/habits/habitCore.mjs';
+import { COUNT_MAX, MONTH_DAY_MAX, NAME_MAX, TEXT_MAX, UNIT_MAX, WEEKDAY_LABELS, WEEK_ORDER, normalizeHabit, startSuggestions }
+  from '../../features/habits/habitCore.mjs';
+
+// 주기 버튼 순서: 고정 일정(매일·요일·날짜) → 유연한 일정(주·월 N회)
+const SCHEDULE_CHOICES = [['daily', '매일'], ['weekdays', '요일 지정'], ['monthdays', '날짜 지정'], ['weekly', '주 N회'], ['monthly', '월 N회']];
+const MONTH_DAYS = Array.from({ length: MONTH_DAY_MAX }, (_, i) => i + 1);
 
 // 습관 추가·수정 창. "[이미 하는 일] 하고 나서 → [작은 행동]" 형태로 받는다(Fogg의 앵커, Gollwitzer의 if-then 계획).
 export default function HabitForm({ habit, today, onSave, onClose }) {
@@ -10,8 +15,10 @@ export default function HabitForm({ habit, today, onSave, onClose }) {
     anchor: habit?.anchor ?? '',
     tinyVersion: habit?.tinyVersion ?? '',
     type: habit?.schedule?.type ?? 'weekly',
-    count: habit?.schedule?.count ?? 3,
-    days: habit?.schedule?.days ?? [],
+    count: habit?.schedule?.type === 'weekly' ? habit.schedule.count : 3,
+    monthCount: habit?.schedule?.type === 'monthly' ? habit.schedule.count : 10,
+    days: habit?.schedule?.type === 'weekdays' ? habit.schedule.days : [],
+    monthDays: habit?.schedule?.type === 'monthdays' ? habit.schedule.days : [],
     targetType: habit?.target?.type ?? 'check',
     targetValue: habit?.target?.value ?? 8,
     unit: habit?.target?.unit ?? '',
@@ -21,9 +28,11 @@ export default function HabitForm({ habit, today, onSave, onClose }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState('');
   const set = (key, value) => setForm(f => ({ ...f, [key]: value }));
-  const result = normalizeHabit({ ...form, schedule: { type: form.type, count: Number(form.count), days: form.days },
+  const monthly = form.type === 'monthly' || form.type === 'monthdays';
+  const result = normalizeHabit({ ...form, schedule: { type: form.type,
+    count: Number(form.type === 'monthly' ? form.monthCount : form.count), days: monthly ? form.monthDays : form.days },
     target: { type: form.targetType, value: Number(form.targetValue), unit: form.unit } });
-  const toggleDay = day => set('days', form.days.includes(day) ? form.days.filter(d => d !== day) : [...form.days, day]);
+  const toggle = (key, day) => setForm(f => ({ ...f, [key]: f[key].includes(day) ? f[key].filter(d => d !== day) : [...f[key], day] }));
 
   const submit = async event => {
     event.preventDefault();
@@ -89,18 +98,29 @@ export default function HabitForm({ habit, today, onSave, onClose }) {
         <fieldset className="habit-field">
           <legend>얼마나 자주?</legend>
           <div className="habit-choice-row">
-            {[['weekly', '주 N회'], ['daily', '매일'], ['weekdays', '요일 지정']].map(([type, label]) =>
+            {SCHEDULE_CHOICES.map(([type, label]) =>
               <button key={type} type="button" className={`habit-chip ${form.type === type ? 'on' : ''}`}
                 aria-pressed={form.type === type} onClick={() => set('type', type)}>{label}</button>)}
           </div>
+          {form.type === 'weekdays' && <div className="habit-choice-row">
+            {WEEK_ORDER.map(day => <button key={day} type="button" className={`habit-chip day ${form.days.includes(day) ? 'on' : ''}`}
+              aria-pressed={form.days.includes(day)} onClick={() => toggle('days', day)}>{WEEKDAY_LABELS[day]}</button>)}
+          </div>}
+          {form.type === 'monthdays' && <>
+            <div className="habit-month-days" role="group" aria-label="매월 할 날짜">
+              {MONTH_DAYS.map(day => <button key={day} type="button" className={`habit-chip day ${form.monthDays.includes(day) ? 'on' : ''}`}
+                aria-pressed={form.monthDays.includes(day)} aria-label={`${day}일`} onClick={() => toggle('monthDays', day)}>{day}</button>)}
+            </div>
+            <em className="habit-note">매달 고른 날짜에 해요. 그달에 없는 날짜(예: 31일)는 말일에 해요</em>
+          </>}
           {form.type === 'weekly' && <label className="habit-inline">
             일주일에 <input type="number" min={1} max={7} value={form.count} aria-label="주 횟수"
               onChange={e => set('count', e.target.value)} />회 <em>요일은 그때그때 편한 날에</em>
           </label>}
-          {form.type === 'weekdays' && <div className="habit-choice-row">
-            {WEEK_ORDER.map(day => <button key={day} type="button" className={`habit-chip day ${form.days.includes(day) ? 'on' : ''}`}
-              aria-pressed={form.days.includes(day)} onClick={() => toggleDay(day)}>{WEEKDAY_LABELS[day]}</button>)}
-          </div>}
+          {form.type === 'monthly' && <label className="habit-inline">
+            한 달에 <input type="number" min={1} max={MONTH_DAY_MAX} value={form.monthCount} aria-label="월 횟수"
+              onChange={e => set('monthCount', e.target.value)} />회 <em>날짜는 그때그때 편한 날에</em>
+          </label>}
         </fieldset>
 
         <fieldset className="habit-field">
