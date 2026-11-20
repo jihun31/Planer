@@ -5,6 +5,7 @@ import { useRetainedPlannerDay } from '../../features/planner/useRetainedPlanner
 import { usePlanner } from '../../features/planner/usePlanner';
 import { useControl } from '../../features/planner/useControl';
 import { oppositeDisplayFromHistory } from '../../features/planner/oppositeDisplay.mjs';
+import { controlColor, orderControlActivities } from '../../features/planner/controlColors.mjs';
 import { plannerDate, rangeForDate, shiftPlannerDate } from '../../features/planner/scheduleTime.mjs';
 import { hasVisibleModal, isEditingTarget } from '../../features/navigation/keyboardShortcuts.mjs';
 import TimerBlock from '../planner/TimerBlock';
@@ -15,7 +16,8 @@ import MonthlyStats from '../planner/MonthlyStats';
 import DailySchedule from '../planner/DailySchedule';
 import '../../styles/planner.css';
 
-function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, control = false, active = false, restTarget, onRestReturn }) {
+function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, control = false, active = false, restTarget, onRestReturn,
+  controlAvailable = true, onTimerSwitch, switchTarget }) {
   const today = plannerDate();
   const [selectedDate, setSelectedDate] = useState(today);
   const [calYear,  setCalYear]  = useState(() => Number(today.slice(0, 4)));
@@ -52,6 +54,18 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [active, selectedDate]);
 
+  // 타이머 정지 후 다음 활동 창에 띄울 기록·통제 활동(보관한 활동 제외). 통제 화면을 숨겼으면 기록 활동만.
+  const switchGroups = useMemo(() => {
+    const live = list => list.filter(activity => !activity.archived);
+    const study = live(control ? oppositeActivities : activities);
+    const controlled = control ? activities
+      : orderControlActivities(live(oppositeActivities).map(activity => ({ ...activity, color: controlColor(activity.group) })));
+    const withRest = restTimer.findRest(controlled) ? controlled
+      : [{ id: restTimer.optionId, name: restTimer.restName, color: '#6366f1' }, ...controlled];
+    return [{ view: 'planner', label: '기록', activities: study },
+      ...(controlAvailable ? [{ view: 'control', label: '통제', activities: withRest }] : [])];
+  }, [control, activities, oppositeActivities, controlAvailable]);
+
   const handleMonthChange = (delta) => {
     let mo = calMonth + delta, yr = calYear;
     if (mo < 0)  { mo = 11; yr--; }
@@ -80,7 +94,8 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
       <div className="planner-main">
         <div className="planner-left">
           <TimerBlock uid={uid} activities={activities} allActivities={allActivities} onSaveTimer={saveTimer} startActivityRef={timerStart} control={control}
-            restAvailable={control && !loading && !error} returnActivities={control ? oppositeActivities : undefined} onRestReturn={onRestReturn} restTarget={restTarget} />
+            restAvailable={control && !loading && !error} returnActivities={control ? oppositeActivities : undefined} onRestReturn={onRestReturn} restTarget={restTarget}
+            switchGroups={switchGroups} onSwitch={onTimerSwitch} switchTarget={switchTarget} />
           <PlannerCalendar
             year={calYear} month={calMonth} selectedDate={selectedDate}
             blocks={blocks} oppositeBlocks={oppositeBlocks} oppositeActivities={oppositeActivities} oppositeMode={oppositeMode}

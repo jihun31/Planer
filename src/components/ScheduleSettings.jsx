@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { saveScheduleSettings } from '../features/planner/scheduleSettings';
 import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs';
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
-import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition } from '../features/planner/timerPreferences';
+import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference } from '../features/planner/timerPreferences';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
 import { useTabOrder } from '../features/navigation/useTabOrder';
 import { DEFAULT_TAB_ORDER, HIDEABLE_VIEW_IDS, moveTab, orderTabs, tabAvailable } from '../features/navigation/appTabs.mjs';
@@ -14,6 +14,7 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
   const [timerPopupEnabled, setTimerPopupEnabled] = useTimerPopupPreference(uid);
   const [timerPopupPosition, setTimerPopupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled, setStudyGapEnabled] = useStudyGapPreference(uid);
+  const [timerSwitchEnabled, setTimerSwitchEnabled] = useTimerSwitchPreference(uid);
   const [timerFailure, setTimerFailure] = useState('');
   const [tabVisibility,setTabVisible] = useTabVisibility(uid);
   const [tabFailure,setTabFailure] = useState('');
@@ -72,6 +73,11 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
         catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
       }} /></label>
       <p>{copy.field('studyGapNote')}</p>
+      <label>{copy.field('timerSwitch')}<input type="checkbox" disabled={copy.editing} checked={timerSwitchEnabled} onChange={e => {
+        try { setTimerSwitchEnabled(e.target.checked); setTimerFailure(''); }
+        catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
+      }} /></label>
+      <p>{copy.field('timerSwitchNote')}</p>
       {timerFailure && <p role="alert">{timerFailure}</p>}
     </section>
     <section className="schedule-settings-timer">

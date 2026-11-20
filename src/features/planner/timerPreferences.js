@@ -52,3 +52,18 @@ export function useTimerPopupPosition(uid) {
   };
   return [position,setPosition];
 }
+
+// 타이머를 정지하면 다음 활동(기록·통제 배지)을 고르는 창을 띄운다. 기본은 끔.
+export function useTimerSwitchPreference(uid) {
+  const key = uid ? `planer:timer-switch-prompt:${uid}` : null;
+  const enabled = useSyncExternalStore(subscribe, () => {
+    try { return !!key && window.localStorage.getItem(key) === 'true'; }
+    catch { return false; }
+  }, () => false);
+  const setEnabled = value => {
+    if (!key || typeof value !== 'boolean') throw new Error('Invalid timer preference');
+    window.localStorage.setItem(key, String(value));
+    window.dispatchEvent(new Event(changeEvent));
+  };
+  return [enabled, setEnabled];
+}

@@ -215,7 +215,7 @@ test('real TimerBlock ignores past/future calendar selection, snapshots metadata
   const slots=[];let cursor=0, now=ts(5,12),fail=true;const calls=[];
   class Clock extends Date { static now(){ return now; } }
   const context=vm.createContext({Date:Clock,clockLabel,timerSegments,COLORS:['#123456'],CUSTOM_ID:'__custom__',activeTimerOwner:null,
-    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],restTimer:inactiveRestTimer,
+    useTimerPopupPreference:()=>[false],useTimerSwitchPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],restTimer:inactiveRestTimer,
     useState(initial){const i=cursor++;if(!(i in slots))slots[i]=initial;return [slots[i],v=>slots[i]=v];},
     useRef(initial){const i=cursor++;return slots[i]??=( {current:initial} );},
     useMemo:fn=>fn(),useEffect:()=>{},
@@ -238,7 +238,7 @@ test('desktop timer waits for popup confirmation and reports connection failure'
   const slots = []; let cursor = 0, reply, popupData;
   const api = { startTimerPopup: data => {popupData=data;return reply;}, closeTimerPopup() {}, onTimerStopped: () => () => {} };
   const context = vm.createContext({ Date, clockLabel, timerSegments, COLORS: ['#123456'], CUSTOM_ID: '__custom__', activeTimerOwner: null,
-    useTimerPopupPreference:()=>[true],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['left'],restTimer:inactiveRestTimer,
+    useTimerPopupPreference:()=>[true],useTimerSwitchPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['left'],restTimer:inactiveRestTimer,
     window: { electronAPI: api },
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], value => slots[i] = value]; },
     useRef(initial) { const i = cursor++; return slots[i] ??= { current: initial }; },
@@ -270,7 +270,7 @@ test('direct-entry timer stores the learning choice with its saved segments', as
   const body = source.slice(source.indexOf('function TimerBlock('),source.indexOf('\n  return (',source.indexOf('function TimerBlock(')));
   const slots = []; let cursor = 0, saved;
   const context = vm.createContext({Date,clockLabel,timerSegments,COLORS:['#123456'],CUSTOM_ID:'__custom__',activeTimerOwner:null,
-    useTimerPopupPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],restTimer:inactiveRestTimer,
+    useTimerPopupPreference:()=>[false],useTimerSwitchPreference:()=>[false],useStudyGapPreference:()=>[false],useTimerPopupPosition:()=>['right'],restTimer:inactiveRestTimer,
     useState(initial) { const i=cursor++; if (!(i in slots)) slots[i]=initial; return [slots[i],value=>slots[i]=value]; },
     useRef(initial) { const i=cursor++; return slots[i]??={current:initial}; },
     useMemo:fn=>fn(),useEffect:()=>{},

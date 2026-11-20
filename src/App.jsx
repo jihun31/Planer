@@ -108,6 +108,17 @@ function App() {
     if (user?.uid && controlVisible && restTimer.read(user.uid).session) activateView('control');
   }, [user?.uid, controlVisible, activateView]);
 
+  // 타이머 정지 후 고른 다음 활동을 그 활동의 화면(기록·통제) 타이머에서 시작한다.
+  // 시간 관리 탭을 보고 있었다면 그 화면으로 옮기고, 다른 탭이면 화면은 그대로 두고 타이머만 붙인다.
+  const [timerSwitch, setTimerSwitch] = useState(null);
+  useEffect(() => { setTimerSwitch(null); }, [user?.uid]);
+  const switchTimer = (view, activityId) => {
+    setTimerSwitch({ uid: user.uid, view, activityId });
+    if (currentView === 'planner' || currentView === 'control') activateView(view);
+    else setOpenedViews(opened => opened[view] ? opened : { ...opened, [view]: true });
+  };
+  const switchTargetFor = view => timerSwitch?.uid === user?.uid && timerSwitch?.view === view ? timerSwitch : null;
+
   const resumeAfterRest = activityId => {
     setRestTarget({ uid: user.uid, activityId });
     activateView('planner');
@@ -182,7 +193,7 @@ function App() {
     );
   }
 
-  const plannerProps = { uid: user.uid, scheduleHistory, settingsReady, settingsError };
+  const plannerProps = { uid: user.uid, scheduleHistory, settingsReady, settingsError, controlAvailable: controlVisible, onTimerSwitch: switchTimer };
   const afterBlockMigration = content => blockMigration.ready ? content
     : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />;
   // 보기 id(appTabs.mjs)마다 그릴 화면
@@ -194,10 +205,10 @@ function App() {
       {/* 학습 기록 탭을 숨기면 요약도 함께 숨긴다(누르면 갈 곳이 없다). */}
       {tabOfView(tabs, 'learning') && <LearningSummary learning={learning} onOpen={() => activateView('learning')} />}
       {afterBlockMigration(<PlannerTab key={user.uid} {...plannerProps} active={currentView === 'planner'}
-        restTarget={restTarget?.uid === user.uid ? restTarget : null} />)}
+        restTarget={restTarget?.uid === user.uid ? restTarget : null} switchTarget={switchTargetFor('planner')} />)}
     </>,
     control: () => afterBlockMigration(<PlannerTab key={`${user.uid}-control`} {...plannerProps} control
-      active={currentView === 'control'} onRestReturn={resumeAfterRest} />),
+      active={currentView === 'control'} onRestReturn={resumeAfterRest} switchTarget={switchTargetFor('control')} />),
     learning: () => <LearningTab key={user.uid} learning={learning} active={currentView === 'learning'} />,
     habits: () => <HabitsTab key={user.uid} uid={user.uid} habitsData={habitsData} />,
     notes: () => <NotesTab key={user.uid} uid={user.uid} />,

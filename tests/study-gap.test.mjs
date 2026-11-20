@@ -62,7 +62,7 @@ function timerHarness(enabled,prepare,control = false) {
   let cursor = 0, now = ts(22,12);
   class Clock extends Date {static now(){return now;}}
   const context = vm.createContext({Date:Clock,clockLabel,timerSegments,controlColor,COLORS:['#6366f1'],CUSTOM_ID:'__custom__',activeTimerOwner:null,
-    useTimerPopupPreference:()=>[false],useTimerPopupPosition:()=>['right'],useStudyGapPreference:()=>[enabled],prepareStudyGap:prepare,
+    useTimerPopupPreference:()=>[false],useTimerPopupPosition:()=>['right'],useTimerSwitchPreference:()=>[false],useStudyGapPreference:()=>[enabled],prepareStudyGap:prepare,
     restTimer:{useTimer:()=>({busy:false,active:false}),useReturnTimer(){},isRestName:()=>false},
     useState(initial){const index = cursor++;if (!(index in slots)) slots[index] = initial;return [slots[index],value=>{slots[index]=typeof value==='function'?value(slots[index]):value;}];},
     useRef(initial){const index = cursor++;return slots[index] ??= {current:initial};},useMemo:fn=>fn(),useEffect:()=>{},

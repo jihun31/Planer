@@ -3,18 +3,24 @@ import { createPortal } from 'react-dom';
 import { controlColor } from '../../features/planner/controlColors.mjs';
 import { clockLabel, timerSegments } from '../../features/planner/scheduleTime.mjs';
 import { COLORS, CUSTOM_ID, fmtElapsed } from './plannerDisplay.mjs';
-import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition } from '../../features/planner/timerPreferences';
+import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference } from '../../features/planner/timerPreferences';
 import { prepareStudyGap } from '../../features/planner/studyGapService';
 import StudyGapDialog from './StudyGapDialog';
+import TimerSwitchDialog from './TimerSwitchDialog';
 import { restTimer } from './restTimer';
 
 let activeTimerOwner = null;
 
 function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivityRef, control = false,
-  restAvailable, returnActivities, onRestReturn, restTarget }) {
+  restAvailable, returnActivities, onRestReturn, restTarget, switchGroups, onSwitch, switchTarget }) {
   const [popupEnabled] = useTimerPopupPreference(uid);
   const [popupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled] = useStudyGapPreference(uid);
+  const [switchEnabled] = useTimerSwitchPreference(uid);
+  // 정지한 기록이 저장되면 다음 활동을 고르는 창을 띄운다.
+  const [switchPrompt, setSwitchPrompt] = useState(null);
+  const promptAfterSave = useRef(null);
+  const switchApplied = useRef(null);
   const [starting,setStarting] = useState(false);
   const [gap,setGap] = useState(null);
   const startRequest = useRef(null);
@@ -192,6 +198,11 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     }
 
     const session = sessionRef.current;
+    promptAfterSave.current = switchEnabled && onSwitch ? {
+      name: session.metadata.activityName || session.metadata.customName || '',
+      color: session.metadata.activityColor || session.metadata.customColor,
+      seconds: Math.max(0, Math.floor((endTs - session.startTs) / 1000)),
+    } : null;
     pendingSave.current = { startTs: session.startTs, segments: timerSegments(session.startTs, endTs), metadata: session.metadata };
     await savePending();
   };
@@ -203,6 +214,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       await onSaveTimer(pendingSave.current);
       if (pendingSave.current.metadata.activityId === null) setCustomLearning(false);
       pendingSave.current = null;
+      if (promptAfterSave.current) { setSwitchPrompt(promptAfterSave.current); promptAfterSave.current = null; }
     } catch {
       setSaveError('기록을 저장하지 못했습니다. 연결을 확인하고 다시 저장해 주세요.');
     } finally { setSaving(false); }
@@ -215,6 +227,16 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     return () => {
       if (startActivityRef.current === handleStart) startActivityRef.current = null;
     };
+  });
+
+  // 다음 활동 창에서 고른 활동을 이 타이머(기록 또는 통제)에서 시작한다. 활동 목록을 불러올 때까지 기다린다.
+  useEffect(() => {
+    if (!switchTarget || switchApplied.current === switchTarget || saving || pendingSave.current) return;
+    const builtinRest = switchTarget.activityId === restTimer.optionId;
+    const ownRest = builtinRest ? restTimer.findRest(activities) : null;
+    if (builtinRest ? !(ownRest || defaultRest) : !activities.some(activity => activity.id === switchTarget.activityId)) return;
+    switchApplied.current = switchTarget;
+    handleStart(ownRest ? ownRest.id : switchTarget.activityId);
   });
 
   const startLabel = running && startTs !== null ? clockLabel(startTs) : null;
@@ -323,6 +345,9 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
         </div>,
         document.body
       )}
+
+      {switchPrompt && <TimerSwitchDialog finished={switchPrompt} groups={switchGroups ?? []} onClose={() => setSwitchPrompt(null)}
+        onPick={(view, activityId) => { setSwitchPrompt(null); onSwitch(view, activityId); }} />}
 
       {rest.panel}
     </div>
