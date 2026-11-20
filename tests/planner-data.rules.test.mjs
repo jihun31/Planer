@@ -147,7 +147,12 @@ test('habits validate settings on create/edit and each daily log or weekly score
   await assertSucceeds(setDoc(doc(alice, 'habits', 'h1'), habit));
   await assertSucceeds(setDoc(doc(alice, 'habits', 'h2'), { ...habit, schedule: { type: 'weekdays', days: [1, 3, 5] }, target: { type: 'count', value: 10, unit: '회' }, tinyVersion: '' }));
   await assertSucceeds(setDoc(doc(alice, 'habits', 'h3'), { ...habit, schedule: { type: 'daily' }, emoji: '' }));
+  await assertSucceeds(setDoc(doc(alice, 'habits', 'h4'), { ...habit, schedule: { type: 'monthly', count: 10 } }));
+  await assertSucceeds(setDoc(doc(alice, 'habits', 'h5'), { ...habit, schedule: { type: 'monthdays', days: [1, 15, 31] } }));
   const invalid = [
+    { schedule: { type: 'monthly', count: 0 } }, { schedule: { type: 'monthly', count: 32 } }, { schedule: { type: 'monthly', count: 3, days: [1] } },
+    { schedule: { type: 'monthdays', days: [] } }, { schedule: { type: 'monthdays', days: [0] } }, { schedule: { type: 'monthdays', days: [32] } },
+    { schedule: { type: 'monthdays', days: [5, 5] } },
     { name: '' }, { name: '가'.repeat(41) }, { anchor: 'x'.repeat(81) }, { emoji: 'x'.repeat(17) },
     { schedule: { type: 'weekly', count: 8 } }, { schedule: { type: 'weekly' } }, { schedule: { type: 'weekdays', days: [] } },
     { schedule: { type: 'weekdays', days: [1, 1] } }, { schedule: { type: 'weekdays', days: [7] } }, { schedule: { type: 'monthly' } },
