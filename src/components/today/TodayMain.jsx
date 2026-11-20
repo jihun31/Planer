@@ -9,6 +9,8 @@ function shiftDate(dateStr, delta) {
 }
 
 const TIME_SLOTS = ['오전', '오후', '저녁'];
+// 시간 흐름을 색으로: 오전 주황(해 뜰 때) → 오후 파랑(한낮) → 저녁 보라(밤)
+const SLOT_STYLE = { '오전': { icon: '🌅', cls: 'lane-morning' }, '오후': { icon: '☀️', cls: 'lane-afternoon' }, '저녁': { icon: '🌙', cls: 'lane-evening' } };
 
 function TaskRow({ task, onToggle, onDelete }) {
   return (
@@ -21,10 +23,13 @@ function TaskRow({ task, onToggle, onDelete }) {
   );
 }
 
-/* 시간대 한 칸: 항목이 없어도 항상 보여서 빈 시간대를 바로 알 수 있다. */
+/* 시간대 한 칸: 항목이 없어도 항상 보여서 빈 시간대를 바로 알 수 있다.
+   평소엔 '+ 추가' 글자만 보이고, 누르면 입력칸이 열린다. Enter 뒤에도 열려 있어 연달아 적을 수 있다. */
 function SlotLane({ slot, items, date, onAdd, onToggle, onDelete }) {
+  const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const close = () => { setAdding(false); setTitle(""); };
   const handleAdd = async (e) => {
     e.preventDefault();
     const value = title.trim();
@@ -37,18 +42,26 @@ function SlotLane({ slot, items, date, onAdd, onToggle, onDelete }) {
       setBusy(false);
     }
   };
+  const { icon, cls } = SLOT_STYLE[slot];
   return (
-    <section className={`today-lane ${items.length === 0 ? 'today-lane-empty' : ''}`} aria-label={`${slot} 할 일`}>
-      <h3 className="today-lane-label">{slot}<span>{items.length}</span></h3>
+    <section className={`today-lane ${cls}`} aria-label={`${slot} 할 일`}>
+      <h3 className="today-lane-label"><span aria-hidden="true">{icon}</span>{slot}
+        {items.length > 0 && <span className="today-lane-count">{items.length}</span>}</h3>
       {items.length > 0 && (
         <ul className="today-task-list">
           {items.map(t => <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} />)}
         </ul>
       )}
-      <form className="today-lane-add" onSubmit={handleAdd}>
-        <input className="today-lane-input" placeholder="+ 추가" aria-label={`${slot} 할 일 추가`}
-          value={title} readOnly={busy} onChange={e => setTitle(e.target.value)} />
-      </form>
+      {adding ? (
+        <form className="today-lane-add" onSubmit={handleAdd}>
+          <input className="today-lane-input" aria-label={`${slot} 할 일 추가`} placeholder="할 일 입력 후 Enter" autoFocus
+            value={title} readOnly={busy} onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') close(); }}
+            onBlur={() => { if (!title.trim() && !busy) close(); }} />
+        </form>
+      ) : (
+        <button type="button" className="today-lane-add-btn" aria-label={`${slot} 할 일 추가`} onClick={() => setAdding(true)}>+ 추가</button>
+      )}
     </section>
   );
 }

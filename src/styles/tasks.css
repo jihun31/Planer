@@ -575,25 +575,42 @@
   box-shadow: var(--shadow-sm);
 }
 .priority-bar-pin { flex-shrink: 0; }
+.priority-bar-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  list-style: none;
+}
+.priority-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
 .priority-bar-rank {
   flex-shrink: 0;
   padding: 2px 8px;
   border-radius: 6px;
-  background: var(--primary);
-  color: #fff;
+  background: var(--bg);
+  color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 700;
 }
+.priority-bar-rank.is-first { background: var(--primary); color: #fff; }
 .priority-bar-text {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text);
+  font-weight: 500;
+  color: var(--text-muted);
 }
+.priority-bar-item:first-child .priority-bar-text { font-weight: 600; color: var(--text); }
 .priority-bar-muted { flex: 1; font-size: 0.84rem; color: var(--text-light); }
 .priority-bar-btn { flex-shrink: 0; margin-left: auto; }
 /* 메모 몇 줄뿐이라 스크롤 대신 ⋯ 메뉴가 팝업 밖으로 펼쳐지게 둔다 */
@@ -721,7 +738,7 @@
   color: var(--text);
 }
 
-/* 오전/오후/저녁 3열 */
+/* 오전/오후/저녁 3열: 흰 바탕 + 위쪽 색 띠와 라벨만 시간대 색 */
 .today-lanes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -730,15 +747,22 @@
 
 .today-lane,
 .today-lane-extra {
+  --lane-color: var(--border);
+  --lane-text: var(--text-muted);
+  --lane-tint: var(--bg);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
   min-width: 0;
-  padding: 10px 12px;
-  background: var(--bg);
+  padding: 9px 12px 8px;
+  background: var(--surface);
   border: 1px solid var(--border);
+  border-top: 3px solid var(--lane-color);
   border-radius: var(--radius-sm);
 }
+.lane-morning   { --lane-color: #ef9f27; --lane-text: #854f0b; --lane-tint: #fdf4e4; }
+.lane-afternoon { --lane-color: #378add; --lane-text: #185fa5; --lane-tint: #eaf3fc; }
+.lane-evening   { --lane-color: #7f77dd; --lane-text: #534ab7; --lane-tint: #efeefc; }
 
 .today-lane .today-task-list {
   max-height: 260px;
@@ -748,33 +772,48 @@
 .today-lane-label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
+  gap: 5px;
+  margin-bottom: 2px;
+  font-size: 0.8rem;
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--lane-text);
 }
-.today-lane-label span { font-weight: 500; color: var(--text-light); }
+.today-lane-label > span[aria-hidden] { font-size: 0.85rem; }
+.today-lane-label .today-lane-count,
+.today-lane-extra .today-lane-label span { font-weight: 500; color: var(--lane-text); opacity: 0.65; }
 
 .today-lane .today-task-item,
-.today-lane-extra .today-task-item { padding: 7px 2px; gap: 8px; }
+.today-lane-extra .today-task-item { padding: 6px 2px; gap: 8px; }
 .today-lane .today-task-title,
 .today-lane-extra .today-task-title { min-width: 0; overflow-wrap: anywhere; font-size: 0.88rem; }
 .today-lane .today-task-item:hover,
-.today-lane-extra .today-task-item:hover { background: var(--surface); }
+.today-lane-extra .today-task-item:hover { background: var(--lane-tint); }
+
+.today-lane-add-btn {
+  align-self: flex-start;
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--text-light);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.today-lane-add-btn:hover { color: var(--lane-text); }
 
 .today-lane-input {
   width: 100%;
   min-width: 0;
-  padding: 7px 9px;
-  border: 1px dashed var(--border);
+  margin: 2px 0;
+  padding: 6px 9px;
+  border: 1px solid var(--lane-color);
   border-radius: var(--radius-sm);
-  background: transparent;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: 0.84rem;
   outline: none;
 }
-.today-lane-input:focus { border-style: solid; border-color: var(--primary); background: var(--surface); }
 
 /* 오늘 날짜 네비게이션 */
 .today-day-nav {
