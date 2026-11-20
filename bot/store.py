@@ -3,6 +3,9 @@ Firestore 저장소 (docs/tonkatsu-integration.md의 데이터 구조).
 
 - 공용 컬렉션(plans, checkIns, offDays, members, votes)은 Firestore 리스너로 메모리에 실시간 복사해 둡니다.
   앱에서 인증하면 봇 메모리에도 바로 반영되고, 자동완성처럼 빨라야 하는 곳은 메모리만 읽습니다.
+- 날짜가 있는 기록(checkIns, offDays)은 최근 기간(window_start 이후)만 들고 있습니다. 기간은 매시간 확인해 앞으로 옮깁니다.
+  N일 계획은 마지막 인증 날짜만 있으면 되므로, 기간보다 오래된 것은 계획마다 날짜 하나만 따로 기억합니다.
+- 면책 투표는 대상 날짜가 기간보다 오래되면 이미 정산이 끝나 결과가 아무 영향도 없으므로 정리합니다(expire_votes).
 - 쓰기는 항상 Firestore에 먼저 하고, 성공하면 메모리에도 바로 반영합니다. 나중에 리스너가 같은 내용을 다시 알려줘도 결과는 같습니다.
 - 리스너 콜백은 별도 스레드에서 오므로, 메모리 변경은 모두 이벤트 루프 스레드에서만 합니다.
 - 봇은 서비스 계정으로 접속해 보안 규칙을 거치지 않습니다. 그래서 앱이 나중에 수정할 수 있도록 규칙과 같은 형식으로 씁니다.
@@ -10,15 +13,17 @@ Firestore 저장소 (docs/tonkatsu-integration.md의 데이터 구조).
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from google.api_core import exceptions as gexc
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud.firestore_v1.watch import ChangeType
 
 import core
 
 MIRRORED = ("plans", "checkIns", "offDays", "members", "votes")
+WINDOWED = ("checkIns", "offDays")   # date 필드로 최근 기간만 메모리에 둠
 DEFAULT_PROJECT_ID = "planer-f8cb7"
 
 # 앱 보안 규칙(validPlan)과 같은 필드만 저장 → 앱에서도 이름 변경·삭제 가능
@@ -53,6 +58,19 @@ def _local_value(value):
 def _sort_time(value):
     return value.timestamp() if isinstance(value, datetime) else 0
 
+def window_start(now=None):
+    """
+    메모리에 둘 기록의 시작 날짜: 어제가 속한 달의 지난달 1일.
+    정산(어제·지난주·지난달), 이번 주·이번 달 진행 상황, 오늘·어제 인증취소에 쓰는 기간을 모두 덮음
+    """
+    yesterday = (now or core.get_now()) - timedelta(days=1)
+    last_month_end = yesterday.replace(day=1) - timedelta(days=1)
+    return core.day_str(last_month_end.replace(day=1))
+
+def _vote_last_date(vote):
+    dates = vote.get("target_dates") or ([vote["date_str"]] if vote.get("date_str") else [])
+    return max(dates) if dates else None
+
 class Store:
     def __init__(self, sync_client, async_client):
         self.sync = sync_client
@@ -62,6 +80,9 @@ class Store:
         self._loop = None
         self._version = 0
         self._views_cache = None
+        self._window = window_start()
+        # 계획ID → 기간보다 오래된 마지막 인증 날짜 (N일 계획만. 기간 안 기록이 없어도 D+N을 계산하려고)
+        self._older_last = {}
         # 앱에서 계획 조건을 바꿨을 때 호출: on_plan_edit(이전 문서, 새 문서)
         self.on_plan_edit = None
 
@@ -74,22 +95,44 @@ class Store:
         for name in MIRRORED:
             self._watch(name, ready[name])
         await asyncio.wait_for(asyncio.gather(*(e.wait() for e in ready.values())), timeout)
+        await self._load_older_interval_history()
+
+    def _query(self, name):
+        ref = self.sync.collection(name)
+        return ref.where(filter=FieldFilter("date", ">=", self._window)) if name in WINDOWED else ref
 
     def _watch(self, name, ready_event=None):
         loop = self._loop
+        first = True
 
-        def on_snapshot(_docs, changes, _read_time):
+        def on_snapshot(docs, changes, _read_time):
+            nonlocal first
+            if first:
+                # 첫 데이터는 전체 목록 → 메모리를 이것으로 맞춤 (다시 연결하는 동안 지워진 문서도 정리)
+                first = False
+                payload = [(ChangeType.ADDED, d.id, d.to_dict()) for d in docs]
+                loop.call_soon_threadsafe(self._apply_snapshot, name, payload, ready_event, True)
+                return
             payload = [(c.type, c.document.id, None if c.type == ChangeType.REMOVED else c.document.to_dict())
                        for c in changes]
-            loop.call_soon_threadsafe(self._apply_snapshot, name, payload, ready_event)
+            loop.call_soon_threadsafe(self._apply_snapshot, name, payload, None, False)
 
-        self._watches[name] = self.sync.collection(name).on_snapshot(on_snapshot)
+        self._watches[name] = self._query(name).on_snapshot(on_snapshot)
 
-    def _apply_snapshot(self, name, payload, ready_event):
+    def _in_window(self, name, doc):
+        return name not in WINDOWED or (doc.get("date") or "") >= self._window
+
+    def _apply_snapshot(self, name, payload, ready_event, replace=False):
         target = self.data[name]
+        if replace:
+            keep = {doc_id for _, doc_id, _ in payload}
+            for doc_id in [d for d in target if d not in keep]:
+                del target[doc_id]
         for change_type, doc_id, doc in payload:
             if change_type == ChangeType.REMOVED:
                 target.pop(doc_id, None)
+            elif not self._in_window(name, doc):
+                target.pop(doc_id, None)   # 기간을 옮기기 전 리스너가 늦게 보낸 오래된 기록
             else:
                 old = target.get(doc_id)
                 target[doc_id] = doc
@@ -102,14 +145,59 @@ class Store:
             ready_event.set()
 
     def ensure_watching(self):
-        """리스너가 끊겼으면 다시 연결 (매시간 확인)"""
-        restarted = []
+        """기록 기간을 옮기고, 리스너가 끊겼으면 다시 연결 (매시간 확인)"""
+        restarted = self.refresh_window()
         for name in MIRRORED:
             watch = self._watches.get(name)
             if watch is None or getattr(watch, "_closed", False):
                 self._watch(name)
                 restarted.append(name)
         return restarted
+
+    def refresh_window(self, now=None):
+        """
+        기록 기간 시작일이 바뀌었으면 기간 밖 기록을 메모리에서 빼고 그 컬렉션 리스너를 새 기간으로 다시 엶.
+        다시 연 리스너 이름 목록을 돌려줌
+        """
+        start = window_start(now)
+        if start == self._window:
+            return []
+        self._window = start
+        restarted = []
+        for name in WINDOWED:
+            target = self.data[name]
+            for doc_id, doc in list(target.items()):
+                if not self._in_window(name, doc):
+                    if name == "checkIns":
+                        self._remember_older(doc)
+                    del target[doc_id]
+            if self._loop is not None:
+                old = self._watches.pop(name, None)
+                if old is not None:
+                    try:
+                        old.unsubscribe()
+                    except Exception:
+                        pass
+                self._watch(name)
+                restarted.append(name)
+        self._changed()
+        return restarted
+
+    def _remember_older(self, checkin):
+        plan_id, date = checkin.get("planId"), checkin.get("date")
+        if date and date < self._window and (self.data["plans"].get(plan_id) or {}).get("category") == "Interval" \
+                and date > self._older_last.get(plan_id, ""):
+            self._older_last[plan_id] = date
+
+    async def _load_older_interval_history(self):
+        """활성 N일 계획마다 기간보다 오래된 마지막 인증 날짜를 한 번 찾아 둠 (시작할 때)"""
+        for plan_id, plan in list(self.data["plans"].items()):
+            if plan.get("category") != "Interval" or plan.get("status", "active") != "active":
+                continue
+            query = self.db.collection("checkIns").where(filter=FieldFilter("planId", "==", plan_id))
+            async for snap in query.stream():
+                self._remember_older(snap.to_dict() or {})
+        self._changed()
 
     def stop(self):
         for watch in self._watches.values():
@@ -126,6 +214,8 @@ class Store:
     def _local_set(self, name, doc_id, data, merge=False):
         if name not in self.data:
             return
+        if not merge and not self._in_window(name, data):
+            return   # 기간보다 오래된 날짜 기록 (예: 지난 날짜 면책)은 메모리에 두지 않음
         values = {k: _local_value(v) for k, v in data.items()}
         if merge and doc_id in self.data[name]:
             current = dict(self.data[name][doc_id])
@@ -155,6 +245,8 @@ class Store:
             return self._views_cache
 
         history = {}
+        for plan_id, date in self._older_last.items():
+            history[plan_id] = [date]   # 기간 안 기록보다 항상 앞 날짜
         for checkin in self.data["checkIns"].values():
             plan_id, date = checkin.get("planId"), checkin.get("date")
             if plan_id and date:
@@ -394,6 +486,14 @@ class Store:
     async def delete_vote(self, message_id):
         await self.db.collection("votes").document(str(message_id)).delete()
         self._local_delete("votes", str(message_id))
+
+    async def expire_votes(self):
+        """대상 날짜가 모두 기록 기간보다 오래된 투표 삭제 (그 날짜들은 이미 정산이 끝남). 지운 메시지 ID 목록"""
+        stale = [vid for vid, vote in self.data["votes"].items()
+                 if (_vote_last_date(vote) or self._window) < self._window]
+        for vid in stale:
+            await self.delete_vote(vid)
+        return stale
 
     # ---------- 계정 연동 ----------
 

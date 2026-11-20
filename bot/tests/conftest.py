@@ -6,7 +6,9 @@ import asyncio
 import os
 import sys
 import urllib.request
+from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,8 +21,24 @@ os.environ.update(TOKEN="test", ALERT_CHANNEL="2", WELCOME_CHANNEL="4",
 if not os.getenv("FIRESTORE_EMULATOR_HOST"):
     pytest.exit("FIRESTORE_EMULATOR_HOST가 없습니다. 에뮬레이터에서 실행하세요: npm run test:bot", returncode=2)
 
+from discord import app_commands  # noqa: E402
+
 import main  # noqa: E402
+import shared  # noqa: E402
+from cogs import account, checkins, community, offdays, plans, settlement  # noqa: E402
 from store import Store, make_clients  # noqa: E402
+
+# 기능별 cog 인스턴스 (봇에 붙이지 않고 명령어만 직접 호출)
+COGS = SimpleNamespace(
+    plans=plans.Plans(main.bot), checkins=checkins.CheckIns(main.bot), offdays=offdays.OffDays(main.bot),
+    settlement=settlement.Settlement(main.bot), account=account.Account(main.bot), community=community.Community(main.bot),
+)
+# 슬래시 명령어 콜백: cmd.plan_register(interaction, ...) 처럼 호출
+cmd = SimpleNamespace()
+for _cog in vars(COGS).values():
+    for _command in _cog.walk_app_commands():
+        if isinstance(_command, app_commands.Command):
+            setattr(cmd, _command.callback.__name__, partial(_command.callback, _cog))
 
 def clear_emulator():
     url = f"http://{os.environ['FIRESTORE_EMULATOR_HOST']}/emulator/v1/projects/{PROJECT}/databases/(default)/documents"
@@ -33,8 +51,8 @@ async def store():
     sync_client, async_client = make_clients(project_id=PROJECT)
     s = Store(sync_client, async_client)
     await s.start()
-    main.store = s
-    main.bot_state = {}
+    shared.store = s
+    shared.bot_state = {}
     yield s
     s.stop()
 

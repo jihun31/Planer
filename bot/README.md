@@ -241,6 +241,9 @@ npm run test:bot
 
 계획·인증·휴식·면책·벌금·투표는 Firestore에 저장되고, 봇은 실시간으로 받아서 메모리에 들고 있습니다. Planer 앱에서 인증하면 봇에도 바로 반영됩니다.
 
+- 인증·휴식·면책 기록은 **지난달 1일부터**만 메모리에 둡니다(정산·진행 상황에 필요한 기간). 기간은 매시간 확인해 앞으로 옮깁니다. N일 계획은 그보다 오래된 마지막 인증 날짜 하나만 따로 기억합니다.
+- 면책 투표는 대상 날짜가 모두 그 기간보다 오래되면(이미 정산이 끝나 결과가 영향이 없음) 매시간 점검 때 지웁니다.
+
 | 위치 | 내용 |
 |---|---|
 | Firestore `plans`, `checkIns`, `offDays`, `fineEvents`, `members`, `votes` | 공용 데이터 |
@@ -252,7 +255,7 @@ npm run test:bot
 
 | 값 | 위치 | 기본값 | 의미 |
 |---|---|---|---|
-| `SETTLEMENT_HOUR` | `main.py` | `12` | 정산 시각 |
-| `FINE_AMOUNT` | `main.py` | `3000` | 하루 벌금, `/벌금수정` 금액 |
-| `BACKUP_KEEP_DAYS` | `main.py` | `14` | 백업 보관 일수 |
+| `SETTLEMENT_HOUR` | `shared.py` | `12` | 정산 시각 |
+| `FINE_AMOUNT` | `shared.py` | `3000` | 하루 벌금, `/벌금수정` 금액 |
+| `BACKUP_KEEP_DAYS` | `cogs/settlement.py` | `14` | 백업 보관 일수 |
 | `DAY_START_HOUR` | `core.py` | `5` | 하루 기준 시각 (앱과 맞춰야 함) |

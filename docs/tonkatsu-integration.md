@@ -145,9 +145,12 @@
 ```
 Planer-eddited/
 ├─ bot/                      ← 돈까스봇 (TonkatsuBot 커밋 기록 그대로 가져옴)
-│  ├─ main.py               ← 디스코드 명령어
+│  ├─ main.py               ← 봇 시작, cog 불러오기, 공통 오류 처리
+│  ├─ shared.py             ← 설정(.env)과 공용 상태(store, bot_state)
+│  ├─ messages.py           ← 디스코드 글자 수 제한에 맞춘 메시지 도구
+│  ├─ cogs/                 ← 기능별 명령어: plans, checkins, offdays, settlement, account, community
 │  ├─ core.py               ← 계산 규칙 (5시 기준, 정산, 알림)
-│  ├─ store.py              ← Firestore 읽기·쓰기, 실시간 복사
+│  ├─ store.py              ← Firestore 읽기·쓰기, 실시간 복사 (인증·휴식 기록은 지난달 1일부터)
 │  ├─ requirements.txt       ← discord.py, python-dotenv, google-cloud-firestore
 │  ├─ .env.example
 │  ├─ tools/migrate_json_to_firestore.py

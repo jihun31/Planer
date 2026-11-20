@@ -2,7 +2,7 @@ from google.cloud import firestore
 
 import core
 import main
-from conftest import Choice, FakeChannel, FakeInteraction, FakeUser, until
+from conftest import COGS, Choice, FakeChannel, FakeInteraction, FakeUser, cmd, until
 from store import PLAN_BASE_KEYS, PLAN_EXTRA_KEYS, Store
 
 ALICE = FakeUser(100000000000000001, "앨리스")
@@ -11,7 +11,7 @@ TODAY = core.day_str(core.get_base_date())
 async def setup(store, monkeypatch):
     channel = FakeChannel()
     monkeypatch.setattr(main.bot, "get_channel", lambda _id: channel)
-    main.install_store_hooks(store)
+    COGS.plans.install_store_hooks(store)
     await store.ensure_member(ALICE.id, ALICE.display_name)
     return channel
 
@@ -20,12 +20,12 @@ def pid(store, content):
 
 async def edit(store, plan, **kw):
     it = FakeInteraction(ALICE)
-    await main.plan_edit.callback(it, plan, **kw)
+    await cmd.plan_edit(it, plan, **kw)
     return it.text()
 
 async def test_edit_from_discord(store, raw, monkeypatch):
     channel = await setup(store, monkeypatch)
-    await main.plan_register.callback(FakeInteraction(ALICE), Choice("week"), "코딩", 3, None, Choice(1))
+    await cmd.plan_register(FakeInteraction(ALICE), Choice("week"), "코딩", 3, None, Choice(1))
     p = pid(store, "코딩")
     assert "수정했어요" in await edit(store, p, 사진인증=Choice(0), 횟수=2)
     doc = raw.collection("plans").document(p).get().to_dict()
@@ -43,7 +43,7 @@ async def test_edit_from_discord(store, raw, monkeypatch):
     assert "주간(1~7)" in await edit(store, p, 횟수=8)
     assert "요일 계획에서만" in await edit(store, p, 요일="월수")
     assert "바뀐 내용이 없어요" in await edit(store, p, 횟수=2)
-    await main.plan_register.callback(FakeInteraction(ALICE), Choice("week"), "몬스터", 2, Choice(1))
+    await cmd.plan_register(FakeInteraction(ALICE), Choice("week"), "몬스터", 2, Choice(1))
     assert "사진 인증을 쓰지 않아요" in await edit(store, pid(store, "몬스터"), 사진인증=Choice(1))
     assert "수정했어요" in await edit(store, pid(store, "몬스터"), 횟수=0)
     assert "이번 주 2회 이하 → 이번 주 0회 이하" in channel.sent[-1][0]
@@ -51,9 +51,9 @@ async def test_edit_from_discord(store, raw, monkeypatch):
 
 async def test_routine_interval_goal(store, raw, monkeypatch):
     await setup(store, monkeypatch)
-    await main.plan_routine.callback(FakeInteraction(ALICE), "요가", "월수")
-    await main.plan_interval.callback(FakeInteraction(ALICE), 3, "청소")
-    await main.plan_deadline.callback(FakeInteraction(ALICE), "2026-12-01", "접수")
+    await cmd.plan_routine(FakeInteraction(ALICE), "요가", "월수")
+    await cmd.plan_interval(FakeInteraction(ALICE), 3, "청소")
+    await cmd.plan_deadline(FakeInteraction(ALICE), "2026-12-01", "접수")
     await edit(store, pid(store, "요가"), 요일="금월")
     await edit(store, pid(store, "청소"), 간격=7)
     assert "**2026-01-20**" in await edit(store, pid(store, "접수"), 마감일="2026/12/05")
@@ -63,7 +63,7 @@ async def test_routine_interval_goal(store, raw, monkeypatch):
 
 async def test_app_edit_is_announced(store, raw, monkeypatch):
     channel = await setup(store, monkeypatch)
-    await main.plan_register.callback(FakeInteraction(ALICE), Choice("day"), "운동", None, None, Choice(1))
+    await cmd.plan_register(FakeInteraction(ALICE), Choice("day"), "운동", None, None, Choice(1))
     p = pid(store, "운동")
     # 앱(다른 곳)에서 사진 필수 해제
     raw.collection("plans").document(p).update({"photo": False, "updatedAt": firestore.SERVER_TIMESTAMP})

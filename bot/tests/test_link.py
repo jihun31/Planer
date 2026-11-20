@@ -2,8 +2,8 @@ from datetime import datetime, timedelta, timezone
 
 from google.cloud import firestore
 
-import main
-from conftest import Choice, FakeGuild, FakeInteraction, FakeUser
+from cogs import account
+from conftest import Choice, FakeGuild, FakeInteraction, FakeUser, cmd
 
 ALICE, BOB = FakeUser(100000000000000001, "앨리스"), FakeUser(100000000000000002, "밥")
 GUILD = FakeGuild([ALICE, BOB])
@@ -15,11 +15,11 @@ def make_code(raw, code, uid, age_minutes=0):
 
 async def run(user, **kw):
     it = FakeInteraction(user, GUILD)
-    await main.link_app.callback(it, **kw)
+    await cmd.link_app(it, **kw)
     return it.text()
 
 async def test_link_flow(store, raw):
-    main.link_failures.clear()
+    account.link_failures.clear()
     await store.ensure_member(ALICE.id, ALICE.display_name)
     assert "아직 연동 전" in await run(ALICE)
 
@@ -53,7 +53,7 @@ async def test_link_flow(store, raw):
     assert "연동된 Planer 앱 계정이 없어요" in await run(BOB, 동작=Choice("unlink"))
 
 async def test_expired_and_rate_limit(store, raw):
-    main.link_failures.clear()
+    account.link_failures.clear()
     make_code(raw, "QLDC2345", "uid-x", age_minutes=11)
     assert "10분이 지난" in await run(ALICE, 코드="QLDC2345")
     assert not raw.collection("linkCodes").document("QLDC2345").get().exists  # 만료 코드는 지움

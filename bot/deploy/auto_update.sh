@@ -83,7 +83,9 @@ if [ "$reqs_changed" = 1 ]; then
   "$PYTHON" -m pip install --quiet -r "$BOT_DIR/requirements.txt" || rollback "라이브러리 설치 실패"
 fi
 
-"$PYTHON" -m py_compile "$BOT_DIR"/*.py || rollback "문법 오류"
+py_files=("$BOT_DIR"/*.py)
+[ -d "$BOT_DIR/cogs" ] && py_files+=("$BOT_DIR"/cogs/*.py)
+"$PYTHON" -m py_compile "${py_files[@]}" || rollback "문법 오류"
 
 sudo -n systemctl restart "$SERVICE" || rollback "재시작 명령 실패"
 sleep "$CHECK_WAIT"
