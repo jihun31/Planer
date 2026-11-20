@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activitySelectionForDate, editorGoalConfiguration, latestGoalConfiguration, learningStats, goalForDate, goalEffectiveDate, validActivityTargets, withRecentGoal, weekStart, dateShift } from '../src/features/learning/learningStats.mjs';
+import { activitySelectionForDate, editorGoalConfiguration, latestGoalConfiguration, learningStats, goalForDate, goalEffectiveDate, validActivityTargets, withRecentGoal, weekStart, dateShift, recentDates, streakReachesDate, SUMMARY_DAYS } from '../src/features/learning/learningStats.mjs';
 import { archivedActivityReferences, missingActivitySnapshot } from '../src/features/learning/archivedActivity.mjs';
 import { badgeTier } from '../src/features/learning/badgeAppearance.mjs';
 const goal = { minutes:60, effectiveDate:'2026-10-01' };
@@ -313,4 +313,37 @@ test('personal records follow study selection, custom inclusion and the elapsed 
   assert.equal(stats.personalRecords.totalMinutes,150);
   assert.deepEqual(stats.personalRecords.growth,[{date:'2026-10-17',minutes:150}]);
   assert.equal(stats.personalRecords.bestMonth.days,1);
+});
+const studyRun = (from,to) => {
+  const records = [];
+  for (let date = from; date <= to; date = dateShift(date,1)) records.push(block(date));
+  return records;
+};
+test('summary range lists recent days newest first so its first query group stays the same', () => {
+  assert.deepEqual(recentDates('2026-03-02',3),['2026-03-02','2026-03-01','2026-02-28']);
+  assert.equal(recentDates('2026-10-18',SUMMARY_DAYS).length,30);
+  assert.deepEqual(recentDates('2026-10-18',60).slice(0,30),recentDates('2026-10-18',30));
+});
+test('summary range grows only when the current streak reaches its oldest day', () => {
+  const oldest = dateShift('2026-10-18',1-SUMMARY_DAYS);
+  assert.equal(oldest,'2026-09-19');
+  const inside = learningStats(studyRun('2026-09-25','2026-10-17'),[goal],now);
+  assert.equal(inside.streak,23);
+  assert.equal(streakReachesDate(inside,oldest),false);
+  const loaded = studyRun('2026-09-19','2026-10-18');
+  const touching = learningStats(loaded,[goal],now);
+  assert.equal(touching.streak,30);
+  assert.equal(streakReachesDate(touching,oldest),true);
+  assert.equal(learningStats([...studyRun('2026-09-01','2026-09-18'),...loaded],[goal],now).streak,48);
+  assert.equal(streakReachesDate(learningStats([],[goal],now),oldest),false);
+});
+test('recent days give the same summary as the full history when the streak fits', () => {
+  const oldest = dateShift('2026-10-18',1-SUMMARY_DAYS);
+  const records = [...studyRun('2026-08-01','2026-09-20'),...studyRun('2026-09-22','2026-10-17'),block('2026-10-18',0,30)];
+  const full = learningStats(records,[goal],now);
+  const recent = learningStats(records.filter(record => record.date >= oldest),[goal],now);
+  assert.equal(streakReachesDate(recent,oldest),false);
+  assert.equal(recent.streak,full.streak);
+  assert.equal(recent.todayMinutes,full.todayMinutes);
+  assert.equal(recent.goal.minutes,full.goal.minutes);
 });

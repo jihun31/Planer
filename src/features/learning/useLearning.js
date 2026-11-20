@@ -2,25 +2,41 @@ import { useEffect, useMemo, useState } from 'react';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useCollection } from '../../lib/useCollection';
-import { learningStats, goalEffectiveDate, validActivityTargets, validGoal, withRecentGoal } from './learningStats.mjs';
+import { learningStats, dateShift, goalEffectiveDate, recentDates, streakReachesDate, SUMMARY_DAYS, validActivityTargets, validGoal, withRecentGoal } from './learningStats.mjs';
 import { plannerDate } from '../planner/scheduleTime.mjs';
-import { subscribeActivities } from '../planner/plannerService';
+import { subscribeActivities, subscribeAllBlocks } from '../planner/plannerService';
 import { isStudyBlock } from '../planner/blockKind.mjs';
 import { archivedActivityReferences, missingActivitySnapshot } from './archivedActivity.mjs';
 
 const subscribe = name => (uid, callback, onError) => onSnapshot(
   query(collection(db,name),where('uid','==',uid)),
   snapshot => callback(snapshot.docs.map(doc => ({...doc.data(), id:doc.id}))), onError);
-// Full owner history is loaded only once a learning surface is opened, so long streaks
-// and old weekly achievements are not truncated at the visible calendar month.
-const subscriptions = () => ({ blocks: subscribe('scheduleBlocks'), goals: subscribe('learningGoals'), activities: subscribeActivities });
-export function useLearning(uid) {
+// The planner summary shows only today and the current streak, so it reads recent days.
+// The learning tab needs the whole history (badges, records) and loads it once opened.
+// Fresh functions on retry make every listener reconnect.
+const subscriptions = () => ({
+  allBlocks: subscribe('scheduleBlocks'),
+  recentBlocks: (...args) => subscribeAllBlocks(...args),
+  goals: subscribe('learningGoals'),
+  activities: (...args) => subscribeActivities(...args),
+});
+const NO_ACTIVITIES = Object.freeze([]);
+export function useLearning(uid, { full = false } = {}) {
   const [listeners,setListeners] = useState(subscriptions);
-  const [blocks, blocksReady, blocksError] = useCollection(uid,listeners.blocks);
+  const [now,setNow] = useState(() => new Date());
+  const today = plannerDate(now);
+  const [range,setRange] = useState({ today, days: SUMMARY_DAYS });
+  const summaryDays = range.today === today ? range.days : SUMMARY_DAYS;
+  const listenBlocks = useMemo(() => {
+    if (full) return listeners.allBlocks;
+    const dates = recentDates(today,summaryDays);
+    return (id,callback,onError) => listeners.recentBlocks(id,dates,callback,onError);
+  },[full,listeners,today,summaryDays]);
+  const [blocks, blocksReady, blocksError] = useCollection(uid,listenBlocks);
   const [savedHistory, goalsReady, goalsError] = useCollection(uid,listeners.goals);
   const [recentGoal,setRecentGoal] = useState(null);
-  const [activities, activitiesReady, activitiesError] = useCollection(uid,listeners.activities);
-  const [now,setNow] = useState(() => new Date());
+  const [loadedActivities, activitiesReady, activitiesError] = useCollection(full ? uid : null,listeners.activities);
+  const activities = full ? loadedActivities : NO_ACTIVITIES;
   useEffect(() => {
     if (!uid) return;
     const refresh = () => setNow(new Date());
@@ -33,8 +49,14 @@ export function useLearning(uid) {
   // next snapshot. Keep that goal visible when the editor is opened again.
   const history = useMemo(() => withRecentGoal(savedHistory,recentGoal,uid),[savedHistory,recentGoal,uid]);
   const stats = useMemo(() => learningStats(blocks,history,now,activities),[blocks,history,now,activities]);
+  // Read further back before showing a streak that may continue past the loaded days.
+  const streakCut = !full && blocksReady && !blocksError
+    && streakReachesDate(stats,dateShift(today,1-summaryDays));
+  useEffect(() => {
+    if (streakCut) setRange({ today, days: summaryDays*2 });
+  },[streakCut,today,summaryDays]);
   const saveGoal = async (minutes, includedActivityIds, activityTargets) => {
-    if (!uid || !goalsReady || goalsError || !validGoal(minutes)
+    if (!uid || !full || !goalsReady || goalsError || !validGoal(minutes)
       || !validActivityTargets(includedActivityIds,activityTargets)
       || includedActivityIds.some(id => !activities.some(activity => activity.id === id)))
       throw new Error('학습 목표와 활동 선택을 확인해 주세요.');
@@ -55,7 +77,8 @@ export function useLearning(uid) {
     await updateDoc(doc(db,'scheduleBlocks',blockId), { learningIncluded: included });
   };
   const permanentlyDeleteArchivedActivity = async activityId => {
-    if (!uid || !blocksReady || blocksError || !activitiesReady || activitiesError)
+    // Every past record must be loaded so none keeps a reference to the deleted activity.
+    if (!uid || !full || !blocksReady || blocksError || !activitiesReady || activitiesError)
       throw new Error('기록을 먼저 불러와 주세요.');
     const activity = activities.find(item => item.id === activityId && item.archived);
     if (!activity) throw new Error('보관된 활동을 찾지 못했습니다.');
@@ -71,7 +94,7 @@ export function useLearning(uid) {
     await deleteDoc(doc(db,'plannerActivities',activityId));
     return references.length;
   };
-  return { stats, history, blocks, activities, ready: blocksReady && goalsReady && activitiesReady,
+  return { stats, history, blocks, activities, ready: blocksReady && goalsReady && activitiesReady && !streakCut,
     error: blocksError || goalsError || activitiesError, saveGoal, setCustomLearning,
     permanentlyDeleteArchivedActivity,
     retry: () => setListeners(subscriptions()) };

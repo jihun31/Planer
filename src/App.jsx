@@ -62,7 +62,9 @@ function App() {
   const [openedViews, setOpenedViews] = useState({});
   const [lastViewByTab, setLastViewByTab] = useState({});
   const tonkatsu = useTonkatsu(discordId, Boolean(openedViews.checkin));
-  const learning = useLearning(openedViews.planner || openedViews.learning ? user?.uid : null);
+  // 시간 관리 화면의 요약은 최근 기록만, 학습 탭을 열면 전체 기록을 받는다.
+  const learning = useLearning(openedViews.planner || openedViews.learning ? user?.uid : null,
+    { full: Boolean(openedViews.learning) });
   const activateView = useCallback(viewId => {
     setActiveView(viewId);
     setOpenedViews(opened => opened[viewId] ? opened : { ...opened, [viewId]: true });

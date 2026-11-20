@@ -11,6 +11,16 @@ export function dateShift(date, days) {
 export function weekStart(date) {
   return dateShift(date, -((new Date(`${date}T12:00:00`).getDay()+6)%7));
 }
+// The planner summary reads only recent days. Newest-first dates keep each
+// 30-date Firestore query group unchanged when the range grows.
+export const SUMMARY_DAYS = 30;
+export const recentDates = (today, count) => Array.from({length:count},(_,i) => dateShift(today,-i));
+// A streak that reaches the oldest loaded day may continue before it.
+export function streakReachesDate(stats, oldestDate) {
+  if (!stats.streak) return false;
+  const last = stats.days[stats.today]?.achieved ? stats.today : dateShift(stats.today,-1);
+  return dateShift(last,1-stats.streak) <= oldestDate;
+}
 export const validGoal = minutes => Number.isInteger(minutes) && minutes >= 5 && minutes <= 1440;
 export const WEEKLY_HOUR_BADGES = Object.freeze([5,10,20,30,40,50,60,70]);
 export const STREAK_DAY_BADGES = Object.freeze([3,7,14,30,60,100,200,365]);
