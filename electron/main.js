@@ -13,6 +13,14 @@ let timerMode = 'elapsed';
 let timerState = null;
 let clearRestReminder = () => {};
 
+// Planer는 한 번만 실행한다. 두 번째 실행은 이미 떠 있는 창을 앞으로 가져오고 끝난다.
+// 둘이 함께 돌면 휴식 알림과 타이머 팝업이 두 개씩 생긴다.
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) {
+  if (isDev) console.warn('[planer] 이미 실행 중인 Planer가 있어 그 창을 앞으로 가져오고 종료합니다.');
+  app.quit();
+}
+
 function revealMain() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -62,15 +70,25 @@ ipcMain.handle('ui-text:show-file',async event => {
   catch {return {ok:false,code:'text/file-not-found'};}
 });
 
+const windowStatePath = () => isDev ? path.join(__dirname, '../local-data/window-state.json')
+  : path.join(app.getPath('userData'), 'window-state.json');
+
 function createMainWindow() {
+  const { loadWindowState, trackWindowState } = require('./window-state.cjs');
+  const minWidth = 800, minHeight = 600;
+  const workAreas = screen.getAllDisplays().map(display => display.workArea);
+  const { bounds, maximized } = loadWindowState(windowStatePath(), { workAreas, minWidth, minHeight });
   mainWindow = new BrowserWindow({
-    width: 1280, height: 800, minWidth: 800, minHeight: 600,
+    ...bounds, minWidth, minHeight, show: false,
     title: 'Planer', autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false, contextIsolation: true, sandbox: true,
       preload: path.join(__dirname, 'preload.cjs'),
     },
   });
+  if (maximized) mainWindow.maximize();
+  mainWindow.show();
+  trackWindowState(mainWindow, windowStatePath());
   mainWindow.loadURL(mainUrl);
   mainWindow.webContents.on('before-input-event', (event, input) => {
     const zoomModifier = process.platform === 'darwin' ? input.meta : input.control;
@@ -148,7 +166,10 @@ function createTimerWindow(data) {
     timerStopPending = false;
   });
   win.on('closed', () => { if (timerWindow === win) timerWindow = null; });
-  const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
+  // 메인 창이 있는 모니터에 띄운다. 최소화된 창은 getBounds가 화면 밖 좌표라 복원 시 크기를 쓴다.
+  const mainAlive = mainWindow && !mainWindow.isDestroyed();
+  const display = mainAlive ? screen.getDisplayMatching(mainWindow.getNormalBounds()) : screen.getPrimaryDisplay();
+  const { x, y, width, height } = display.workArea;
   const position = data.position === 'left' ? 'left' : 'right';
   const [popupWidth, popupHeight] = win.getSize();
   // Keep the center fixed by trimming both sides of each popup equally.
@@ -199,11 +220,12 @@ ipcMain.handle('notes:youtube-title', async (event,id) => {
   } catch { return {ok:false}; }
 });
 ipcMain.on('window:minimize-main', event => { if (fromMain(event)) mainWindow.minimize(); });
-ipcMain.on('timer:open', (event, data) => { if (fromMain(event)) createTimerWindow(data); });
-ipcMain.handle('timer:start', (event, data) => {
+// 타이머 팝업을 여는 유일한 통로. 타이머를 시작할 때는 메인 창을 내리고,
+// 이미 도는 타이머를 팝업으로 옮길 때는 { minimize: false }로 창을 그대로 둔다.
+ipcMain.handle('timer:start', (event, data, options) => {
   if (!fromMain(event)) return { ok: false, code: 'desktop/forbidden' };
   if (!createTimerWindow(data)) return { ok: false, code: 'desktop/invalid-timer' };
-  mainWindow.minimize();
+  if (options?.minimize !== false) mainWindow.minimize();
   return { ok: true };
 });
 ipcMain.on('timer:close', event => {
@@ -234,7 +256,9 @@ ipcMain.on('timer:stop-from-popup', event => {
   timerStopPending = true;
   timerWindow.close();
 });
+app.on('second-instance', revealMain);
 app.whenReady().then(() => {
+  if (!hasInstanceLock) return;
   const { registerRestReminder } = require('./rest-reminder.cjs');
   if (process.platform === 'win32') app.setAppUserModelId('com.planer.app');
   clearRestReminder = registerRestReminder({
@@ -252,4 +276,4 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => { loginSession?.cancel(); });
-app.on('activate', () => { if (!mainWindow) createMainWindow(); });
+app.on('activate', () => { if (hasInstanceLock && !mainWindow) createMainWindow(); });

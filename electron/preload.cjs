@@ -15,7 +15,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readUiText: () => ipcRenderer.invoke('ui-text:read'),
   saveUiText: (section,items) => ipcRenderer.invoke('ui-text:save',section,items),
   showUiTextFile: () => ipcRenderer.invoke('ui-text:show-file'),
-  openTimerPopup: (data) => ipcRenderer.send('timer:open', data),
+  // 이미 도는 타이머를 팝업으로 옮긴다. 시작과 같은 통로를 쓰되 메인 창은 내리지 않는다.
+  openTimerPopup: (data) => ipcRenderer.invoke('timer:start', data, { minimize: false }),
   startTimerPopup: (data) => ipcRenderer.invoke('timer:start', data),
   closeTimerPopup: () => ipcRenderer.send('timer:close'),
   stopTimerFromPopup: () => ipcRenderer.send('timer:stop-from-popup'),

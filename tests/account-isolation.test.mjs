@@ -61,7 +61,7 @@ test('preload subscriptions return cleanup and never pass raw Electron events', 
     require: () => ({
       contextBridge: { exposeInMainWorld: (_key, value) => { api = value; } },
       ipcRenderer: {
-        invoke: (name, data) => { started = { name, data }; return Promise.resolve({ ok: true }); },
+        invoke: (name, data, ...rest) => { started = { name, data, ...(rest.length ? { rest } : {}) }; return Promise.resolve({ ok: true }); },
         on: (name, callback) => listeners.set(name, callback),
         removeListener: (name, callback) => { if (listeners.get(name) === callback) listeners.delete(name); },
       },
@@ -75,11 +75,19 @@ test('preload subscriptions return cleanup and never pass raw Electron events', 
   return api.startTimerPopup({ actName: 'Study' }).then(result => {
     assert.deepEqual(started, { name: 'timer:start', data: { actName: 'Study' } });
     assert.equal(result.ok, true);
+    return api.openTimerPopup({ actName: 'Study' });
+  }).then(() => {
+    assert.deepEqual(JSON.parse(JSON.stringify(started)), { name: 'timer:start', data: { actName: 'Study' }, rest: [{ minimize: false }] });
   });
 });
 
 test('Electron IPC rejects other windows and child frames; stop is delivered once from timer window', async () => {
-  const handlers = new Map(), invokes = new Map(), windows = [];
+  const handlers = new Map(), invokes = new Map(), windows = [], appEvents = new Map();
+  let instanceLockRequests = 0;
+  const displays = [
+    { workArea: { x: 0, y: 0, width: 1000, height: 800 } },
+    { workArea: { x: 1000, y: 0, width: 1200, height: 900 } },
+  ];
   const titleRequests = [];
   let noteImagesAllowed = null;
   class FakeWindow {
@@ -100,7 +108,8 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
     isDestroyed() { return this.dead; }
     close() { this.events.get('close')?.(); this.dead = true; this.events.get('closed')?.(); }
     destroy() { this.dead = true; this.events.get('closed')?.(); }
-    focus() {} restore() {} minimize() { this.minimized = true; } setPosition(x,y) { this.position = [x,y]; }
+    focus() {} restore() {} show() {} maximize() {} minimize() { this.minimized = true; } setPosition(x,y) { this.position = [x,y]; }
+    getNormalBounds() { return this.bounds || { x: 0, y: 0, width: 1280, height: 800 }; }
   }
   const pathModule = await import('node:path');
   const urlModule = await import('node:url');
@@ -109,17 +118,23 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
     __dirname: pathModule.resolve('electron'),
     require(name) {
       if (name === 'electron') return {
-        app: { isPackaged: false, whenReady: () => ({ then: fn => fn() }), on() {}, setAppUserModelId() {} },
+        app: { isPackaged: false, whenReady: () => ({ then: fn => fn() }), on: (key, cb) => appEvents.set(key, cb), setAppUserModelId() {},
+          requestSingleInstanceLock: () => { instanceLockRequests++; return true; }, quit() { throw Error('Should keep the instance'); } },
         BrowserWindow: FakeWindow,
         shell: { openExternal: () => Promise.resolve() },
         ipcMain: { on: (key, cb) => handlers.set(key, cb), handle: (key, cb) => invokes.set(key, cb) },
         powerMonitor: { on() {} },
-        screen: { getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1000, height: 800 } }) },
+        screen: {
+          getPrimaryDisplay: () => displays[0],
+          getAllDisplays: () => displays,
+          getDisplayMatching: rect => displays.find(({ workArea: a }) => rect.x >= a.x && rect.x < a.x + a.width) || displays[0],
+        },
       };
       if (name === 'node:path') return pathModule;
       if (name === 'node:url') return urlModule;
       if (name === 'node:fs') return { readFileSync() { throw Error('No OAuth config'); } };
       if (name === './google-auth.cjs') return {};
+      if (name === './window-state.cjs') return { loadWindowState: () => ({ bounds: { width: 1280, height: 800 }, maximized: false }), trackWindowState() {} };
       if (name === './rest-reminder.cjs') return restReminder;
       if (name === './note-image-store.cjs') return { registerNoteImages: (_ipcMain, allowed) => { noteImagesAllowed = allowed; } };
       throw Error('Unexpected require ' + name);
@@ -142,7 +157,9 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal(titleRequests[0].options.redirect,'error');
   assert.equal((await invokes.get('auth:google')(eventFor(main))).code, 'desktop/config-missing');
   const data = { actName: 'Study', color: '#6366f1', startTs: 100, startLabel: '08:00' };
-  handlers.get('timer:open')(maliciousFrame, data);
+  assert.equal(instanceLockRequests, 1);
+  assert.equal(handlers.has('timer:open'), false, 'timer:start is the only way to open the timer popup');
+  assert.equal((await invokes.get('timer:start')(maliciousFrame, data)).code, 'desktop/forbidden');
   assert.equal(windows.length, 1);
   main.webContents.mainFrame.url += '?vite=refresh';
   assert.equal((await invokes.get('timer:start')(eventFor(main), data)).ok, true);
@@ -170,10 +187,23 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal((await invokes.get('timer:start')(eventFor(main),{...data,position:'left'})).ok,true);
   assert.deepEqual(windows[2].position, [28, 656]);
   handlers.get('timer:close')(eventFor(main));
+  // Moving a running timer to the popup keeps the main window up.
+  main.minimized = false;
+  assert.equal((await invokes.get('timer:start')(eventFor(main), data, { minimize: false })).ok, true);
+  assert.equal(main.minimized, false);
+  windows.at(-1).destroy();
+  // The popup follows the monitor the main window is on.
+  main.bounds = { x: 1100, y: 50, width: 1280, height: 800 };
+  assert.equal((await invokes.get('timer:start')(eventFor(main), data)).ok, true);
+  assert.deepEqual(windows.at(-1).position, [1000 + 1200 - 176 - 28, 900 - 128 - 16]);
+  handlers.get('timer:close')(eventFor(main));
+  delete main.bounds;
+  // A second launch brings the existing window forward instead of opening another app.
+  assert.equal(typeof appEvents.get('second-instance'), 'function');
   const rest = { ...data, endTs: 60100 };
   assert.equal((await invokes.get('rest:open-popup')(maliciousFrame, rest)).ok, false);
   assert.equal((await invokes.get('rest:open-popup')(eventFor(main), rest)).ok, true);
-  const restWindow = windows[3];
+  const restWindow = windows.at(-1);
   assert.deepEqual(restWindow.getSize(), [176, 112]);
   assert.deepEqual(restWindow.position, [804, 672]);
   handlers.get('timer:stop-from-popup')(eventFor(restWindow));
