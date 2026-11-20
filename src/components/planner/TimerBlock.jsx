@@ -12,7 +12,7 @@ import { restTimer } from './restTimer';
 let activeTimerOwner = null;
 
 function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivityRef, control = false,
-  restAvailable, returnActivities, onRestReturn, restTarget, switchGroups, onSwitch, switchTarget }) {
+  restAvailable, returnActivities, onRestReturn, restTarget, switchGroups, onSwitch, switchTarget, onSwitchPrompt }) {
   const [popupEnabled] = useTimerPopupPreference(uid);
   const [popupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled] = useStudyGapPreference(uid);
@@ -214,7 +214,8 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       await onSaveTimer(pendingSave.current);
       if (pendingSave.current.metadata.activityId === null) setCustomLearning(false);
       pendingSave.current = null;
-      if (promptAfterSave.current) { setSwitchPrompt(promptAfterSave.current); promptAfterSave.current = null; }
+      // 다른 탭에서 정지했으면 이 타이머의 탭으로 옮긴다. 숨은 탭 안에서 모달 창이 열리면 보이지 않은 채 앱 전체를 막는다.
+      if (promptAfterSave.current) { setSwitchPrompt(promptAfterSave.current); promptAfterSave.current = null; onSwitchPrompt?.(); }
     } catch {
       setSaveError('기록을 저장하지 못했습니다. 연결을 확인하고 다시 저장해 주세요.');
     } finally { setSaving(false); }

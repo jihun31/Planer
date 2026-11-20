@@ -17,7 +17,7 @@ import DailySchedule from '../planner/DailySchedule';
 import '../../styles/planner.css';
 
 function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, control = false, active = false, restTarget, onRestReturn,
-  controlAvailable = true, onTimerSwitch, switchTarget }) {
+  controlAvailable = true, onTimerSwitch, switchTarget, onTimerPrompt }) {
   const today = plannerDate();
   const [selectedDate, setSelectedDate] = useState(today);
   const [calYear,  setCalYear]  = useState(() => Number(today.slice(0, 4)));
@@ -95,7 +95,8 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
         <div className="planner-left">
           <TimerBlock uid={uid} activities={activities} allActivities={allActivities} onSaveTimer={saveTimer} startActivityRef={timerStart} control={control}
             restAvailable={control && !loading && !error} returnActivities={control ? oppositeActivities : undefined} onRestReturn={onRestReturn} restTarget={restTarget}
-            switchGroups={switchGroups} onSwitch={onTimerSwitch} switchTarget={switchTarget} />
+            switchGroups={switchGroups} onSwitch={onTimerSwitch} switchTarget={switchTarget}
+            onSwitchPrompt={onTimerPrompt && (() => onTimerPrompt(control ? 'control' : 'planner'))} />
           <PlannerCalendar
             year={calYear} month={calMonth} selectedDate={selectedDate}
             blocks={blocks} oppositeBlocks={oppositeBlocks} oppositeActivities={oppositeActivities} oppositeMode={oppositeMode}

@@ -62,13 +62,19 @@ if(!process.versions.electron){
         [...prompt().querySelectorAll('button')].find(button=>button.textContent==='종료').click();await tick();
         assert(!prompt()&&!document.querySelector('.float-timer')&&!document.querySelector('.timer-running'),'Ending still left a timer running');
 
+        // 다른 탭(숨은 기록 화면)에서 정지하면 기록 화면으로 옮겨 창을 보여 준다.
+        chip(study,'강의').click();await wait(()=>floatName()==='강의');
+        hideTimerView('planner');await wait(()=>study.hidden,'Study panel did not hide');
+        stop();await wait(()=>prompt(),'Switch prompt did not appear after stopping from another tab');
+        assert(!study.hidden&&prompt().getBoundingClientRect().height>0,'Stopping from another tab left the prompt hidden');
+        [...prompt().querySelectorAll('button')].find(button=>button.textContent==='종료').click();await tick();
         // 휴식은 휴식 타이머 설정 창으로 이어진다.
         chip(study,'강의').click();await wait(()=>floatName()==='강의');
         stop();await wait(()=>prompt());
         [...prompt().querySelectorAll('button')].find(button=>button.textContent==='휴식').click();
         await wait(()=>document.querySelector('dialog.planer-rest-setup[open]'),'Picking rest did not open the rest timer');
         assert(!document.querySelector('.timer-running'),'Rest started an elapsed timer');
-        return {offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,saves:timerSwitchSaves.length};
+        return {offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,saves:timerSwitchSaves.length};
       })()`);
       console.log(JSON.stringify(result));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}

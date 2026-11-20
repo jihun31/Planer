@@ -117,6 +117,8 @@ function App() {
     if (currentView === 'planner' || currentView === 'control') activateView(view);
     else setOpenedViews(opened => opened[view] ? opened : { ...opened, [view]: true });
   };
+  // 다음 활동 창은 정지한 타이머의 화면 안에 있으므로, 창이 뜰 때 그 화면(기록 타이머면 기록 탭)으로 옮긴다.
+  const showTimerPrompt = view => { if (currentView !== view) activateView(view); };
   const switchTargetFor = view => timerSwitch?.uid === user?.uid && timerSwitch?.view === view ? timerSwitch : null;
 
   const resumeAfterRest = activityId => {
@@ -196,7 +198,7 @@ function App() {
     );
   }
 
-  const plannerProps = { uid: user.uid, scheduleHistory, settingsReady, settingsError, controlAvailable: controlVisible, onTimerSwitch: switchTimer };
+  const plannerProps = { uid: user.uid, scheduleHistory, settingsReady, settingsError, controlAvailable: controlVisible, onTimerSwitch: switchTimer, onTimerPrompt: showTimerPrompt };
   const afterBlockMigration = content => blockMigration.ready ? content
     : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />;
   // 보기 id(appTabs.mjs)마다 그릴 화면
