@@ -1,7 +1,6 @@
-import ScheduleSettings from './components/ScheduleSettings';
 import { useCollection } from './lib/useCollection';
 import { subscribeScheduleSettings } from './features/planner/scheduleSettings';
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "./features/auth/useAuth";
 import { useGoals } from "./features/goals/useGoals";
 import { useTasks } from "./features/tasks/useTasks";
@@ -10,25 +9,48 @@ import { usePriorityNotes } from "./features/priorities/usePriorityNotes";
 import { useLegacyBlockMigration } from './features/planner/useLegacyBlockMigration';
 import { loginWithGoogle, logout, cancelLogin, loginErrorMessage } from "./features/auth/authService";
 import TodayTab from "./components/tabs/TodayTab";
-import PlannerTab from "./components/tabs/PlannerTab";
 import { restTimer } from './components/planner/restTimer';
-import LearningTab, { LearningSummary } from './components/tabs/LearningTab';
-import HelpDialog from './components/HelpDialog';
+import LearningSummary from './components/learning/LearningSummary';
 import UpdateBanner from './components/UpdateBanner';
-import NotesTab from './components/tabs/NotesTab';
-import CalendarTab from './components/tabs/CalendarTab';
 import { useLearning } from './features/learning/useLearning';
 import { useDiscordLink, useServerInfo } from './features/discord/useDiscord';
 import { useTonkatsu } from './features/tonkatsu/useTonkatsu';
-import CheckInTab from './components/tabs/CheckInTab';
-import HabitsTab from './components/tabs/HabitsTab';
 import { useHabits } from './features/habits/useHabits';
 import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
 import { useTabVisibility } from './features/navigation/useTabVisibility';
 import { HOME_VIEW, availableViews, resolveView, stepView, tabOfView, viewForTab, visibleTabs } from './features/navigation/appTabs.mjs';
-import "./styles/app.css";
-import "./styles/goals.css";
-import "./styles/tasks.css";
+
+// 오늘 할 일 말고는 처음 열 때 코드를 받는다. 시작 뒤 한가할 때 미리 받아 두어 탭 전환은 기다리지 않는다.
+const lazyViews = {
+  planner: () => import('./components/tabs/PlannerTab'),
+  learning: () => import('./components/tabs/LearningTab'),
+  habits: () => import('./components/tabs/HabitsTab'),
+  notes: () => import('./components/tabs/NotesTab'),
+  calendar: () => import('./components/tabs/CalendarTab'),
+  checkin: () => import('./components/tabs/CheckInTab'),
+  settings: () => import('./components/ScheduleSettings'),
+  help: () => import('./components/HelpDialog'),
+};
+const PlannerTab = lazy(lazyViews.planner);
+const LearningTab = lazy(lazyViews.learning);
+const HabitsTab = lazy(lazyViews.habits);
+const NotesTab = lazy(lazyViews.notes);
+const CalendarTab = lazy(lazyViews.calendar);
+const CheckInTab = lazy(lazyViews.checkin);
+const ScheduleSettings = lazy(lazyViews.settings);
+const HelpDialog = lazy(lazyViews.help);
+
+function preloadLazyViews() {
+  const load = () => Object.values(lazyViews).forEach(loader => loader().catch(() => {}));
+  if (typeof window.requestIdleCallback !== 'function') {
+    const timer = setTimeout(load, 1500);
+    return () => clearTimeout(timer);
+  }
+  const handle = window.requestIdleCallback(load, { timeout: 3000 });
+  return () => window.cancelIdleCallback(handle);
+}
+
+const viewLoading = <p role="status" className="view-loading">화면을 불러오는 중…</p>;
 
 function BlockMigrationNotice({ error, retry }) {
   if (error) return <div role="alert">
@@ -75,6 +97,8 @@ function App() {
   useEffect(() => {
     if (currentTabId) setLastViewByTab(last => last[currentTabId] === currentView ? last : { ...last, [currentTabId]: currentView });
   }, [currentTabId, currentView]);
+  const signedIn = Boolean(user);
+  useEffect(() => signedIn ? preloadLazyViews() : undefined, [signedIn]);
   const [restTarget, setRestTarget] = useState(null);
   useEffect(() => { setRestTarget(null); }, [user?.uid]);
   const controlVisible = tabVisibility.control;
@@ -198,9 +222,11 @@ function App() {
       </header>
       <UpdateBanner />
 
-      {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
-        ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}
-      {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+      <Suspense fallback={null}>
+        {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
+          ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}
+        {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+      </Suspense>
       <nav className="tab-nav">
         {tabs.map((tab) => (
           <button
@@ -224,7 +250,7 @@ function App() {
           </button>)}
         </div>}
         {availableViews(tabContext).map(view => <div key={view.id} hidden={currentView !== view.id}>
-          {(view.eager || openedViews[view.id]) && panels[view.id]()}
+          {(view.eager || openedViews[view.id]) && <Suspense fallback={viewLoading}>{panels[view.id]()}</Suspense>}
         </div>)}
       </main>
     </div>

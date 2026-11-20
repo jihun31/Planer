@@ -819,27 +819,14 @@
   padding: 4px 0;
 }
 
-.form-select-sm {
-  padding: 7px 10px;
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.85rem;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-.form-select-sm:focus {
-  outline: none;
-  border-color: var(--primary);
-}
+/* .form-select-sm은 goals.css에 있다(목표 폼과 함께 쓴다). */
 
 .btn-cancel-sel {
   background: none;
   border: 1.5px solid var(--border);
   border-radius: 8px;
-  padding: 7px 12px;
-  font-size: 0.82rem;
+  padding: 5px 10px;
+  font-size: 0.78rem;
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.12s;

@@ -513,18 +513,6 @@
   white-space: nowrap;
 }
 
-.btn-cancel-sel {
-  background: none;
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
-  padding: 5px 10px;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.12s;
-}
-.btn-cancel-sel:hover { border-color: var(--red); color: var(--red); }
-
 /* ── 완료된 할 일 (오른쪽 할 일 블록) ── */
 .task-done { opacity: 0.6; }
 .task-done .task-title { text-decoration: line-through; color: var(--text-muted); }

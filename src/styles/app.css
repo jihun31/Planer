@@ -322,6 +322,7 @@ body {
   width: 100%;
   margin: 0 auto;
 }
+.view-loading { padding: 24px 0; color: var(--text-muted); font-size: 0.9rem; }
 
 /* ===== 공통 공유 컴포넌트 ===== */
 .badge-soon {
