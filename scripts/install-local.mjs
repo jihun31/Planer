@@ -4,15 +4,17 @@
 //   npm run install:local            빌드 → 백업 → 교체 → check:version → Planer 다시 실행
 //   npm run install:local -- --no-start   교체 후 Planer를 실행하지 않음
 //
-// 버전은 GitHub 최신 릴리스와 같게 빌드한다. 그래야 업데이트 알림이 뜨지 않고,
-// 나중에 push해서 새 릴리스가 나오면 자동 업데이트가 그 릴리스로 자연스럽게 덮어쓴다.
+// 버전은 CI 릴리스와 같은 규칙(scripts/app-version.mjs: package.json 앞 두 자리 + 커밋 수)으로 정한다.
+// 인터넷 없이 정해지고, 이 커밋을 push하면 같은 버전으로 릴리스되므로 같은 버전의 업데이트 알림이 뜨지 않는다.
+// 더 새 커밋이 릴리스되면 커밋 수가 커서 자동 업데이트가 그 릴리스로 덮어쓴다.
 // 백업은 설치 폴더 밖(.tmp/app-backups)에 최근 3개만 둔다. 설치 폴더는 업데이트 때 통째로 지워진다.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { defaultAsar, latestReleaseVersion, verifyBuildInfo } from './check-version.mjs';
+import { defaultAsar, verifyBuildInfo } from './check-version.mjs';
+import { appVersion } from './app-version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fail = message => { console.error(message); process.exit(1); };
@@ -50,9 +52,9 @@ async function main() {
     await sleep(5000);
   }
 
-  const version = await latestReleaseVersion();
+  const version = appVersion();
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-  console.log(`빌드: 커밋 ${commit}, 버전 ${version} (GitHub 최신 릴리스와 같게)`);
+  console.log(`빌드: 커밋 ${commit}, 버전 ${version}`);
   // electronDist: 설치된 electron 패키지의 dist를 복사해 쓴다. electron-builder가 Electron zip을 풀어
   // win-unpacked.tmp → win-unpacked로 이름을 바꾸는 단계가 이 PC에서 EPERM으로 계속 실패해서다(2026-11-20).
   const build = spawnSync(`npm run app:local -- -c.extraMetadata.version=${version} -c.electronDist=node_modules/electron/dist`,

@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { testFiles as listTests, isDomTest, isRulesTest, isUnitTest } from './test-files.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const toPosix = file => file.split(path.sep).join('/');
@@ -120,9 +121,7 @@ export function dependencyClosure(entry) {
 }
 
 function testFiles() {
-  return fs.readdirSync(path.join(root, 'tests'))
-    .filter(name => /\.test\.(mjs|cjs|js)$/.test(name))
-    .map(name => path.join(root, 'tests', name));
+  return listTests().map(name => path.join(root, name));
 }
 
 // package.json scripts를 보고 테스트 파일 하나를 실행하는 방법을 정한다.
@@ -136,12 +135,12 @@ function runPlan(tests) {
     const name = rel(test);
     const owners = Object.entries(scripts).filter(([, command]) => command.split(/\s+/).some(token => token.replace(/^["']|["']$/g, '') === name));
     const dedicated = owners.find(([key]) => key !== 'test');
+    // 전용 스크립트가 없으면 이름 규칙으로 정한다 (scripts/test-files.mjs와 같은 규칙: npm test·test:dom·test:rules)
     if (dedicated) npmScripts.add(`npm run ${dedicated[0]}`);
-    else if (owners.length) nodeTest.push(name);
-    else {
-      unscripted.push(name);
-      (/-dom\.test\./.test(name) ? plainNode : nodeTest).push(name);
-    }
+    else if (isUnitTest(name.slice('tests/'.length))) nodeTest.push(name);
+    else if (isDomTest(name.slice('tests/'.length))) plainNode.push(name);
+    else if (isRulesTest(name.slice('tests/'.length))) npmScripts.add('npm run test:rules');
+    else unscripted.push(name);
   }
   const commands = [];
   if (nodeTest.length) commands.push(`node --test ${nodeTest.join(' ')}`);
@@ -206,7 +205,7 @@ function main() {
   for (const file of changed) console.log(`  ${file}`);
   console.log(`\n관련 테스트 ${selected.length}개:`);
   for (const test of selected.map(rel).sort()) console.log(`  ${test}`);
-  if (unscripted.length) console.log(`\n경고: package.json scripts에 없는 테스트 (npm test·CI에서 안 돌아감):\n  ${unscripted.join('\n  ')}`);
+  if (unscripted.length) console.log(`\n경고: 이름 규칙(scripts/test-files.mjs)에 맞지 않아 npm test·CI에서 안 돌아가는 테스트:\n  ${unscripted.join('\n  ')}`);
   if (uncovered.length) console.log(`\n자동 테스트가 닿지 않는 파일 (앱을 실행해서 직접 확인):\n  ${uncovered.join('\n  ')}`);
   if (broad.length) console.log(`\n영향 범위를 좁힐 수 없는 파일이 바뀜 → 전체 테스트(npm test) 여부를 사용자에게 확인:\n  ${broad.join('\n  ')}`);
   console.log(`\n실행할 명령:${commands.length ? '' : ' 없음'}`);

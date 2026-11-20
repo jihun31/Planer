@@ -1,0 +1,71 @@
+name: Checks
+
+# 모든 push와 PR에서 전체 검사를 돌린다: lint, 단위 테스트, 화면(DOM) 테스트, Firestore 규칙 테스트, 봇 테스트.
+# release.yml도 이 워크플로를 먼저 불러서, 검사가 모두 통과해야 설치본을 만든다.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Lint, unit and DOM tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      # Electron 창을 띄워 실제 화면을 조작한다 (Windows 러너에는 화면이 있어 따로 설정이 필요 없음)
+      - name: DOM tests
+        run: npm run test:dom
+
+  firestore:
+    name: Firestore rules and bot tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Firestore 에뮬레이터는 Java가 필요하다
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: bot/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          python -m pip install -r bot/requirements-dev.txt
+
+      - name: Firestore rules tests
+        run: npm run test:rules
+
+      - name: Bot tests
+        run: npm run test:bot

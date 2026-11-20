@@ -73,7 +73,15 @@ test('build and release settings publish what the updater reads', () => {
   assert.deepEqual(pkg.build.publish, [{ provider: 'github', owner: 'jihun31', repo: 'Planer' }]);
   assert.equal(pkg.build.nsis.artifactName, 'Planer-Setup-${version}.${ext}'); // 공백 없는 이름 = latest.yml과 일치
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
-  assert.match(workflow, /npm version "1\.1\.\$env:GITHUB_RUN_NUMBER"/);
+  // 버전은 로컬 install:local과 같은 규칙(scripts/app-version.mjs)으로 정하고, 커밋 수를 세려고 전체 기록을 받는다
+  assert.match(workflow, /node scripts\/app-version\.mjs/);
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.ok(!workflow.includes('GITHUB_RUN_NUMBER'), '실행 번호로 버전을 만들면 로컬 빌드와 기준이 갈라진다');
+  // 전체 검사(check.yml)를 통과해야 릴리스한다
+  assert.match(workflow, /uses: \.\/\.github\/workflows\/check\.yml/);
+  assert.match(workflow, /needs: checks/);
+  const install = fs.readFileSync(path.join(root, 'scripts/install-local.mjs'), 'utf8');
+  assert.match(install, /appVersion\(\)/);
   // 병합 때 자동 배포: main push + 앱 파일 경로, 봇만 바뀌면 실행 안 함, 직접 실행도 가능
   assert.match(workflow, /push:\s+branches: \[main\]/);
   assert.match(workflow, /workflow_dispatch:/);

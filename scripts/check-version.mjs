@@ -2,8 +2,8 @@
 // 배포 버전과 앱이 인식하는 버전이 같은지, 앱이 빌드한 그대로인지 확인한다. 문제가 있으면 0이 아닌 코드로 끝난다.
 //
 // 로컬 설치본:  node scripts/check-version.mjs [--asar <app.asar>] [--expect <X.Y.Z>]
-//   설치본 app.asar 안의 package.json 버전을 GitHub 최신 릴리스(latest.yml, 자동 업데이트가 읽는 파일)와 비교하고,
-//   앱 파일의 지문을 빌드 때 기록(dist/build-info.json)과 비교한다.
+//   설치본 app.asar 안의 버전을 그 설치본을 빌드한 커밋의 버전(scripts/app-version.mjs)과 비교하고,
+//   앱 파일의 지문을 빌드 때 기록(dist/build-info.json)과 비교한다. GitHub 최신 릴리스(latest.yml)와의 관계도 알려 준다.
 // 빌드 결과물:  node scripts/check-version.mjs --release-dir release --expect <X.Y.Z>
 //   package.json, latest.yml, 설치 파일 이름, 빌드된 app.asar 버전이 모두 X.Y.Z이고 빌드 기록과 같은지 확인한다. (CI에서 사용)
 
@@ -13,6 +13,7 @@ import os from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { BUILD_INFO, PACKAGED_DIRS, sha256 } from './write-build-info.mjs';
+import { appVersion } from './app-version.mjs';
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -156,32 +157,47 @@ async function main() {
   const asarFile = args.asar ? path.resolve(args.asar) : defaultAsar();
   if (!asarFile || !fs.existsSync(asarFile)) throw new Error('설치본 app.asar를 찾지 못했습니다. --asar로 경로를 지정하세요');
   const installed = asarVersion(asarFile);
-  const expected = args.expect || await latestReleaseVersion();
-  const source = args.expect ? '지정한 버전' : 'GitHub 최신 릴리스';
+  const { info, problems } = verifyBuildInfo(asarFile);
+  let failed = false;
+
+  // 기준: 설치본을 빌드한 커밋의 버전(scripts/app-version.mjs). 그 커밋이 로컬에 없거나 기록이 없으면 GitHub 최신 릴리스.
+  let expected = args.expect;
+  let source = '지정한 버전';
+  if (!expected && info?.commit) {
+    try { expected = appVersion(info.commit); source = `커밋 ${info.commit.slice(0, 7)}의 버전`; } catch { /* 커밋이 로컬에 없음 */ }
+  }
+  if (!expected) { expected = await latestReleaseVersion(); source = 'GitHub 최신 릴리스'; }
 
   console.log(`설치본: ${installed} (${asarFile})`);
   console.log(`${source}: ${expected}`);
-  const order = compareVersions(installed, expected);
-  let failed = false;
-  if (order === 0) console.log('버전 일치: 같은 릴리스의 업데이트 알림이 뜨지 않습니다.');
+  if (compareVersions(installed, expected) === 0) console.log('버전 일치');
   else {
     failed = true;
-    if (order < 0) console.error(`버전 불일치: 설치본이 더 낮아서 ${expected} 업데이트 알림이 뜹니다. 설치본을 ${expected}로 빌드하세요.`);
-    else console.error(`버전 불일치: 설치본이 ${source}보다 높습니다. 배포가 아직 끝나지 않았거나 버전을 잘못 올렸습니다.`);
+    console.error(`버전 불일치: 설치본 ${installed} ≠ ${expected}. npm run install:local로 다시 빌드하세요.`);
   }
 
-  const { info, problems } = verifyBuildInfo(asarFile);
   if (problems.length) {
     failed = true;
     console.error(`빌드 검사 실패: 설치본이 빌드한 그대로가 아닙니다.\n- ${problems.join('\n- ')}`);
   } else {
     console.log(`빌드 검사 통과: 파일 ${Object.keys(info.files).length}개가 빌드 기록과 같습니다 (커밋 ${info.commit.slice(0, 7)}).`);
   }
-  // 정보만 알린다: 배포 전 로컬 빌드는 릴리스보다 앞선 커밋일 수 있다.
-  if (info?.commit && !args.expect) {
-    const released = await releaseCommit('v' + expected);
-    if (released && released !== info.commit) {
-      console.log(`참고: 설치본 커밋(${info.commit.slice(0, 7)})이 v${expected} 릴리스 커밋(${released.slice(0, 7)})과 다릅니다. 배포 전이면 정상이고, 배포 후라면 설치본을 다시 빌드하세요.`);
+
+  // GitHub 릴리스와 비교 (인터넷이 없으면 건너뜀). 자동 업데이트가 설치본을 어떻게 다룰지 알려 준다.
+  if (!args.expect && source !== 'GitHub 최신 릴리스') {
+    let latest = null;
+    try { latest = await latestReleaseVersion(); } catch (error) { console.log(`참고: GitHub 릴리스를 확인하지 못했습니다 (${error.message}).`); }
+    if (latest) {
+      const order = compareVersions(installed, latest);
+      if (order < 0) console.log(`참고: GitHub에 더 새 릴리스 ${latest}가 있어 업데이트 알림이 뜹니다. 최신 소스를 받아 다시 설치하거나 업데이트하세요.`);
+      else if (order > 0) console.log(`참고: GitHub 최신 릴리스는 ${latest}입니다. 이 설치본은 아직 배포 전 커밋이고, push하면 같은 버전 ${installed}로 릴리스됩니다.`);
+      else if (info?.commit) {
+        const released = await releaseCommit('v' + latest);
+        if (released && released !== info.commit) {
+          failed = true;
+          console.error(`같은 버전 ${latest}인데 릴리스 커밋(${released.slice(0, 7)})과 설치본 커밋(${info.commit.slice(0, 7)})이 다릅니다. 로컬 기록이 main과 갈라졌습니다. git pull로 맞춘 뒤 다시 설치하세요.`);
+        }
+      }
     }
   }
   if (failed) process.exit(1);

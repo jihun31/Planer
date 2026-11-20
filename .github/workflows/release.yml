@@ -25,11 +25,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # lint·단위·화면·Firestore 규칙·봇 테스트를 모두 통과해야 릴리스한다 (check.yml)
+  checks:
+    uses: ./.github/workflows/check.yml
+
   release:
+    needs: checks
     runs-on: windows-latest
     steps:
+      # 버전이 커밋 수로 정해지므로 전체 기록이 필요하다
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -39,9 +47,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Run application tests
-        run: npm test
 
       - name: Restore desktop Google login settings
         shell: pwsh
@@ -55,25 +60,48 @@ jobs:
           $bytes = [System.Convert]::FromBase64String($env:GOOGLE_OAUTH_JSON)
           [System.IO.File]::WriteAllBytes($path, $bytes)
 
-      # 1.1.N (N = 실행 번호): 실행할 때마다 올라가고, 기존 1.0.x보다 항상 높아서 자동 업데이트가 새 버전으로 인식함
+      # 버전 = package.json 앞 두 자리 + 커밋 수 (scripts/app-version.mjs). 로컬 install:local과 같은 규칙이라
+      # 같은 커밋이면 로컬 설치본과 릴리스 버전이 같다. 커밋마다 올라가서 자동 업데이트가 새 버전으로 인식한다.
+      # 같은 커밋을 다시 실행해 그 버전의 릴리스가 이미 있으면 빌드하지 않고 끝낸다.
       - name: Set installer version
-        shell: pwsh
-        run: npm version "1.1.$env:GITHUB_RUN_NUMBER" --no-git-tag-version
-
-      - name: Build Windows installer
-        run: npm run electron:build
-
-      # 태그·package.json·latest.yml·설치 파일·빌드된 앱 버전이 모두 같은지 확인 (다르면 릴리스하지 않음)
-      - name: Verify release version
-        shell: pwsh
-        run: node scripts/check-version.mjs --release-dir release --expect "1.1.$env:GITHUB_RUN_NUMBER"
-
-      - name: Publish GitHub Release
+        id: version
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = "1.1.$env:GITHUB_RUN_NUMBER"
+          $version = node scripts/app-version.mjs
+          if ($LASTEXITCODE -ne 0 -or -not $version) { throw 'Could not compute the app version' }
+          gh release view "v$version" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "::notice::Release v$version already exists for this commit count; skipping."
+            "skip=true" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $global:LASTEXITCODE = 0
+          npm version $version --no-git-tag-version
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "skip=false" >> $env:GITHUB_OUTPUT
+
+      - name: Build Windows installer
+        if: steps.version.outputs.skip != 'true'
+        run: npm run electron:build
+
+      # 태그·package.json·latest.yml·설치 파일·빌드된 앱 버전이 모두 같은지 확인 (다르면 릴리스하지 않음)
+      - name: Verify release version
+        if: steps.version.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/check-version.mjs --release-dir release --expect $env:VERSION
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $version = $env:VERSION
           $tag = "v$version"
           # latest.yml: 설치된 앱이 새 버전을 확인할 때 읽는 파일 / blockmap: 바뀐 부분만 받기
           $files = @(
