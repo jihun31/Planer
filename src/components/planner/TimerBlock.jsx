@@ -45,7 +45,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   const isCustom = actId === CUSTOM_ID;
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
   const rest = restTimer.useTimer({
-    uid, enabled: control, popupPosition, returnActivities, onReturn: onRestReturn,
+    uid, enabled: control, popupPosition, returnActivities, onSaveTimer, onReturn: onRestReturn,
     lock: () => { activeTimerOwner = timerOwner.current; },
     unlock: () => { if (activeTimerOwner === timerOwner.current) activeTimerOwner = null; },
   });

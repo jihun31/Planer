@@ -24,7 +24,7 @@ if(!process.versions.electron){
       await win.loadURL(process.env.PLANER_PREVIEW_URL);
       const result=await win.webContents.executeJavaScript(`(async()=>{
         const assert=(condition,message)=>{if(!condition)throw Error(message);};
-        const wait=async(predicate,message='UI timed out')=>{const start=Date.now();while(!predicate()){if(Date.now()-start>8000)throw Error(message);await new Promise(resolve=>setTimeout(resolve,20));}};
+        const wait=async(predicate,message='UI timed out')=>{const start=performance.now();while(!predicate()){if(performance.now()-start>8000)throw Error(message);await new Promise(resolve=>setTimeout(resolve,20));}};
         const tick=()=>new Promise(resolve=>setTimeout(resolve,80));
         const study=document.querySelector('#study'),control=document.querySelector('#control');
         const chip=(root,name)=>[...root.querySelectorAll('.act-chip-start')].find(button=>button.textContent===name);
@@ -108,6 +108,12 @@ if(!process.versions.electron){
         custom.click();await wait(()=>button(setup(),'휴식 시작').disabled);
         unlimited.click();await wait(()=>!button(setup(),'휴식 시작').disabled);
         assert(unlimited.getAttribute('aria-pressed')==='true'&&!setup().querySelector('[type="number"]'),'Unlimited duration still shows custom entry');
+        const {plannerDate,timerSegments}=await import('../../src/features/planner/scheduleTime.mjs');
+        const [year,month,day]=plannerDate().split('-').map(Number);
+        const realNow=Date.now;
+        let restNow=new Date(year,month-1,day+1,4,58,10).getTime();
+        Date.now=()=>restNow;
+        const savesBeforeRest=timerSwitchSaves.length;
         button(setup(),'휴식 시작').click();
         await wait(()=>popups.length&&popupCommand,'Unlimited rest did not open');
         const active=popups.at(-1);
@@ -116,9 +122,11 @@ if(!process.versions.electron){
         assert(active.endTs===null&&active.actName==='휴식'&&saved.minutes===null&&saved.session?.endTs===null,'Unlimited rest was not restored from storage');
         assert(saved.session.action===''&&!saved.session.returnActivityId,'Blank fields did not stay blank');
         assert(!review()&&reminders.length===0,'Unlimited rest expired or scheduled a reminder');
+        restNow+=70000;
         popupCommand({type:'end',key:active.startTs+':null'});
         await wait(()=>review(),'Unlimited rest could not be ended');
         assert(!review().querySelector('.planer-rest-action'),'An empty return action was displayed');
+        assert(timerSwitchSaves.length===savesBeforeRest,'A rest waiting for review was already saved');
 
         button(review(),'휴식 연장').click();await wait(()=>button(review(),'5분'));
         button(review(),'5분').click();await wait(()=>!button(review(),'연장 시작').disabled);
@@ -126,14 +134,25 @@ if(!process.versions.electron){
         await wait(()=>popups.length>1&&reminders.length,'Timed extension did not schedule a deadline');
         const timed=popups.at(-1);
         assert(Number.isFinite(timed.endTs)&&timed.endTs===reminders.at(-1).endTs,'Timed rest lost its deadline');
+        restNow+=125000;
         popupCommand({type:'end',key:timed.startTs+':'+timed.endTs});
         await wait(()=>review());
         button(review(),'업무 복귀').click();
         await wait(()=>!review());
         assert(!document.querySelector('.timer-running'),'Work resumed with an unselected activity');
         assert(timerSwitchRestReturns.length===1&&timerSwitchRestReturns[0]===undefined,'Return to work did not invoke its callback');
+        const recorded=timerSwitchSaves.at(-1),expected=timerSegments(active.startTs,restNow);
+        assert(timerSwitchSaves.length===savesBeforeRest+1&&recorded.control&&recorded.customName==='휴식'&&recorded.group==='controlled',
+          'The completed rest was not saved as one control timer');
+        assert(expected.length===2&&JSON.stringify(recorded.segments)===JSON.stringify(expected),
+          'The rest was not split across planner days at the actual finish time');
+        assert(control.querySelector('.cal-day.cal-sel .cal-dot')&&control.querySelector('.ds-summary-group-activities')?.textContent.includes('휴식'),
+          'The completed rest did not appear in the calendar and daily summary');
 
+        restNow=new Date(year,month-1,day,12,0,10).getTime();
         chip(control,'휴식').click();await wait(()=>setup());
+        button(setup(),'산책').click();
+        await wait(()=>button(setup(),'산책').getAttribute('aria-pressed')==='true');
         button(setup(),'강의').click();
         await wait(()=>button(setup(),'강의').getAttribute('aria-pressed')==='true');
         const popupCount=popups.length;
@@ -141,16 +160,36 @@ if(!process.versions.electron){
         await wait(()=>popups.length>popupCount);
         const scheduled=restTimer.read('switch-user').session;
         assert(scheduled.returnActivityId==='lecture','Rest has no return activity to skip');
+        restNow+=1000;
         popupCommand({type:'end',key:scheduled.startTs+':'+scheduled.endTs});
         await wait(()=>review());
         const end=button(review(),'종료');
         const position=element=>element.getBoundingClientRect().left;
         assert(end===end.parentElement.firstElementChild&&position(end)===position(end.parentElement),
           'End button is not on the left edge of the review actions');
-        end.click();await wait(()=>!review());
+        const attempts=[];
+        let rejectFirstSave;
+        window.timerSwitchBeforeSave=data=>{
+          attempts.push(data);
+          if(attempts.length===1)return new Promise((_resolve,reject)=>{rejectFirstSave=reject;});
+        };
+        end.click();end.click();
+        await wait(()=>rejectFirstSave&&review()?.querySelector('[role="status"]'),'Rest was not sent for saving');
+        rejectFirstSave(Error('Temporary save failure'));
+        await wait(()=>review()?.querySelector('[role="alert"]')&&!button(review(),'종료').disabled,
+          'Save failure did not keep the review open for retry');
+        assert(attempts.length===1&&timerSwitchSaves.length===savesBeforeRest+1
+          &&restTimer.read('switch-user').session?.endTs===restNow,'Duplicate clicks saved a rest or failure lost the original interval');
+        restNow+=120000;
+        button(review(),'종료').click();await wait(()=>!review());
+        const short=timerSwitchSaves.at(-1);
+        assert(attempts.length===2&&JSON.stringify(attempts[0])===JSON.stringify(attempts[1]),'Retry changed the rest record');
+        assert(timerSwitchSaves.length===savesBeforeRest+2&&short.customName==='산책'&&short.segments.length===1
+          &&short.segments[0].endMin-short.segments[0].startMin===1,'Short rest was not saved as a one-minute walk');
         assert(restTimer.read('switch-user').session===null,'End did not clear the rest session');
         assert(timerSwitchRestReturns.length===1,'End invoked the return to work callback');
-        return {offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,restEnd:true,saves:timerSwitchSaves.length};
+        Date.now=realNow;
+        return {offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,restEnd:true,calendarRest:true,restSaveRetry:true,saves:timerSwitchSaves.length};
       })()`);
       const popup=new BrowserWindow({show:false,webPreferences:{
         sandbox:true,offscreen:true,backgroundThrottling:false,preload:path.join(__dirname,'../electron/preload.cjs'),

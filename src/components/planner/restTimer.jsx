@@ -1,5 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { controlColor } from '../../features/planner/controlColors.mjs';
+import { timerSegments } from '../../features/planner/scheduleTime.mjs';
 import '../../styles/rest-timer.css';
 
 function createPlanerRest(React, createPortal) {
@@ -180,17 +182,19 @@ function createPlanerRest(React, createPortal) {
     </form>;
   }
 
-  function RestReview({ action, onEnd, onReturn, onExtend }) {
+  function RestReview({ action, saving, finalizing, onEnd, onReturn, onExtend }) {
     const [extending, setExtending] = useState(false);
     const [minutes, setMinutes] = useState('');
     return <>
       {action && <div className="study-gap-ranges planer-rest-action">{action}</div>}
       <div className="study-gap-actions">
-        <button type="button" className="study-gap-cancel" onClick={onEnd}>종료</button>
-        <button type="button" aria-expanded={extending} onClick={() => setExtending(!extending)}>휴식 연장</button>
-        <button type="button" className="study-gap-primary" data-rest-focus onClick={onReturn}>업무 복귀</button>
+        <button type="button" className="study-gap-cancel" onClick={onEnd} disabled={saving}>종료</button>
+        <button type="button" aria-expanded={extending && !finalizing} disabled={finalizing}
+          onClick={() => setExtending(!extending)}>휴식 연장</button>
+        <button type="button" className="study-gap-primary" data-rest-focus onClick={onReturn} disabled={saving}>업무 복귀</button>
       </div>
-      {extending && <form className="planer-rest-field planer-rest-extend" onSubmit={event => {
+      {saving && <p role="status">휴식 기록 저장 중…</p>}
+      {extending && !finalizing && <form className="planer-rest-field planer-rest-extend" onSubmit={event => {
         event.preventDefault();
         if (isDuration(minutes)) onExtend(minutes);
       }}>
@@ -220,14 +224,16 @@ function createPlanerRest(React, createPortal) {
     </dialog>, document.body);
   }
 
-  function useTimer({ uid, enabled, popupPosition, lock, unlock, returnActivities = [], onReturn }) {
+  function useTimer({ uid, enabled, popupPosition, lock, unlock, returnActivities = [], onSaveTimer, onReturn }) {
     const [store, setStore] = useState(() => enabled ? read(uid) : null);
     const [editing, setEditing] = useState(false);
     const [observedTime, setObservedTime] = useState(Date.now);
     const [error, setError] = useState('');
     const [popupError, setPopupError] = useState('');
+    const [saving, setSaving] = useState(false);
     const current = useRef(store);
     const editingRef = useRef(false);
+    const savingRef = useRef(false);
     const ownership = useRef({ lock, unlock });
     ownership.current = { lock, unlock };
     const session = store?.session;
@@ -334,7 +340,7 @@ function createPlanerRest(React, createPortal) {
     function extend(minutes) {
       const active = current.current.session;
       const timestamp = Date.now();
-      if (!active || !hasEnded(active, timestamp) || !isDuration(minutes)) return;
+      if (!active || active.finalizing || !hasEnded(active, timestamp) || !isDuration(minutes)) return;
       const endTs = minutes === null ? null : timestamp + minutes * minute;
       if (save({ ...current.current, session: { ...active, endTs } })) setObservedTime(timestamp);
     }
@@ -348,9 +354,36 @@ function createPlanerRest(React, createPortal) {
       }
     }
 
-    function finish(returnToWork) {
+    async function finish(returnToWork) {
       const active = current.current.session;
-      if (!active) return;
+      if (!active || savingRef.current || !hasEnded(active, Date.now())) return;
+      // Keep the interval fixed across retries, including after an app restart.
+      if (!active.finalizing && !save({ ...current.current, session: { ...active, finalizing: true } })) return;
+
+      savingRef.current = true;
+      setSaving(true);
+      setError('');
+      try {
+        const { startTs, endTs, name } = active;
+        let segments = timerSegments(startTs, endTs);
+        if (!segments.length && endTs > startTs) {
+          const firstMinute = Math.floor(startTs / minute) * minute;
+          segments = timerSegments(firstMinute, firstMinute + minute);
+        }
+        if (segments.length) {
+          await onSaveTimer({
+            startTs, segments,
+            metadata: { activityId: null, customName: name, customColor: controlColor('controlled'), group: 'controlled' },
+          });
+        }
+      } catch {
+        setError('휴식 기록을 저장하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.');
+        return;
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
+      }
+
       if (!save({ ...current.current, session: null })) return;
       unlock();
       if (returnToWork) onReturn?.(active.returnActivityId);
@@ -360,7 +393,8 @@ function createPlanerRest(React, createPortal) {
       <RestSetup store={store} returnActivities={availableActivities} onStart={start} onCancel={cancel}
         onSaveActivities={activities => save({ ...current.current, activities })} />
     </RestDialog> : reviewing ? <RestDialog key="review" mode="review" title={session.action ? '복귀 후 첫 행동' : '휴식 종료'} error={error}>
-      <RestReview action={session.action} onEnd={() => finish(false)} onReturn={() => finish(true)} onExtend={extend} />
+      <RestReview action={session.action} saving={saving} finalizing={session.finalizing}
+        onEnd={() => finish(false)} onReturn={() => finish(true)} onExtend={extend} />
     </RestDialog> : session && (popupError || error) ? <p role="alert">{popupError || error}</p> : null;
 
     return { open, busy: Boolean(editing || session), active: Boolean(session), panel };
