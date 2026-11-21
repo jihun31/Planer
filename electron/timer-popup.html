@@ -134,12 +134,14 @@
     function startTick() {
       if (intervalId) clearInterval(intervalId);
       if (restSession) {
+        const { startTs, endTs, key } = restSession;
         const tick = () => {
-          const seconds = Math.max(0, Math.ceil((restSession.endTs - Date.now()) / 1000));
-          document.getElementById('time').textContent = fmtElapsed(seconds);
-          if (seconds > 0) return;
+          const now = Date.now();
+          const seconds = endTs === null ? Math.floor((now - startTs) / 1000) : Math.ceil((endTs - now) / 1000);
+          document.getElementById('time').textContent = fmtElapsed(Math.max(0, seconds));
+          if (endTs === null || seconds > 0) return;
           clearInterval(intervalId);
-          window.electronAPI.sendRestPopupCommand({ type: 'expire', key: restSession.key });
+          window.electronAPI.sendRestPopupCommand({ type: 'expire', key });
         };
         intervalId = setInterval(tick, 250);
         tick();

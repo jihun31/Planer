@@ -13,6 +13,8 @@ function createPlanerRest(React, createPortal) {
   const isRestName = name => typeof name === 'string' && name.normalize('NFKC').trim() === restName;
   const findRest = activities => activities.find(activity => isRestName(activity.name));
   const isMinutes = value => Number.isInteger(value) && value >= 1 && value <= 1440;
+  const isDuration = value => value === null || isMinutes(value);
+  const hasEnded = (session, now) => session.endTs !== null && session.endTs <= now;
   const sessionKey = session => `${session.startTs}:${session.endTs}`;
 
   function read(uid) {
@@ -22,11 +24,12 @@ function createPlanerRest(React, createPortal) {
       ? data.activities.filter(item => typeof item?.id === 'string' && typeof item.name === 'string' && item.name.trim())
       : [];
     const session = data?.session;
-    const validSession = session && Number.isFinite(session.startTs) && Number.isFinite(session.endTs)
-      && session.endTs >= session.startTs && typeof session.name === 'string' && typeof session.action === 'string';
+    const validSession = session && Number.isFinite(session.startTs)
+      && (session.endTs === null || (Number.isFinite(session.endTs) && session.endTs >= session.startTs))
+      && typeof session.name === 'string' && typeof session.action === 'string';
     return {
       activities,
-      minutes: isMinutes(data?.minutes) ? data.minutes : 10,
+      minutes: isDuration(data?.minutes) ? data.minutes : 10,
       session: validSession ? session : null,
     };
   }
@@ -61,11 +64,13 @@ function createPlanerRest(React, createPortal) {
   }
 
   function DurationPicker({ value, onChange }) {
-    const [custom, setCustom] = useState(!presets.includes(value) && value !== '');
+    const [custom, setCustom] = useState(isMinutes(value) && !presets.includes(value));
     return <div className="study-gap-actions study-gap-ranges planer-rest-times" role="group" aria-label="시간 선택">
       {presets.map(minutes => <button type="button" key={minutes} aria-pressed={!custom && value === minutes}
         onClick={() => { setCustom(false); onChange(minutes); }}>{minutes}분</button>)}
       <button type="button" aria-pressed={custom} onClick={() => { setCustom(true); onChange(''); }}>직접 입력</button>
+      <button type="button" aria-pressed={value === null}
+        onClick={() => { setCustom(false); onChange(null); }}>제한 없음</button>
       {custom && <input autoFocus type="number" min="1" max="1440"
         aria-label="분 직접 입력" placeholder="분" value={value}
         onChange={event => onChange(event.target.value === '' ? '' : Number(event.target.value))} />}
@@ -109,8 +114,8 @@ function createPlanerRest(React, createPortal) {
       </div>
       {!!activities.length && <ActivityBadges rest activities={activities} selected={selected} label="휴식 활동 선택"
         onSelect={item => {
-          if (item.id !== selected) cancelRename();
-          onSelect(item.id);
+          cancelRename();
+          onSelect(item.id === selected ? '' : item.id);
         }} />}
       {managing && <div className="study-gap-actions planer-rest-row">
         <input id="planer-rest-activity" ref={field}
@@ -147,10 +152,10 @@ function createPlanerRest(React, createPortal) {
     const [returnActivityId, setReturnActivityId] = useState('');
     const activity = store.activities.find(item => item.id === activityId);
     const returnActivity = returnActivities.find(item => item.id === returnActivityId);
-    const ready = activity && isMinutes(minutes) && action.trim() && (returnActivity || !returnActivities.length);
+    const ready = isDuration(minutes);
     return <form onSubmit={event => {
       event.preventDefault();
-      if (ready) onStart({ activity, minutes, action: action.trim(), returnActivityId: returnActivity?.id });
+      if (ready) onStart({ name: activity?.name ?? restName, minutes, action: action.trim(), returnActivityId: returnActivity?.id });
     }}>
       <ActivityPicker activities={store.activities} selected={activityId} onSelect={setActivityId} onSave={onSaveActivities} />
       <div className="planer-rest-field">
@@ -179,19 +184,19 @@ function createPlanerRest(React, createPortal) {
     const [extending, setExtending] = useState(false);
     const [minutes, setMinutes] = useState('');
     return <>
-      <div className="study-gap-ranges planer-rest-action">{action}</div>
+      {action && <div className="study-gap-ranges planer-rest-action">{action}</div>}
       <div className="study-gap-actions">
         <button type="button" aria-expanded={extending} onClick={() => setExtending(!extending)}>휴식 연장</button>
         <button type="button" className="study-gap-primary" data-rest-focus onClick={onReturn}>업무 복귀</button>
       </div>
       {extending && <form className="planer-rest-field planer-rest-extend" onSubmit={event => {
         event.preventDefault();
-        if (isMinutes(minutes)) onExtend(minutes);
+        if (isDuration(minutes)) onExtend(minutes);
       }}>
         <span>추가로 쉴 시간</span>
         <DurationPicker value={minutes} onChange={setMinutes} />
         <div className="study-gap-actions">
-          <button type="submit" className="study-gap-primary" disabled={!isMinutes(minutes)}>연장 시작</button>
+          <button type="submit" className="study-gap-primary" disabled={!isDuration(minutes)}>연장 시작</button>
         </div>
       </form>}
     </>;
@@ -225,7 +230,7 @@ function createPlanerRest(React, createPortal) {
     const ownership = useRef({ lock, unlock });
     ownership.current = { lock, unlock };
     const session = store?.session;
-    const reviewing = Boolean(session && session.endTs <= observedTime);
+    const reviewing = Boolean(session && hasEnded(session, observedTime));
     const availableActivities = returnActivities.filter(item => !item.archived);
     const reminderKey = session ? sessionKey(session) : null;
 
@@ -239,19 +244,19 @@ function createPlanerRest(React, createPortal) {
     }, [enabled]);
 
     useEffect(() => {
-      if (!session || session.endTs <= Date.now()) return;
+      if (!session || session.endTs === null || hasEnded(session, Date.now())) return;
       const api = window.electronAPI;
       api?.scheduleRestReminder?.({ key: reminderKey, endTs: session.endTs });
       return () => api?.clearRestReminder?.(reminderKey);
     }, [reminderKey]);
 
     useEffect(() => {
-      if (!session || reviewing) return;
+      if (!session || session.endTs === null || reviewing) return;
       let timeout;
       function checkDeadline() {
         const now = Date.now();
         clearTimeout(timeout);
-        if (session.endTs <= now) setObservedTime(now);
+        if (hasEnded(session, now)) setObservedTime(now);
         else timeout = setTimeout(checkDeadline, session.endTs - now);
       }
       checkDeadline();
@@ -280,7 +285,7 @@ function createPlanerRest(React, createPortal) {
       const active = current.current.session;
       if (!active) return;
       const now = Date.now();
-      if (active.endTs <= now) { setObservedTime(now); return; }
+      if (hasEnded(active, now)) { setObservedTime(now); return; }
       let result;
       try {
         result = await window.electronAPI?.openRestPopup?.({
@@ -315,11 +320,11 @@ function createPlanerRest(React, createPortal) {
       unlock();
     }
 
-    function start({ activity, minutes, action, returnActivityId }) {
+    function start({ name, minutes, action, returnActivityId }) {
       if (!editingRef.current || current.current.session) return;
       const startTs = Date.now();
-      if (!save({ ...current.current, minutes,
-        session: { startTs, endTs: startTs + minutes * minute, name: activity.name, action, returnActivityId } })) return;
+      const endTs = minutes === null ? null : startTs + minutes * minute;
+      if (!save({ ...current.current, minutes, session: { startTs, endTs, name, action, returnActivityId } })) return;
       setObservedTime(startTs);
       editingRef.current = false;
       setEditing(false);
@@ -328,15 +333,16 @@ function createPlanerRest(React, createPortal) {
     function extend(minutes) {
       const active = current.current.session;
       const timestamp = Date.now();
-      if (!active || active.endTs > timestamp || !isMinutes(minutes)) return;
-      if (save({ ...current.current, session: { ...active, endTs: timestamp + minutes * minute } })) setObservedTime(timestamp);
+      if (!active || !hasEnded(active, timestamp) || !isDuration(minutes)) return;
+      const endTs = minutes === null ? null : timestamp + minutes * minute;
+      if (save({ ...current.current, session: { ...active, endTs } })) setObservedTime(timestamp);
     }
 
     function endEarly() {
       const active = current.current.session;
       if (!active) return;
       const timestamp = Math.max(active.startTs, Date.now());
-      if (active.endTs <= timestamp || save({ ...current.current, session: { ...active, endTs: timestamp } })) {
+      if (hasEnded(active, timestamp) || save({ ...current.current, session: { ...active, endTs: timestamp } })) {
         setObservedTime(timestamp);
       }
     }
@@ -352,7 +358,7 @@ function createPlanerRest(React, createPortal) {
     const panel = editing ? <RestDialog key="setup" mode="setup" title="휴식 계획" error={error} onCancel={cancel}>
       <RestSetup store={store} returnActivities={availableActivities} onStart={start} onCancel={cancel}
         onSaveActivities={activities => save({ ...current.current, activities })} />
-    </RestDialog> : reviewing ? <RestDialog key="review" mode="review" title="복귀 후 첫 행동" error={error}>
+    </RestDialog> : reviewing ? <RestDialog key="review" mode="review" title={session.action ? '복귀 후 첫 행동' : '휴식 종료'} error={error}>
       <RestReview action={session.action} onReturn={finish} onExtend={extend} />
     </RestDialog> : session && (popupError || error) ? <p role="alert">{popupError || error}</p> : null;
 

@@ -210,4 +210,17 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal(restWindow.dead, false);
   handlers.get('rest:close-popup')(eventFor(main));
   assert.equal(restWindow.dead, true);
+
+  const openRest = invokes.get('rest:open-popup');
+  assert.equal((await openRest(eventFor(main), { ...data })).ok, false);
+  assert.equal((await openRest(eventFor(main), { ...data, endTs: null })).ok, true);
+  const unlimitedEvent = eventFor(windows.at(-1));
+  const command = handlers.get('rest:popup-command');
+  const key = data.startTs + ':null';
+  const restCommands = () => main.sent.filter(message => message.name === 'rest:command');
+  command(unlimitedEvent, { type: 'expire', key });
+  assert.equal(restCommands().length, 0);
+  command(unlimitedEvent, { type: 'end', key });
+  assert.equal(restCommands().length, 1);
+  assert.equal(restCommands()[0].data.type, 'end');
 });

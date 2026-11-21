@@ -125,8 +125,8 @@ function createTimerWindow(data) {
       !Number.isFinite(data.startTs) || typeof data.color !== 'string' ||
       !/^#[0-9a-f]{6}$/i.test(data.color)) return false;
   const isRest = data.mode === 'rest';
-  if (isRest && (!Number.isSafeInteger(data.startTs) || !Number.isSafeInteger(data.endTs) ||
-      data.endTs < data.startTs)) return false;
+  if (isRest && (!Number.isSafeInteger(data.startTs) || (data.endTs !== null &&
+      (!Number.isSafeInteger(data.endTs) || data.endTs < data.startTs)))) return false;
   if (timerWindow && !timerWindow.isDestroyed() && isRest !== (timerMode === 'rest')) return false;
   timerMode = isRest ? 'rest' : 'elapsed';
   const safeData = {
@@ -249,7 +249,9 @@ ipcMain.on('rest:popup-command', (event, command) => {
   if (!fromTimer(event) || timerMode !== 'rest' || !timerState || command?.key !== timerState.key) return;
   const { type, key } = command;
   if (type === 'hide') { timerWindow.hide(); return; }
-  if (type === 'end' || (type === 'expire' && timerState.endTs <= Date.now())) sendRestCommand(type, key);
+  if (type === 'end' || (type === 'expire' && timerState.endTs !== null && timerState.endTs <= Date.now())) {
+    sendRestCommand(type, key);
+  }
 });
 ipcMain.on('timer:stop-from-popup', event => {
   if (!fromTimer(event) || timerMode === 'rest') return;
