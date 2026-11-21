@@ -22,6 +22,12 @@ if(!process.versions.electron){
       await win.loadURL(process.env.PLANER_IMAGES_URL);
       await win.webContents.executeJavaScript(`new Promise(resolve=>{const wait=()=>document.querySelector('.notes-text-editor')?resolve():setTimeout(wait,20);wait();})`);
       const press=async(keyCode,modifiers=[])=>{win.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});win.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers});await new Promise(resolve=>setTimeout(resolve,100));};
+      // Real mouse input: a synthetic click() skips mousedown, where the editor's text selection starts.
+      const mouse=async selector=>{
+        const [x,y]=await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return [Math.round(r.left+r.width/2),Math.round(r.top+r.height/2)];})()`);
+        win.webContents.sendInputEvent({type:'mouseDown',x,y,button:'left',clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',x,y,button:'left',clickCount:1});
+        await new Promise(resolve=>setTimeout(resolve,150));
+      };
       const step=code=>win.webContents.executeJavaScript(`(async()=>{
         const assert=(condition,message)=>{if(!condition)throw Error(message);};
         const wait=async(predicate,message)=>{const start=Date.now();while(!predicate()){if(Date.now()-start>5000)throw Error(message);await new Promise(resolve=>setTimeout(resolve,20));}};
@@ -55,19 +61,28 @@ if(!process.versions.electron){
         await wait(()=>photo()&&photo()!==previous&&photo().dataset.noteImageReady==='true','Reopened note did not show the stored photo');
         assert(checklistText===saved,'Reopening changed the saved note');
         assert(photo().nextSibling?.matches?.('br[data-note-image-caret]'),'Reopened trailing photo has no caret slot');
-        photo().click();
+      `);
+      await mouse('.notes-text-editor [data-note-image-id]');
+      await step(`
         assert(document.activeElement===photo(),'One click did not select the photo');
         assert(!document.querySelector('dialog.notes-image-dialog'),'One click opened the viewer');
-        photo().dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true}));
+        const selection=getSelection();assert(!selection.rangeCount||selection.isCollapsed,'Selecting a photo made a text selection');
+        assert(!document.querySelector('.notes-floating-toolbar'),'Selecting a photo opened the format toolbar');
+      `);
+      await mouse('.notes-text-editor [data-note-image-id]');
+      await step(`
         const dialog=document.querySelector('dialog.notes-image-dialog');
-        assert(dialog?.open&&dialog.querySelector('img')?.alt==='메모 사진','Double-clicking a photo did not open the viewer');
+        assert(dialog?.open&&dialog.querySelector('img')?.alt==='메모 사진','Clicking the selected photo did not open the viewer');
         assert(dialog.querySelector('.notes-image-zoom').textContent==='100%','Viewer does not start at the original size');
         [...dialog.querySelectorAll('button')].find(button=>button.textContent==='+').click();
         assert(dialog.querySelector('.notes-image-zoom').textContent==='125%','Viewer zoom does not work');
         dialog.querySelector('.notes-image-viewer-close').click();
         await wait(()=>!document.querySelector('dialog.notes-image-dialog'),'Viewer did not close');
-        photo().click();
+        editor().focus();getSelection().collapse(editor().firstChild,0);await new Promise(resolve=>setTimeout(resolve,50));
+        assert(document.activeElement!==photo(),'Photo stayed selected');
       `);
+      await mouse('.notes-text-editor [data-note-image-id]');
+      await step(`assert(document.activeElement===photo(),'Clicking the photo again did not select it');`);
       await press('Backspace');
       const afterDelete=await step(`
         await wait(()=>!photo(),'Backspace on a focused photo did not delete it');
@@ -86,7 +101,7 @@ if(!process.versions.electron){
         assert(photo().dataset.noteImageReady===undefined&&!photo().querySelector('img'),'Missing photo was not left as a placeholder');
         assert(getComputedStyle(photo(),'::before').content.includes('첨부한 기기에서만 볼 수 있는 사진'),'Placeholder text is missing');
         assert(photo().dataset.noteImageWidth==='160','Stored photo width was lost');
-        photo().dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true}));assert(!document.querySelector('dialog.notes-image-dialog'),'A placeholder opened the viewer');
+        photo().click();assert(!document.querySelector('dialog.notes-image-dialog'),'A placeholder opened the viewer');
       `);
       if(process.env.PLANER_IMAGES_SCREENSHOT){await new Promise(resolve=>setTimeout(resolve,200));fs.writeFileSync(process.env.PLANER_IMAGES_SCREENSHOT,(await win.webContents.capturePage()).toPNG());}
       console.log(JSON.stringify({paste:true,store:true,reopen:true,viewer:true,deleteKey:true,afterDelete:afterDelete.length>0,otherDevicePlaceholder:true}));app.exit(0);

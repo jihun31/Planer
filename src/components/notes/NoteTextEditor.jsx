@@ -82,6 +82,7 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
   const toggleHistory = useRef({undo:[],redo:[]});
   const lineSelection = useRef(null);
   const caretLineCut = useRef(null);
+  const imageWasSelected = useRef(false);
   const menuId = useId();
   const [formats,setFormats] = useState({bold:false,italic:false,underline:false,strikeThrough:false,highlight:false,color:NOTE_TEXT_COLORS[0].value});
   const [anchor,setAnchor] = useState(null);
@@ -477,7 +478,18 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
       onToggleCapture={event => {
         if (!loading && !readOnly && event.target.matches?.('details.notes-toggle')) commit();
       }}
-      onMouseDown={event => {if (event.target.closest?.('[data-note-checkbox]')) event.preventDefault();}}
+      onMouseDown={event => {
+        if (event.target.closest?.('[data-note-checkbox]')) event.preventDefault();
+        // A photo is selected by focusing it, not by a text selection around it: a text
+        // selection opens the format toolbar and Backspace would not reach the photo.
+        const image=event.target.closest?.(noteImageSelector);
+        if (image && event.button === 0 && !event.target.closest('.notes-image-resize')) {
+          event.preventDefault();
+          imageWasSelected.current=document.activeElement === image;
+          image.focus({preventScroll:true});
+          window.getSelection()?.removeAllRanges();
+        }
+      }}
       onPointerDown={event => {
         if (!loading && !readOnly) resizeNoteImage(event,editor.current,(image,width) => finishCut(restoreSelection(),() => {
           image.dataset.noteImageWidth = String(width);
@@ -486,9 +498,14 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
       }}
       onClick={event => {
         if (event.target.closest?.('.notes-image-resize')) {event.preventDefault();return;}
-        // One click selects a photo (Backspace/Delete then removes it); a double click opens the viewer.
+        // The first click selects a photo (Backspace/Delete then removes it); a click on the selected photo opens the viewer.
         const clickedImage=event.target.closest?.(noteImageSelector);
-        if (clickedImage) {event.preventDefault();clickedImage.focus({preventScroll:true});return;}
+        if (clickedImage) {
+          event.preventDefault();
+          const open=imageWasSelected.current;imageWasSelected.current=false;
+          if (!open || !openNoteImage(clickedImage)) clickedImage.focus({preventScroll:true});
+          return;
+        }
         const checkbox=event.target.closest?.('[data-note-checkbox]');
         if (checkbox) {
           event.preventDefault();
@@ -500,9 +517,6 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
           return;
         }
         if (event.target.closest?.('.notes-toggle-title') && !event.target.closest('a')) event.preventDefault();
-      }}
-      onDoubleClick={event => {
-        if (openNoteImage(event.target.closest?.(noteImageSelector))) event.preventDefault();
       }}
       onLoadCapture={event => {if (event.target.matches?.('.notes-site-icon')) event.target.parentElement.classList.add('has-site-icon');}}
       onErrorCapture={event => {
