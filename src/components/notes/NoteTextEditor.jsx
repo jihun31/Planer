@@ -485,9 +485,10 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
         }));
       }}
       onClick={event => {
-        if (event.target.closest?.('.notes-image-resize') || openNoteImage(event.target.closest?.(noteImageSelector))) {
-          event.preventDefault();return;
-        }
+        if (event.target.closest?.('.notes-image-resize')) {event.preventDefault();return;}
+        // One click selects a photo (Backspace/Delete then removes it); a double click opens the viewer.
+        const clickedImage=event.target.closest?.(noteImageSelector);
+        if (clickedImage) {event.preventDefault();clickedImage.focus({preventScroll:true});return;}
         const checkbox=event.target.closest?.('[data-note-checkbox]');
         if (checkbox) {
           event.preventDefault();
@@ -499,6 +500,9 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
           return;
         }
         if (event.target.closest?.('.notes-toggle-title') && !event.target.closest('a')) event.preventDefault();
+      }}
+      onDoubleClick={event => {
+        if (openNoteImage(event.target.closest?.(noteImageSelector))) event.preventDefault();
       }}
       onLoadCapture={event => {if (event.target.matches?.('.notes-site-icon')) event.target.parentElement.classList.add('has-site-icon');}}
       onErrorCapture={event => {

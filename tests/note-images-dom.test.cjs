@@ -56,14 +56,17 @@ if(!process.versions.electron){
         assert(checklistText===saved,'Reopening changed the saved note');
         assert(photo().nextSibling?.matches?.('br[data-note-image-caret]'),'Reopened trailing photo has no caret slot');
         photo().click();
+        assert(document.activeElement===photo(),'One click did not select the photo');
+        assert(!document.querySelector('dialog.notes-image-dialog'),'One click opened the viewer');
+        photo().dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true}));
         const dialog=document.querySelector('dialog.notes-image-dialog');
-        assert(dialog?.open&&dialog.querySelector('img')?.alt==='메모 사진','Clicking a photo did not open the viewer');
+        assert(dialog?.open&&dialog.querySelector('img')?.alt==='메모 사진','Double-clicking a photo did not open the viewer');
         assert(dialog.querySelector('.notes-image-zoom').textContent==='100%','Viewer does not start at the original size');
         [...dialog.querySelectorAll('button')].find(button=>button.textContent==='+').click();
         assert(dialog.querySelector('.notes-image-zoom').textContent==='125%','Viewer zoom does not work');
         dialog.querySelector('.notes-image-viewer-close').click();
         await wait(()=>!document.querySelector('dialog.notes-image-dialog'),'Viewer did not close');
-        photo().focus();
+        photo().click();
       `);
       await press('Backspace');
       const afterDelete=await step(`
@@ -83,7 +86,7 @@ if(!process.versions.electron){
         assert(photo().dataset.noteImageReady===undefined&&!photo().querySelector('img'),'Missing photo was not left as a placeholder');
         assert(getComputedStyle(photo(),'::before').content.includes('첨부한 기기에서만 볼 수 있는 사진'),'Placeholder text is missing');
         assert(photo().dataset.noteImageWidth==='160','Stored photo width was lost');
-        photo().click();assert(!document.querySelector('dialog.notes-image-dialog'),'A placeholder opened the viewer');
+        photo().dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true}));assert(!document.querySelector('dialog.notes-image-dialog'),'A placeholder opened the viewer');
       `);
       if(process.env.PLANER_IMAGES_SCREENSHOT){await new Promise(resolve=>setTimeout(resolve,200));fs.writeFileSync(process.env.PLANER_IMAGES_SCREENSHOT,(await win.webContents.capturePage()).toPNG());}
       console.log(JSON.stringify({paste:true,store:true,reopen:true,viewer:true,deleteKey:true,afterDelete:afterDelete.length>0,otherDevicePlaceholder:true}));app.exit(0);

@@ -99,7 +99,8 @@ export function observeNoteImages(editor) {
       node.replaceChildren(preview, handle);
       node.dataset.noteImageReady = 'true';
       node.setAttribute('role', 'button');
-      node.setAttribute('aria-label', '메모 사진 원본 크기로 보기');
+      node.setAttribute('aria-label', '메모 사진 (두 번 클릭하면 크게 보기)');
+      node.title = '두 번 클릭하면 크게 보기';
     } catch {
       // Keep the placeholder when this PC cannot display the stored image.
     } finally {
@@ -248,66 +249,96 @@ export function resizeNoteImage(event, editor, commit) {
   win.addEventListener('blur', cleanup);
 }
 
+const viewerIcons = {
+  download: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v8M8.5 12.5 12 16l3.5-3.5"/></svg>',
+  close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l6 6M10 5v5H5M20 20l-6-6M14 19v-5h5"/></svg>',
+};
+
+function noteImageExtension(src) {
+  const type = /^data:image\/([a-z+.-]+)/i.exec(src)?.[1]?.toLowerCase();
+  return { jpeg: 'jpg', 'svg+xml': 'svg' }[type] || type || 'png';
+}
+
+// Double-clicking a photo dims the page and shows it centered, with a floating
+// zoom bar at the bottom. Clicking outside the photo, Esc or the shrink button closes it.
 export function openNoteImage(node) {
   const source = node?.querySelector('img');
   if (!source) return false;
   const dialog = document.createElement('dialog');
   dialog.className = 'notes-image-dialog';
   dialog.setAttribute('aria-label', '메모 사진 보기');
-  dialog.style.setProperty('--note-viewer-width', Math.max(400, source.naturalWidth + 32) + 'px');
-  dialog.style.setProperty('--note-viewer-height', Math.max(220, source.naturalHeight + 72) + 'px');
 
-  const toolbar = document.createElement('div');
-  toolbar.className = 'notes-image-viewer-toolbar';
   const viewport = document.createElement('div');
   viewport.className = 'notes-image-viewport';
   const image = source.cloneNode();
   image.alt = noteImageAlt;
   viewport.append(image);
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'notes-image-viewer-toolbar';
   const percent = document.createElement('output');
   percent.className = 'notes-image-zoom';
   let zoom = 1;
 
-  function button(text, label, action) {
+  function button(content, label, action, icon = false) {
     const control = document.createElement('button');
     control.type = 'button';
-    control.textContent = text;
+    if (icon) control.innerHTML = content;
+    else control.textContent = content;
+    control.title = label;
     control.setAttribute('aria-label', label);
     control.addEventListener('click', action);
     return control;
   }
 
   function setZoom(scale) {
-    zoom = Math.max(0.01, Math.min(4, scale));
+    zoom = Math.max(0.05, Math.min(4, scale));
     image.style.width = Math.max(1, Math.round(source.naturalWidth * zoom)) + 'px';
     percent.textContent = Math.round(zoom * 100) + '%';
   }
 
-  const close = button('닫기', '사진 팝업 닫기', () => dialog.close());
+  function fitZoom() {
+    const bounds = viewport.getBoundingClientRect();
+    const fit = Math.min((bounds.width - 96) / source.naturalWidth, (bounds.height - 160) / source.naturalHeight);
+    return Math.min(1, fit > 0 ? fit : 1);
+  }
+
+  function download() {
+    const link = document.createElement('a');
+    link.href = source.src;
+    link.download = '메모 사진.' + noteImageExtension(source.src);
+    link.click();
+  }
+
+  const close = button(viewerIcons.close, '닫기', () => dialog.close(), true);
   close.className = 'notes-image-viewer-close';
-  close.autofocus = true;
-  toolbar.append(
+  const zoomGroup = document.createElement('div');
+  zoomGroup.className = 'notes-image-viewer-group';
+  zoomGroup.append(
     button('−', '축소', () => setZoom(zoom / 1.25)),
     percent,
-    button('+', '확대', () => setZoom(zoom * 1.25)),
-    button('맞춤', '화면에 맞춤', () => {
-      const bounds = viewport.getBoundingClientRect();
-      setZoom(Math.min(1, (bounds.width - 24) / source.naturalWidth, (bounds.height - 24) / source.naturalHeight));
-      viewport.scrollTo(0, 0);
-    }),
-    button('원본', '원본 크기', () => setZoom(1)),
-    close
+    button('+', '확대', () => setZoom(zoom * 1.25))
   );
-  dialog.append(toolbar, viewport);
+  percent.title = '클릭하면 원본 크기 / 화면 맞춤';
+  percent.addEventListener('click', () => setZoom(zoom === 1 ? fitZoom() : 1));
+  toolbar.append(zoomGroup, button(viewerIcons.download, '사진 저장', download, true), close);
+  dialog.append(viewport, toolbar);
   document.body.append(dialog);
   dialog.addEventListener('close', () => {
     dialog.remove();
     if (node.isConnected) node.focus({ preventScroll: true });
   }, { once: true });
   dialog.addEventListener('click', event => {
-    if (event.target === dialog) dialog.close();
+    if (event.target === dialog || event.target === viewport) dialog.close();
   });
-  setZoom(1);
+  viewport.addEventListener('wheel', event => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    setZoom(zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1));
+  }, { passive: false });
   dialog.showModal();
+  dialog.tabIndex = -1;
+  dialog.focus({ preventScroll: true });
+  setZoom(fitZoom());
   return true;
 }
