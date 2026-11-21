@@ -2,8 +2,14 @@ import { webLink } from './siteLinks.mjs';
 import { noteColor, NOTE_TEXT_COLORS, MAX_NOTE_LIST_DEPTH, noteRuns, serializeNoteRuns } from './noteRichText.mjs';
 import { noteImageSelector, noteImageWidth, validNoteImageId } from './noteImages.mjs';
 
+export const noteInlineLinkSelector = 'a[href]:not(.notes-site-mention,.notes-youtube-mention)';
+
 function nodeFormat(node,inherited) {
   const format = {...inherited}, style = node.style;
+  if (node.matches?.(noteInlineLinkSelector)) {
+    const link = webLink(node.getAttribute('href'));
+    if (link) {format.url = link.url;format.inlineLink = true;}
+  }
   if (['B','STRONG'].includes(node.nodeName)) format.bold = true;
   if (style?.fontWeight) format.bold = style.fontWeight === 'bold' || Number(style.fontWeight) >= 600;
   if (node.nodeName === 'U') format.underline = true;
@@ -254,7 +260,7 @@ export function readNoteEditor(root,inherited = {}) {
       runs.push({text:'',block:'toggle',summary:summaryRuns,children:noteRuns(readNoteEditor(body,inlineFormat)),open:node.open !== false});
       return;
     }
-    if (node.nodeName === 'A' && webLink(node.getAttribute('href'))) {
+    if (node.nodeName === 'A' && !node.matches?.(noteInlineLinkSelector) && webLink(node.getAttribute('href'))) {
       const icon = node.querySelector('.notes-site-icon')?.getAttribute('src');
       append(node.querySelector('.notes-link-title, .notes-youtube-title')?.textContent ?? node.textContent,parentFormat,
         {url:node.getAttribute('href'),author:node.querySelector('.notes-link-site, .notes-youtube-author')?.textContent || '',

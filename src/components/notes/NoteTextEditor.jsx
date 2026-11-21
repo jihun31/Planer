@@ -4,7 +4,7 @@ import { MAX_NOTE_LENGTH } from '../../features/notes/notepadStore.mjs';
 import { escapeHtml, linkHtml, loadYouTubeInfo, youtubeVideo } from '../../features/notes/youtubeLinks.mjs';
 import { webLink, siteLinkHtml, loadSiteInfo } from '../../features/notes/siteLinks.mjs';
 import { NOTE_BLOCKS, NOTE_HIGHLIGHT, NOTE_TEXT_COLORS, createNoteToggle, noteColor, noteHtml, notePlainText, noteRuns, serializeNoteRuns } from '../../features/notes/noteRichText.mjs';
-import { firstEmptyNoteLine, noteFormatAt, noteLine, noteLineSelected, noteRangeHasContent, readNoteEditor, removeNoteLine, restoreNoteSelection, selectWholeNote } from '../../features/notes/noteEditorDom.mjs';
+import { firstEmptyNoteLine, noteFormatAt, noteInlineLinkSelector, noteLine, noteLineSelected, noteRangeHasContent, readNoteEditor, removeNoteLine, restoreNoteSelection, selectWholeNote } from '../../features/notes/noteEditorDom.mjs';
 import { toggledNoteColor, rememberNoteColor } from '../../features/notes/noteEditorPreferences.mjs';
 import { startNoteTextDrag, noteTextDropAllowed, noteTextDropIndicator, prepareNoteTextMove, applyNoteTextMove } from '../../features/notes/noteTextDrag.mjs';
 import { insertNextNoteToggle } from '../../features/notes/noteToggleEditor.mjs';
@@ -292,6 +292,17 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
     const plain = event.clipboardData.getData('text/plain').replace(/\r\n?/g,'\n');
     if (!plain && !copiedNote) return;
     setNotice('');
+    const address = plain.trim();
+    const pastedLink = /^https?:\/\/[^\s<>"']+$/i.test(address) && webLink(address);
+    if (pastedLink) {
+      const root = editor.current, selection = root.ownerDocument.getSelection();
+      if (selection?.rangeCount && !selection.isCollapsed && selection.toString().trim()
+        && root.contains(selection.getRangeAt(0).commonAncestorContainer)
+        && document.execCommand('createLink',false,pastedLink.url)) {
+        commit();
+        return;
+      }
+    }
     if (copiedNote) {
       document.execCommand('insertHTML',false,noteHtml(copiedNote,false,pasteColor).replace(/\n/g,'<br>'));
       commit();
@@ -538,6 +549,15 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
           const before=readNoteEditor(editor.current);
           toggleNoteChecklist(checkbox.closest('li'));
           if (commit()) {toggleHistory.current.undo.push({before,after:saved.current});toggleHistory.current.redo=[];}
+          return;
+        }
+        const inlineLink = event.target.closest?.(noteInlineLinkSelector);
+        if (inlineLink) {
+          event.preventDefault();
+          if (event.ctrlKey || event.metaKey || readOnly) {
+            const link = webLink(inlineLink.getAttribute('href'));
+            if (link) window.open(link.url,'_blank','noopener,noreferrer');
+          }
           return;
         }
         if (event.target.closest?.('.notes-toggle-title') && !event.target.closest('a')) event.preventDefault();

@@ -107,6 +107,39 @@ if(!process.versions.electron){
         await wait(()=>memoText==='새 첫 줄\\n기존 본문','Typing after Enter was not on the new first line');
       `);
 
+      // Pasting just a URL links the selected words and keeps their formatting.
+      const hyperlink = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
+      const openedLinks = [];
+      win.webContents.setWindowOpenHandler(({url})=>{openedLinks.push(url);return {action:'deny'};});
+      await step(`
+        setMemoText('앞 선택 문구 뒤');await wait(()=>textNode('앞 선택 문구 뒤'),'Memo text did not load');
+        editor().focus();
+        const node=textNode('앞 선택 문구 뒤');select(node,2,7);
+        document.execCommand('bold');
+        const transfer=new DataTransfer();transfer.setData('text/plain',${JSON.stringify(hyperlink)});
+        editor().dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
+        const link=editor().querySelector('a');
+        assert(link?.href===${JSON.stringify(hyperlink)}&&link.textContent==='선택 문구','URL did not link the selected words');
+        assert(editor().textContent==='앞 선택 문구 뒤','Linking changed the memo text');
+      `);
+      await press('Z',['control']);
+      await step(`assert(!editor().querySelector('a')&&editor().textContent==='앞 선택 문구 뒤','Undo did not remove just the hyperlink');`);
+      await press('Y',['control']);
+      await step(`
+        assert(editor().querySelector('a')?.textContent==='선택 문구','Redo did not restore the hyperlink');
+        const previous=editor();document.querySelector('#reopen').click();
+        await wait(()=>editor()!==previous&&editor().querySelector('a'),'Reopening lost the saved hyperlink');
+        const link=editor().querySelector('a');
+        assert(link.href===${JSON.stringify(hyperlink)}&&link.textContent==='선택 문구','Saved hyperlink changed when reopened');
+        assert(!link.matches('.notes-site-mention,.notes-youtube-mention'),'Selected text turned into a preview');
+        assert(getComputedStyle(textNode('선택 문구').parentElement).fontWeight==='700','Linking did not preserve bold text');
+        link.dispatchEvent(new MouseEvent('click',{ctrlKey:true,bubbles:true,cancelable:true}));
+      `);
+      assertOpenedLink();
+      function assertOpenedLink() {
+        if (openedLinks.length!==1 || openedLinks[0]!==hyperlink) throw Error('Ctrl+click did not open the linked address');
+      }
+
       // Activity colors: planner tab only, pick a chip then a color; the add form is hidden meanwhile.
       await step(`
         const study=document.querySelector('#activities'),control=document.querySelector('#control');
@@ -149,7 +182,7 @@ if(!process.versions.electron){
         assert(list.querySelector('.task-edit-form'),'Failed todo update closed the editor');
         list.querySelector('[aria-label="장보기 완료 후 삭제"]')===null||assert(false,'Editing row still shows the checkbox');
       `);
-      console.log(JSON.stringify({lineThenNote:true,inLineCopy:true,lineCutKeepsLine:true,emptyFirstLineToTitle:true,titleEnterFirstLine:true,activityColor:true,controlHidden:true,todoEdit:true,todoCancel:true,todoFailure:true}));app.exit(0);
+      console.log(JSON.stringify({lineThenNote:true,inLineCopy:true,lineCutKeepsLine:true,emptyFirstLineToTitle:true,titleEnterFirstLine:true,linkSelectedText:true,activityColor:true,controlHidden:true,todoEdit:true,todoCancel:true,todoFailure:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

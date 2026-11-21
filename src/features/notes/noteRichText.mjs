@@ -38,9 +38,10 @@ function validRun(run,depth = 0) {
     && typeof run.open === 'boolean' && Array.isArray(run.summary) && Array.isArray(run.children)
     && [...run.summary,...run.children].every(child => validRun(child,depth + 1));
   return run && typeof run.text === 'string'
-    && Object.keys(run).every(key => ['text','url','author','icon','color','block','listDepth','checked','listNumbered','listContinuation',...flags].includes(key))
+    && Object.keys(run).every(key => ['text','url','inlineLink','author','icon','color','block','listDepth','checked','listNumbered','listContinuation',...flags].includes(key))
     && flags.every(flag => !(flag in run) || typeof run[flag] === 'boolean')
     && (!('url' in run) || (typeof run.url === 'string' && !!webLink(run.url)))
+    && (!('inlineLink' in run) || (run.inlineLink === true && !!run.url))
     && (!('author' in run) || (typeof run.author === 'string' && !!run.url))
     && (!('icon' in run) || (typeof run.icon === 'string' && !!run.url && !!webLink(run.icon)))
     && (!('color' in run) || (typeof run.color === 'string' && noteColor(run.color) === run.color))
@@ -87,9 +88,13 @@ function normalizeRuns(runs,depth = 0) {
     if (run.block === 'list-text' && item.listNumbered) run.listNumbered = true;
     if (run.block === 'list-text' && item.listContinuation) run.listContinuation = true;
     if (listBlocks.includes(run.block) && Number.isInteger(item.listDepth) && item.listDepth > 0) run.listDepth = Math.min(item.listDepth,MAX_NOTE_LIST_DEPTH);
-    if (item.url && webLink(item.url)) {
-      run.url = item.url;if (item.author) run.author = item.author;
-      if (item.icon && webLink(item.icon)) run.icon = item.icon;
+    if (item.url && !run.imageId && webLink(item.url)) {
+      run.url = item.url;
+      if (item.inlineLink) run.inlineLink = true;
+      else {
+        if (item.author) run.author = item.author;
+        if (item.icon && webLink(item.icon)) run.icon = item.icon;
+      }
     }
     const previous = normalized.at(-1);
     if (previous && run.text && !run.url && !previous.url && !previous.imageId && flags.every(flag => !!previous[flag] === !!run[flag])
@@ -103,7 +108,7 @@ function normalizeRuns(runs,depth = 0) {
 export function serializeNoteRuns(runs) {
   const normalized = normalizeRuns(runs);
   const plain = normalized.map(run => run.url ? youtubeToken(run.text,run.url,run.author) : run.text).join('');
-  return normalized.some(run => flags.some(flag => run[flag]) || run.color || run.block || run.icon || run.imageId || (run.url && !youtubeVideo(run.url))) || plain.startsWith(PREFIX)
+  return normalized.some(run => flags.some(flag => run[flag]) || run.color || run.block || run.icon || run.imageId || run.inlineLink || (run.url && !youtubeVideo(run.url))) || plain.startsWith(PREFIX)
     ? PREFIX + JSON.stringify(encodeNoteImages(normalized)) : plain;
 }
 
@@ -133,9 +138,10 @@ export function noteHtml(text, blockMode = false, textColor = null) {
 
 
 function renderRuns(runs,blockMode,textColor) {
+  const linkNeedsCaret = run => run?.url && !run.inlineLink;
   const inlineHtml = run => {
     if (run.imageId) return noteImageMarkup(run.imageId,run.imageWidth);
-    let html = run.url ? (youtubeVideo(run.url) ? linkHtml(run.text,run.url,null,run.author)
+    let html = run.url && !run.inlineLink ? (youtubeVideo(run.url) ? linkHtml(run.text,run.url,null,run.author)
       : siteLinkHtml(run.text,run.url,null,run.author,run.icon)) : escapeHtml(run.text);
     const color = noteColor(textColor) || run.color;
     if (color) html = `<span style="color:${color}">${html}</span>`;
@@ -144,7 +150,9 @@ function renderRuns(runs,blockMode,textColor) {
     if (run.strike) html = `<s>${html}</s>`;
     if (run.bold) html = `<strong>${html}</strong>`;
     if (run.italic) html = `<em>${html}</em>`;
-    return html;
+    return run.inlineLink
+      ? `<a href="${escapeHtml(run.url)}" target="_blank" rel="noopener noreferrer">${html}</a>`
+      : html;
   };
   if (blockMode || runs.some(run => run.block)) {
     const lines = [{runs:[],block:null}];
@@ -182,7 +190,7 @@ function renderRuns(runs,blockMode,textColor) {
     const closeList=()=>{html+=`</li></${listTags.pop()}>`;};
     const closeLists = () => {while (listTags.length) closeList();};
     for (const line of lines) {
-      const content = (line.runs.map(inlineHtml).join('') + (line.runs.at(-1)?.url ? ' ' : '')) || '<br>';
+      const content = (line.runs.map(inlineHtml).join('') + (linkNeedsCaret(line.runs.at(-1)) ? ' ' : '')) || '<br>';
       if (listBlocks.includes(line.block)) {
         if (!listTags.length) listBase = line.listDepth || 0;
         const level = Math.min(Math.max(1,(line.listDepth || 0)-listBase+1),listTags.length+1);
@@ -217,5 +225,5 @@ function renderRuns(runs,blockMode,textColor) {
   }
   const html = runs.map(inlineHtml).join('');
   // Leave an editable caret position after an atomic mention at the end of a note.
-  return html + (runs.at(-1)?.url ? ' ' : '');
+  return html + (linkNeedsCaret(runs.at(-1)) ? ' ' : '');
 }
