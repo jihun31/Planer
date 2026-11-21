@@ -103,8 +103,40 @@ if(!process.versions.electron){
         assert(photo().dataset.noteImageWidth==='160','Stored photo width was lost');
         photo().click();assert(!document.querySelector('dialog.notes-image-dialog'),'A placeholder opened the viewer');
       `);
+      // Delete a photo that starts the note, with no editable text to its left.
+      const firstPhotoToken=await step(`
+        document.querySelector('#reset').click();await wait(()=>!editor().hasChildNodes(),'Reset did not clear the memo');
+        const token='[사진:0f8c2a3e-1b2c-4d5e-8f90-123456789abc]';
+        editor().focus();document.execCommand('insertText',false,token+'\\n다음 줄');
+        document.querySelector('#reopen').click();
+        await wait(()=>editor().firstElementChild?.firstChild===photo(),'Photo is not the first content in the memo');
+        return token;
+      `);
+      await mouse('.notes-text-editor [data-note-image-id]');
+      await step(`assert(document.activeElement===photo(),'First photo did not receive focus');`);
+      await press('Delete');
+      await step(`
+        await wait(()=>!photo(),'Delete did not remove the first photo');
+        assert(!checklistText.includes('[사진:')&&checklistText.endsWith('다음 줄'),'Deleting the first photo changed the next line');
+        assert(document.activeElement===editor(),'Deleting the first photo did not restore focus to the body');
+      `);
+      await press('Z',['control']);
+      await step(`assert(!!photo()&&checklistText.includes(${JSON.stringify(firstPhotoToken)}),'Undo did not restore the first photo');`);
+      await step(`
+        document.querySelector('#reset').click();await wait(()=>!editor().hasChildNodes(),'Reset did not clear the memo');
+        editor().focus();document.execCommand('insertText',false,${JSON.stringify(firstPhotoToken)});
+        document.querySelector('#reopen').click();
+        await wait(()=>photo()?.nextSibling?.matches?.('br[data-note-image-caret]'),'Only photo did not get its trailing caret slot');
+      `);
+      await mouse('.notes-text-editor [data-note-image-id]');
+      await press('Backspace');
+      await step(`
+        assert(!photo()&&checklistText==='','Backspace did not clear a memo with just a photo');
+        document.execCommand('insertText',false,'새 내용');
+        await wait(()=>checklistText==='새 내용','Typing after deleting the only photo did not start a fresh line');
+      `);
       if(process.env.PLANER_IMAGES_SCREENSHOT){await new Promise(resolve=>setTimeout(resolve,200));fs.writeFileSync(process.env.PLANER_IMAGES_SCREENSHOT,(await win.webContents.capturePage()).toPNG());}
-      console.log(JSON.stringify({paste:true,store:true,reopen:true,viewer:true,deleteKey:true,afterDelete:afterDelete.length>0,otherDevicePlaceholder:true}));app.exit(0);
+      console.log(JSON.stringify({paste:true,store:true,reopen:true,viewer:true,deleteKey:true,firstPhotoDelete:true,onlyPhotoBackspace:true,afterDelete:afterDelete.length>0,otherDevicePlaceholder:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

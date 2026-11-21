@@ -89,6 +89,24 @@ if(!process.versions.electron){
       await press('Backspace');
       await step(`assert(document.activeElement===document.querySelector('.notes-title-input')&&memoText==='','Backspace in the empty body did not focus the title');`);
 
+      // Enter in the title creates an editable first line above the existing body.
+      await step(`
+        setMemoText('기존 본문');await wait(()=>textNode('기존 본문'),'Existing memo did not load');
+      `);
+      await press('Enter');
+      await step(`
+        assert(document.activeElement===editor(),'Enter in the title did not focus the body');
+        assert(memoText==='\\n기존 본문','Enter did not save the blank first line: '+JSON.stringify(memoText));
+      `);
+      await press('Z',['control']);
+      await step(`assert(memoText==='기존 본문','Undo did not remove the inserted line');`);
+      await press('Y',['control']);
+      await step(`
+        assert(memoText==='\\n기존 본문','Redo did not restore the inserted line');
+        document.execCommand('insertText',false,'새 첫 줄');
+        await wait(()=>memoText==='새 첫 줄\\n기존 본문','Typing after Enter was not on the new first line');
+      `);
+
       // Activity colors: planner tab only, pick a chip then a color; the add form is hidden meanwhile.
       await step(`
         const study=document.querySelector('#activities'),control=document.querySelector('#control');
@@ -131,7 +149,7 @@ if(!process.versions.electron){
         assert(list.querySelector('.task-edit-form'),'Failed todo update closed the editor');
         list.querySelector('[aria-label="장보기 완료 후 삭제"]')===null||assert(false,'Editing row still shows the checkbox');
       `);
-      console.log(JSON.stringify({lineThenNote:true,inLineCopy:true,lineCutKeepsLine:true,emptyFirstLineToTitle:true,activityColor:true,controlHidden:true,todoEdit:true,todoCancel:true,todoFailure:true}));app.exit(0);
+      console.log(JSON.stringify({lineThenNote:true,inLineCopy:true,lineCutKeepsLine:true,emptyFirstLineToTitle:true,titleEnterFirstLine:true,activityColor:true,controlHidden:true,todoEdit:true,todoCancel:true,todoFailure:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

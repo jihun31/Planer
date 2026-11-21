@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MAX_NOTE_LENGTH } from '../../features/notes/notepadStore.mjs';
 import { escapeHtml, linkHtml, loadYouTubeInfo, youtubeVideo } from '../../features/notes/youtubeLinks.mjs';
@@ -38,6 +38,9 @@ function slashOptions(query) {
 }
 
 function caretPoint(root,range) {
+  const firstLine = root.firstElementChild;
+  if (firstLine && range.endContainer === firstLine && range.endOffset === 0 &&
+    firstLine.childNodes.length === 1 && firstLine.firstChild.nodeName === 'BR') return {firstLine:true};
   const element=range.endContainer.nodeType===1?range.endContainer:range.endContainer.parentElement;
   const item=element?.closest('li'),scope=item&&root.contains(item)?item:root;
   const before=range.cloneRange();before.selectNodeContents(scope);before.setEnd(range.endContainer,range.endOffset);
@@ -45,6 +48,10 @@ function caretPoint(root,range) {
 }
 
 function restoreCaretPoint(root,point) {
+  if (point.firstLine && root.firstElementChild) {
+    root.ownerDocument.getSelection().collapse(root.firstElementChild,0);
+    return;
+  }
   const block=point.item===null?root:root.querySelectorAll('li')[point.item];
   if(!block)return;
   const scope=block.querySelector(':scope > .notes-checklist-text, :scope > [data-note-list-content]') || block;
@@ -69,7 +76,7 @@ function autoNumberedUndo(root,range) {
   return {before:readNoteEditor(clone),beforeCaret:point};
 }
 
-export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle}) {
+export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
   const editor = useRef(null);
   const saved = useRef(null);
   const sequence = useRef(0);
@@ -338,19 +345,19 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle}) {
       cutLine(currentLine,selection);return;
     }
     // A selection inside one line removes only the selected text, even when it is the whole line.
-    finishCut(selection,() => {
+    applyEditorChange(selection,() => {
       range.deleteContents();
       range.collapse(true);
       selection.removeAllRanges();selection.addRange(range);
     });
   }
   function cutLine(line,selection) {
-    finishCut(selection,root => removeNoteLine(root,line,selection));
+    applyEditorChange(selection,root => removeNoteLine(root,line,selection));
   }
-  function finishCut(selection,remove) {
+  function applyEditorChange(selection,change) {
     const root = editor.current;
     const before = readNoteEditor(root), beforeCaret = caretPoint(root,selection.getRangeAt(0));
-    remove(root);
+    change(root);
     repairNoteChecklists(root);
     if (commit() && saved.current !== before) {
       toggleHistory.current.undo.push({before,after:saved.current,beforeCaret,afterCaret:caretPoint(root,selection.getRangeAt(0))});
@@ -358,6 +365,23 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle}) {
     }
     inspectSelection();
   }
+  useImperativeHandle(ref,() => ({
+    startNewFirstLine() {
+      if (loading || readOnly) return;
+      const root = editor.current, range = root.ownerDocument.createRange();
+      range.selectNodeContents(root);
+      range.collapse(true);
+      const selection = restoreSelection(range);
+      applyEditorChange(selection,() => {
+        const firstLine = root.ownerDocument.createElement('div');
+        firstLine.append(root.ownerDocument.createElement('br'));
+        if (saved.current) root.prepend(firstLine);
+        else root.replaceChildren(firstLine);
+        selection.collapse(firstLine,0);
+        root.scrollTop = 0;
+      });
+    },
+  }));
   const options = slash ? slashOptions(slash.query) : [];
   const activeBlockType = ['h1','h2'].includes(blockType) ? 'h3' : blockType;
   const blockLabel = NOTE_BLOCKS.find(block => block.value === activeBlockType)?.label || '일반 텍스트';
@@ -491,7 +515,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle}) {
         }
       }}
       onPointerDown={event => {
-        if (!loading && !readOnly) resizeNoteImage(event,editor.current,(image,width) => finishCut(restoreSelection(),() => {
+        if (!loading && !readOnly) resizeNoteImage(event,editor.current,(image,width) => applyEditorChange(restoreSelection(),() => {
           image.dataset.noteImageWidth = String(width);
           image.style.setProperty('--note-image-width',width + 'px');
         }));
@@ -532,8 +556,17 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle}) {
           if ((event.key === 'Enter' || event.key === ' ') && openNoteImage(image)) {event.preventDefault();return;}
           if (!loading && !readOnly && ['Backspace','Delete'].includes(event.key)) {
             event.preventDefault();
-            const range = document.createRange();range.selectNode(image);
-            restoreSelection(range);document.execCommand('delete');commit();
+            const range = document.createRange();
+            range.setStartBefore(image);range.collapse(true);
+            const selection = restoreSelection(range);
+            applyEditorChange(selection,root => {
+              const parent = image.parentNode, next = image.nextSibling;
+              // The trailing photo's caret placeholder does not belong to the note.
+              if (next?.matches?.('br[data-note-image-caret]') && !next.nextSibling) next.remove();
+              image.remove();
+              if (parent !== root && !parent.hasChildNodes()) parent.append(document.createElement('br'));
+              selection.collapse(range.startContainer,range.startOffset);
+            });
             return;
           }
         }

@@ -8,11 +8,11 @@ import { notePlainText } from '../../features/notes/noteRichText.mjs';
 import '../../styles/notes.css';
 
 // The editor is separate from its data hook so its save states can be previewed.
-export function NotepadEditor({ notepad, bodyRef, onFocusTitle }) {
+export function NotepadEditor({ notepad, editorRef, onFocusTitle }) {
   const {text,dirty,loading,saving,error,conflict,localError,edit,retry,resolveConflict} = notepad;
   const status = conflict ? '내용 확인 필요' : error ? '서버 저장 안 됨' : loading ? '불러오는 중…'
     : saving ? '저장 중…' : dirty ? '저장 대기 중…' : '저장됨';
-  return <div ref={bodyRef} className="notes-document-body">
+  return <div className="notes-document-body">
     {error && <div className="notes-notice" role="alert">
       <span>{error.code === 'permission-denied' ? '메모를 서버에 저장하려면 Firebase에 새 메모 규칙을 적용해 주세요.' : '서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.'}
         {!localError && ' 입력한 내용은 이 기기에 임시 보관됩니다.'}</span>
@@ -28,7 +28,7 @@ export function NotepadEditor({ notepad, bodyRef, onFocusTitle }) {
         }}>다른 메모로 바꾸기</button></div>
     </div>}
     <div className="notes-paper">
-      <NoteTextEditor text={text} edit={edit} loading={loading} readOnly={notepad.deleting || notepad.deleted}
+      <NoteTextEditor ref={editorRef} text={text} edit={edit} loading={loading} readOnly={notepad.deleting || notepad.deleted}
         onFocusTitle={onFocusTitle} />
       <footer><span className={`notes-status${error || conflict ? ' has-error' : ''}`} role="status">{status}</span><span>{notePlainText(text).length.toLocaleString()} / {MAX_NOTE_LENGTH.toLocaleString()}자</span></footer>
     </div>
@@ -38,7 +38,7 @@ export function NotepadEditor({ notepad, bodyRef, onFocusTitle }) {
 export function NoteDocument({ note, folders, run, library, notepad }) {
   const [titleDraft,setTitleDraft] = useState(null);
   const titleRef = useRef(null);
-  const bodyRef = useRef(null);
+  const editorRef = useRef(null);
 
   function focusTitle() {
     const input = titleRef.current;
@@ -61,7 +61,7 @@ export function NoteDocument({ note, folders, run, library, notepad }) {
           if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return;
           event.preventDefault();
           event.currentTarget.blur();
-          bodyRef.current?.querySelector('.notes-text-editor[contenteditable="true"]')?.focus();
+          editorRef.current?.startNewFirstLine();
         }} />
       <div className="notes-document-actions">
         <select aria-label="메모 폴더" disabled={notepad.deleting || notepad.deleted} value={folders.some(folder => folder.id === note.folderId) ? note.folderId : ''}
@@ -73,7 +73,7 @@ export function NoteDocument({ note, folders, run, library, notepad }) {
         </button>
       </div>
     </div>
-    <NotepadEditor notepad={notepad} bodyRef={bodyRef} onFocusTitle={focusTitle} />
+    <NotepadEditor notepad={notepad} editorRef={editorRef} onFocusTitle={focusTitle} />
   </>;
 }
 
