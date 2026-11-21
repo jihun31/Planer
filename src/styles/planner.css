@@ -1,5 +1,92 @@
 /* ===== 생활계획표 ===== */
 
+.task-reminder {
+  --task-reminder-gap: 16px;
+  position: relative;
+  margin-bottom: 16px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+
+.task-reminder-line,
+.task-reminder-extra {
+  display: flex;
+  align-items: center;
+  gap: 6px var(--task-reminder-gap);
+}
+
+.task-reminder-measure {
+  position: absolute;
+  inset: 0 0 auto;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+.task-reminder-extra {
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.task-reminder-extra[hidden] { display: none; }
+
+.task-reminder-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.task-reminder-slot {
+  flex: none;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.task-reminder-check {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: inherit;
+}
+
+.task-reminder-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-reminder-extra .task-reminder-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.task-reminder-more {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.task-reminder-more:hover { color: var(--primary-dark); }
+
+.task-reminder-error {
+  margin-top: 6px;
+  color: var(--red);
+}
+
 .planner-wrap {
   position:relative;
   display: flex;

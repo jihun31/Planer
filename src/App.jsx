@@ -11,6 +11,7 @@ import { loginWithGoogle, logout, cancelLogin, loginErrorMessage } from "./featu
 import TodayTab from "./components/tabs/TodayTab";
 import { restTimer } from './components/planner/restTimer';
 import LearningSummary from './components/learning/LearningSummary';
+import TaskReminder from './components/planner/TaskReminder';
 import UpdateBanner from './components/UpdateBanner';
 import { useLearning } from './features/learning/useLearning';
 import { useDiscordLink, useServerInfo } from './features/discord/useDiscord';
@@ -269,6 +270,7 @@ function App() {
         {dataError && <p role="alert">
           데이터를 불러오지 못했습니다. 인터넷 연결과 계정 접근 권한을 확인해 주세요.
         </p>}
+        {currentTabId === 'time' && <TaskReminder key={user.uid} tasks={tasksData.tasks} onToggle={tasksData.toggleTask} />}
         {availableViews(tabContext).map(view => <div key={view.id} hidden={currentView !== view.id}>
           {(view.eager || openedViews[view.id]) && <Suspense fallback={viewLoading}>{panels[view.id]()}</Suspense>}
         </div>)}

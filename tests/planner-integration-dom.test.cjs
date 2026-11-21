@@ -98,7 +98,58 @@ if(!process.versions.electron){
         await wait(()=>!!block(630)&&!!block(660));
         assert(labels().length===1,'Deleting a conflicting record broke the merged activity display');
         checkBounds();
-        return {whitePlanHints:true,differentActivityRemovesOutline:true,adjacentActivitiesMerged:true,actualRecordsPrioritized:true,plansExcludedFromTotals:true,noFutureWrites:true,monthLayoutStable:true,scrollAndSelectionRetained:true,controlMonthStable:true};
+
+        const preview = document.querySelector('#reminder-width');
+        const reminder = () => preview.querySelector('.task-reminder');
+        const displayed = () => [...preview.querySelectorAll('input[type=checkbox]')];
+        const more = () => preview.querySelector('button.task-reminder-more');
+        const todayCheck = name => [...document.querySelectorAll('#reminder-preview .today-task-list input')]
+          .find(input => input.getAttribute('aria-label') === name);
+        assert(setReminderClock(22, 9, 59) === 60000, '오전 10시로 알림 시간 전환을 예약해야 합니다.');
+        await wait(() => !reminder());
+        setReminderClock(22, 10, 0, true);
+        await wait(() => displayed().length === 2);
+        assert(displayed()[0].getAttribute('aria-label') === '영어 듣기 완료', '오전 할 일을 등록 순서로 표시해야 합니다.');
+        setReminderClock(22, 14, 0, true);
+        await wait(() => displayed().length === 3);
+        setReminderClock(22, 19, 0, true);
+        await wait(() => displayed().length === 4);
+        const reminderStyle = getComputedStyle(reminder());
+        assert(reminderStyle.backgroundColor === 'rgba(0, 0, 0, 0)' && reminderStyle.borderBottomWidth === '1px',
+          '알림은 배경 강조 없이 얇은 구분선을 표시해야 합니다.');
+        assert(setReminderClock(23, 4, 59) === 60000,
+          '새벽 5시 전까지 전날의 미완료 할 일을 유지해야 합니다.');
+        await tick();
+        assert(displayed().length === 4, '날짜가 바뀐 뒤에도 새벽 5시 전이면 알림을 유지해야 합니다.');
+        setReminderClock(23, 5, 0, true);
+        await wait(() => !reminder());
+        setReminderClock(22, 19, 0);
+        preview.style.width = '280px';
+        await wait(() => more() && displayed().length > 0 && displayed().length < 4);
+        assert(more().textContent === '+' + (4 - displayed().length) + '개 더 보기', '숨겨진 할 일 수를 표시해야 합니다.');
+        const visibleCheck = displayed()[0];
+        const inlineRow = visibleCheck.closest('.task-reminder-line');
+        const rowBounds = inlineRow.getBoundingClientRect();
+        assert(more().getBoundingClientRect().right <= rowBounds.right + 1 &&
+          displayed().every(check => check.closest('.task-reminder-line') === inlineRow),
+          '접힌 상태에서 할 일과 더 보기 버튼이 한 줄에 들어가야 합니다.');
+        const visibleName = visibleCheck.getAttribute('aria-label');
+        window.failReminderWrite = true;
+        visibleCheck.click();
+        await wait(() => reminder().querySelector('[role=alert]') && !visibleCheck.disabled);
+        assert(!todayCheck(visibleName).checked && !visibleCheck.checked, '저장 실패 후 다시 체크할 수 있어야 합니다.');
+        window.failReminderWrite = false;
+        visibleCheck.click();
+        await wait(() => todayCheck(visibleName).checked && !displayed().some(check => check.getAttribute('aria-label') === visibleName));
+        more().click();
+        await wait(() => more()?.getAttribute('aria-expanded') === 'true' && displayed().length === 3);
+        const extraCheck = preview.querySelector('.task-reminder-extra input');
+        const extraName = extraCheck.getAttribute('aria-label');
+        extraCheck.click();
+        await wait(() => todayCheck(extraName).checked && displayed().length === 2);
+        preview.style.width = '';
+        await wait(() => !more() && displayed().length === 2);
+        return {whitePlanHints:true,differentActivityRemovesOutline:true,adjacentActivitiesMerged:true,actualRecordsPrioritized:true,plansExcludedFromTotals:true,noFutureWrites:true,monthLayoutStable:true,scrollAndSelectionRetained:true,controlMonthStable:true,taskReminderVerified:true};
       })()`);
       for(const width of [1000,1600]){
         win.setContentSize(width,980);
