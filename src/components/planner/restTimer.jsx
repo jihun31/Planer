@@ -180,12 +180,13 @@ function createPlanerRest(React, createPortal) {
     </form>;
   }
 
-  function RestReview({ action, onReturn, onExtend }) {
+  function RestReview({ action, onEnd, onReturn, onExtend }) {
     const [extending, setExtending] = useState(false);
     const [minutes, setMinutes] = useState('');
     return <>
       {action && <div className="study-gap-ranges planer-rest-action">{action}</div>}
       <div className="study-gap-actions">
+        <button type="button" className="study-gap-cancel" onClick={onEnd}>종료</button>
         <button type="button" aria-expanded={extending} onClick={() => setExtending(!extending)}>휴식 연장</button>
         <button type="button" className="study-gap-primary" data-rest-focus onClick={onReturn}>업무 복귀</button>
       </div>
@@ -347,19 +348,19 @@ function createPlanerRest(React, createPortal) {
       }
     }
 
-    function finish() {
+    function finish(returnToWork) {
       const active = current.current.session;
       if (!active) return;
       if (!save({ ...current.current, session: null })) return;
       unlock();
-      onReturn?.(active.returnActivityId);
+      if (returnToWork) onReturn?.(active.returnActivityId);
     }
 
     const panel = editing ? <RestDialog key="setup" mode="setup" title="휴식 계획" error={error} onCancel={cancel}>
       <RestSetup store={store} returnActivities={availableActivities} onStart={start} onCancel={cancel}
         onSaveActivities={activities => save({ ...current.current, activities })} />
     </RestDialog> : reviewing ? <RestDialog key="review" mode="review" title={session.action ? '복귀 후 첫 행동' : '휴식 종료'} error={error}>
-      <RestReview action={session.action} onReturn={finish} onExtend={extend} />
+      <RestReview action={session.action} onEnd={() => finish(false)} onReturn={() => finish(true)} onExtend={extend} />
     </RestDialog> : session && (popupError || error) ? <p role="alert">{popupError || error}</p> : null;
 
     return { open, busy: Boolean(editing || session), active: Boolean(session), panel };

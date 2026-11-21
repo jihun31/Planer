@@ -4,7 +4,7 @@ import { MAX_NOTE_LENGTH } from '../../features/notes/notepadStore.mjs';
 import { escapeHtml, linkHtml, loadYouTubeInfo, youtubeVideo } from '../../features/notes/youtubeLinks.mjs';
 import { webLink, siteLinkHtml, loadSiteInfo } from '../../features/notes/siteLinks.mjs';
 import { NOTE_BLOCKS, NOTE_HIGHLIGHT, NOTE_TEXT_COLORS, createNoteToggle, noteColor, noteHtml, notePlainText, noteRuns, serializeNoteRuns } from '../../features/notes/noteRichText.mjs';
-import { noteFormatAt, noteLine, noteLineSelected, noteRangeHasContent, readNoteEditor, removeNoteLine, restoreNoteSelection, selectWholeNote } from '../../features/notes/noteEditorDom.mjs';
+import { firstEmptyNoteLine, noteFormatAt, noteLine, noteLineSelected, noteRangeHasContent, readNoteEditor, removeNoteLine, restoreNoteSelection, selectWholeNote } from '../../features/notes/noteEditorDom.mjs';
 import { toggledNoteColor, rememberNoteColor } from '../../features/notes/noteEditorPreferences.mjs';
 import { startNoteTextDrag, noteTextDropAllowed, noteTextDropIndicator, prepareNoteTextMove, applyNoteTextMove } from '../../features/notes/noteTextDrag.mjs';
 import { insertNextNoteToggle } from '../../features/notes/noteToggleEditor.mjs';
@@ -69,7 +69,7 @@ function autoNumberedUndo(root,range) {
   return {before:readNoteEditor(clone),beforeCaret:point};
 }
 
-export function NoteTextEditor({text,edit,loading,readOnly}) {
+export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle}) {
   const editor = useRef(null);
   const saved = useRef(null);
   const sequence = useRef(0);
@@ -602,6 +602,15 @@ export function NoteTextEditor({text,edit,loading,readOnly}) {
         }
         if (['Enter','Backspace'].includes(event.key) && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !loading && !readOnly) {
           const root=editor.current, selection=window.getSelection();
+          if (event.key === 'Backspace' && onFocusTitle) {
+            const firstLine = firstEmptyNoteLine(root,selection);
+            if (firstLine) {
+              event.preventDefault();
+              cutLine(firstLine,selection);
+              onFocusTitle();
+              return;
+            }
+          }
           const before=readNoteEditor(root);
           const beforeCaret=selection?.rangeCount && root.contains(selection.getRangeAt(0).commonAncestorContainer)
             ? caretPoint(root,selection.getRangeAt(0)) : null;

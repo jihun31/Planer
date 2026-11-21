@@ -8,7 +8,7 @@ import { notePlainText } from '../../features/notes/noteRichText.mjs';
 import '../../styles/notes.css';
 
 // The editor is separate from its data hook so its save states can be previewed.
-export function NotepadEditor({ notepad, bodyRef }) {
+export function NotepadEditor({ notepad, bodyRef, onFocusTitle }) {
   const {text,dirty,loading,saving,error,conflict,localError,edit,retry,resolveConflict} = notepad;
   const status = conflict ? '내용 확인 필요' : error ? '서버 저장 안 됨' : loading ? '불러오는 중…'
     : saving ? '저장 중…' : dirty ? '저장 대기 중…' : '저장됨';
@@ -28,7 +28,8 @@ export function NotepadEditor({ notepad, bodyRef }) {
         }}>다른 메모로 바꾸기</button></div>
     </div>}
     <div className="notes-paper">
-      <NoteTextEditor text={text} edit={edit} loading={loading} readOnly={notepad.deleting || notepad.deleted} />
+      <NoteTextEditor text={text} edit={edit} loading={loading} readOnly={notepad.deleting || notepad.deleted}
+        onFocusTitle={onFocusTitle} />
       <footer><span className={`notes-status${error || conflict ? ' has-error' : ''}`} role="status">{status}</span><span>{notePlainText(text).length.toLocaleString()} / {MAX_NOTE_LENGTH.toLocaleString()}자</span></footer>
     </div>
   </div>;
@@ -36,7 +37,15 @@ export function NotepadEditor({ notepad, bodyRef }) {
 
 export function NoteDocument({ note, folders, run, library, notepad }) {
   const [titleDraft,setTitleDraft] = useState(null);
+  const titleRef = useRef(null);
   const bodyRef = useRef(null);
+
+  function focusTitle() {
+    const input = titleRef.current;
+    input.focus();
+    const end = input.value.length;
+    input.setSelectionRange(end,end);
+  }
   async function saveTitle() {
     if (titleDraft === null) return;
     const title = titleDraft.trim() || '제목 없는 메모';
@@ -46,7 +55,7 @@ export function NoteDocument({ note, folders, run, library, notepad }) {
   }
   return <>
     <div className="notes-document-heading">
-      <input className="notes-title-input" aria-label="메모 제목" value={titleDraft ?? note.title}
+      <input ref={titleRef} className="notes-title-input" aria-label="메모 제목" value={titleDraft ?? note.title}
         maxLength={120} readOnly={notepad.deleting || notepad.deleted} onChange={event => setTitleDraft(event.target.value)}
         onBlur={saveTitle} onKeyDown={event => {
           if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -64,7 +73,7 @@ export function NoteDocument({ note, folders, run, library, notepad }) {
         </button>
       </div>
     </div>
-    <NotepadEditor notepad={notepad} bodyRef={bodyRef} />
+    <NotepadEditor notepad={notepad} bodyRef={bodyRef} onFocusTitle={focusTitle} />
   </>;
 }
 

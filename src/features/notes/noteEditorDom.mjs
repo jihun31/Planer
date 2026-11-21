@@ -73,7 +73,8 @@ export function restoreNoteSelection(editor,savedRange,preferredRange) {
   return selection;
 }
 
-const noteBlockSelector = 'div,p,h1,h2,h3,blockquote,li,.notes-toggle-title';
+const noteParagraphSelector = 'div,p,h1,h2,h3,blockquote';
+const noteBlockSelector = noteParagraphSelector + ',li,.notes-toggle-title';
 const noteLineBoundaries = 'div,p,h1,h2,h3,blockquote,li,ul,ol,details,hr,[data-note-checkbox]';
 
 const listContentSelector = '.notes-checklist-text,[data-note-list-content]';
@@ -146,6 +147,18 @@ export function noteLine(editor,selection) {
   const end = placeholder || after;
   if (end) range.setEnd(end.node,end.start);
   return {range,scope,before,after,placeholder};
+}
+
+export function firstEmptyNoteLine(editor,selection) {
+  if (!selection?.isCollapsed || !selection.rangeCount) return null;
+  const first = editor.firstChild;
+  const plainBlock = first?.matches?.(noteParagraphSelector) ? first : null;
+  const atEditorStart = selection.focusNode === editor && selection.focusOffset === 0;
+  const line = noteLine(editor,plainBlock && atEditorStart ? {focusNode:plainBlock,focusOffset:0} : selection);
+  if (!line || line.before || (line.scope !== editor && line.scope !== plainBlock)
+    || (line.after?.kind === 'block' && line.range.collapsed && !line.placeholder)
+    || noteRangeHasContent(line.range)) return null;
+  return line;
 }
 
 export function removeNoteListRow(item) {

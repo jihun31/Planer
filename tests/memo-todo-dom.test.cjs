@@ -66,6 +66,29 @@ if(!process.versions.electron){
         assert(editor().querySelector('.notes-checklist-item'),'Cutting the line text removed the checklist line itself');
       `);
 
+      // Backspace on the empty first line moves into the title and keeps later lines.
+      await step(`
+        setMemoText('\\n아래 본문');
+        await wait(()=>editor().firstElementChild?.firstChild?.nodeName==='BR','Saved blank line was not loaded');
+        editor().focus();select(editor().firstElementChild,0,0);
+      `);
+      await press('Backspace');
+      await step(`
+        const title=document.querySelector('.notes-title-input');
+        assert(document.activeElement===title&&title.selectionStart===title.value.length&&title.selectionEnd===title.value.length,
+          'Backspace did not put the caret at the end of the title');
+        assert(memoText==='아래 본문'&&editor().firstElementChild?.textContent==='아래 본문','Backspace did not remove only the first line');
+        editor().focus();select(textNode('아래 본문'),0,0);
+      `);
+      await press('Backspace');
+      await step(`
+        assert(document.activeElement===editor()&&memoText==='아래 본문','Nonempty first line moved the caret to the title');
+        setMemoText('');await wait(()=>!editor().hasChildNodes(),'Empty memo did not load');
+        editor().focus();select(editor(),0,0);
+      `);
+      await press('Backspace');
+      await step(`assert(document.activeElement===document.querySelector('.notes-title-input')&&memoText==='','Backspace in the empty body did not focus the title');`);
+
       // Activity colors: planner tab only, pick a chip then a color; the add form is hidden meanwhile.
       await step(`
         const study=document.querySelector('#activities'),control=document.querySelector('#control');
@@ -108,7 +131,7 @@ if(!process.versions.electron){
         assert(list.querySelector('.task-edit-form'),'Failed todo update closed the editor');
         list.querySelector('[aria-label="장보기 완료 후 삭제"]')===null||assert(false,'Editing row still shows the checkbox');
       `);
-      console.log(JSON.stringify({lineThenNote:true,inLineCopy:true,lineCutKeepsLine:true,activityColor:true,controlHidden:true,todoEdit:true,todoCancel:true,todoFailure:true}));app.exit(0);
+      console.log(JSON.stringify({lineThenNote:true,inLineCopy:true,lineCutKeepsLine:true,emptyFirstLineToTitle:true,activityColor:true,controlHidden:true,todoEdit:true,todoCancel:true,todoFailure:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

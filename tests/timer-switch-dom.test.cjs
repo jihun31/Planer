@@ -131,7 +131,26 @@ if(!process.versions.electron){
         button(review(),'업무 복귀').click();
         await wait(()=>!review());
         assert(!document.querySelector('.timer-running'),'Work resumed with an unselected activity');
-        return {offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,saves:timerSwitchSaves.length};
+        assert(timerSwitchRestReturns.length===1&&timerSwitchRestReturns[0]===undefined,'Return to work did not invoke its callback');
+
+        chip(control,'휴식').click();await wait(()=>setup());
+        button(setup(),'강의').click();
+        await wait(()=>button(setup(),'강의').getAttribute('aria-pressed')==='true');
+        const popupCount=popups.length;
+        button(setup(),'휴식 시작').click();
+        await wait(()=>popups.length>popupCount);
+        const scheduled=restTimer.read('switch-user').session;
+        assert(scheduled.returnActivityId==='lecture','Rest has no return activity to skip');
+        popupCommand({type:'end',key:scheduled.startTs+':'+scheduled.endTs});
+        await wait(()=>review());
+        const end=button(review(),'종료');
+        const position=element=>element.getBoundingClientRect().left;
+        assert(end===end.parentElement.firstElementChild&&position(end)===position(end.parentElement),
+          'End button is not on the left edge of the review actions');
+        end.click();await wait(()=>!review());
+        assert(restTimer.read('switch-user').session===null,'End did not clear the rest session');
+        assert(timerSwitchRestReturns.length===1,'End invoked the return to work callback');
+        return {offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,restEnd:true,saves:timerSwitchSaves.length};
       })()`);
       const popup=new BrowserWindow({show:false,webPreferences:{
         sandbox:true,offscreen:true,backgroundThrottling:false,preload:path.join(__dirname,'../electron/preload.cjs'),
