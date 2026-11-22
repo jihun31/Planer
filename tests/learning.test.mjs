@@ -206,6 +206,27 @@ test('later activity changes begin next week and targets remain optional', () =>
   assert.equal(validActivityTargets(['math','math'],{}),false);
   assert.equal(validActivityTargets(['math'],{math:0}),false);
 });
+test('activities created after the current selection count as study at once until a later choice excludes them', () => {
+  const ts = ms => ({ toMillis: () => ms });
+  const selected = {minutes:60,effectiveDate:'2026-10-01',changedAt:1000,includedActivityIds:['math'],activityTargets:{}};
+  const activities = [{id:'math',createdAt:ts(500)},{id:'old',createdAt:ts(600)},{id:'new',createdAt:ts(2000)},{id:'pending',createdAt:null}];
+  const records = [
+    {...block('2026-10-18',0,60),activityId:'math'},
+    {...block('2026-10-18',60,120),activityId:'old'},
+    {...block('2026-10-18',120,180),activityId:'new'},
+    {...block('2026-10-18',180,240),activityId:'pending'},
+  ];
+  // A new activity is included by default, while an older unchecked one stays excluded.
+  assert.equal(learningStats(records,[selected],now,activities).todayMinutes,180);
+  // Saving the editor after creating it (effective next week) decides it from now on.
+  const included = {...selected,changedAt:3000,effectiveDate:'2026-10-19',includedActivityIds:['math','new','pending']};
+  assert.equal(learningStats(records,[selected,included],now,activities).todayMinutes,180);
+  const excluded = {...included,includedActivityIds:['math']};
+  // 'new' is now excluded; 'pending' is still being saved, so no choice has seen it yet.
+  assert.equal(learningStats(records,[selected,excluded],now,activities).todayMinutes,120);
+  // Without creation times the saved selection still decides alone.
+  assert.equal(learningStats(records,[selected],now).todayMinutes,60);
+});
 test('saved activity exclusions remain visible until the goal listener catches up', () => {
   const old = { id:'old', uid:'alice', minutes:60, effectiveDate:'2026-10-12',
     includedActivityIds:['study','rest'], activityTargets:{}, changedAt:1 };

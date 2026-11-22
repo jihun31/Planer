@@ -35,8 +35,9 @@ export function useLearning(uid, { full = false } = {}) {
   const [blocks, blocksReady, blocksError] = useCollection(uid,listenBlocks);
   const [savedHistory, goalsReady, goalsError] = useCollection(uid,listeners.goals);
   const [recentGoal,setRecentGoal] = useState(null);
-  const [loadedActivities, activitiesReady, activitiesError] = useCollection(full ? uid : null,listeners.activities);
-  const activities = full ? loadedActivities : NO_ACTIVITIES;
+  // Creation times decide whether an activity added after the last selection counts.
+  const [loadedActivities, activitiesReady, activitiesError] = useCollection(uid,listeners.activities);
+  const activities = activitiesReady ? loadedActivities : NO_ACTIVITIES;
   useEffect(() => {
     if (!uid) return;
     const refresh = () => setNow(new Date());

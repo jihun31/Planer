@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { dateShift, duration, editorGoalConfiguration, goalEffectiveDate, goalForDate, learningStats, validGoal, weekStart } from '../../features/learning/learningStats.mjs';
+import { dateShift, duration, editorGoalConfiguration, goalEffectiveDate, goalForDate, learningStats, newActivityIds, validGoal, weekStart } from '../../features/learning/learningStats.mjs';
 import { isStudyBlock } from '../../features/planner/blockKind.mjs';
 import { archivedActivityReferences } from '../../features/learning/archivedActivity.mjs';
 import { hasVisibleModal, isEditingTarget } from '../../features/navigation/keyboardShortcuts.mjs';
@@ -76,7 +76,9 @@ export default function LearningTab({ learning, active = false }) {
     if (editing) { setEditing(false); return; }
     setMinutes(String(selection?.minutes ?? pending?.minutes ?? s.goal?.minutes ?? 60));
     const availableIds = new Set(activities.map(activity => activity.id));
-    setIncludedIds(selection ? selection.includedActivityIds.filter(id => availableIds.has(id)) : activities.map(a => a.id));
+    // Activities created after the last save were never offered, so they start checked.
+    setIncludedIds(selection ? [...new Set([...selection.includedActivityIds.filter(id => availableIds.has(id)),
+      ...newActivityIds(selection,activities)])] : activities.map(a => a.id));
     setTargets(selection ? { ...selection.activityTargets } : {});
     setSaveError(''); setMessage(''); setEditing(true);
   }

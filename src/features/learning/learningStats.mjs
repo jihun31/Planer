@@ -45,6 +45,28 @@ export function activitySelectionForDate(history, date) {
   const configured = orderedGoals(history).filter(g => validActivityTargets(g.includedActivityIds, g.activityTargets));
   return configured.filter(g => g.effectiveDate <= date).at(-1) ?? configured[0] ?? null;
 }
+// An activity created after a selection was saved was never offered in it.
+// New activities count as study by default; the first selection saved after
+// their creation decides them right away, even before its effective date.
+const activityCreatedAt = activity => activity?.createdAt === null ? Infinity
+  : activity?.createdAt?.toMillis?.() ?? null;
+export function activityIncluded(history, selection, activity, activityId) {
+  if (!selection) return true;
+  if (selection.includedActivityIds.includes(activityId)) return true;
+  const created = activityCreatedAt(activity), savedAt = goalChangedAt(selection);
+  if (created === null || !savedAt || created <= savedAt) return false;
+  const decision = orderedGoals(history)
+    .filter(g => validActivityTargets(g.includedActivityIds,g.activityTargets) && goalChangedAt(g) >= created)
+    .sort((a,b) => goalChangedAt(a)-goalChangedAt(b))[0];
+  return decision ? decision.includedActivityIds.includes(activityId) : true;
+}
+export function newActivityIds(selection, activities) {
+  const savedAt = selection && goalChangedAt(selection);
+  return savedAt ? activities.filter(activity => {
+    const created = activityCreatedAt(activity);
+    return created !== null && created > savedAt;
+  }).map(activity => activity.id) : [];
+}
 export function latestGoalConfiguration(history) {
   return history.filter(g => validGoal(g.minutes) && /^\d{4}-\d{2}-\d{2}$/.test(g.effectiveDate)
     && validActivityTargets(g.includedActivityIds,g.activityTargets))
@@ -89,7 +111,7 @@ export function learningStats(blocks, history, now = new Date(), activities = []
     if (!selections.has(block.date)) selections.set(block.date,activitySelectionForDate(history,block.date));
     const selection = selections.get(block.date);
     if (block.activityId) {
-      if (selection && !selection.includedActivityIds.includes(block.activityId)) continue;
+      if (!activityIncluded(history,selection,activityMap[block.activityId],block.activityId)) continue;
     } else if (block.learningIncluded === false || (selection && block.learningIncluded !== true)) continue;
     if (end > start) {
       (intervals[block.date] ??= []).push([start,end]);
