@@ -335,6 +335,8 @@ function createPlanerRest(React, createPortal) {
       setObservedTime(startTs);
       editingRef.current = false;
       setEditing(false);
+      // 공부 타이머를 시작할 때와 같이 메인 창을 내린다(팝업은 session 효과가 연다).
+      window.electronAPI?.minimizeMain?.();
     }
 
     function extend(minutes) {
