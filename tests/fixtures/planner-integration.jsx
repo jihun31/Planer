@@ -12,8 +12,9 @@ const reminderTasks = [
   { id: 'morning', title: '영어 듣기', timeSlot: '오전', createdAtMs: 1 },
   { id: 'afternoon', title: '리포트 읽고 수정 부분 표시하기', timeSlot: '오후' },
   { id: 'early', title: '어제 할 일', timeSlot: '오전', dueDate: '2026-11-21' },
-  { id: 'finished', title: '이미 완료한 할 일', timeSlot: '오전', completed: true },
+  { id: 'finished', title: '이미 완료한 할 일', timeSlot: '오전', completed: true, createdAtMs: 3 },
   { id: 'no-slot', title: '시간대 없는 예전 할 일' },
+  { id: 'tomorrow', title: '다음 날 할 일', timeSlot: '저녁', dueDate: '2026-11-23' },
 ].map(task => ({ dueDate: reminderDate, completed: false, ...task }));
 
 export function ReminderPreview() {

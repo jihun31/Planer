@@ -259,12 +259,48 @@ if(!process.versions.electron){
         await wait(()=>document.querySelectorAll('.habit-history-panel .habit-auto-dot').length===2,'Score trend missing');
       `);
 
+      await step(`
+        const tab=document.querySelector('#tab');
+        const manage=()=>button(tab,'순서 변경');
+        const todayNames=()=>[...today().querySelectorAll('.habit-today-name')].map(row=>row.textContent);
+        const orderRows=()=>[...tab.querySelectorAll('.habit-order-list li')];
+        assert(manage(),'습관 순서 변경 버튼이 없습니다.');
+        assert(todayNames()[1].includes('물 잔'),'오늘의 습관이 기본 순서를 따라야 합니다.');
+        manage().click();
+        await wait(()=>orderRows().length===4,'순서를 바꿀 습관 목록이 없습니다.');
+        assert(orderRows()[0].querySelector('button').disabled,'첫 습관을 더 위로 이동할 수 없어야 합니다.');
+        const moveCountHabitToTop=async()=>{
+          tab.querySelector('[aria-label="물 잔 위로 이동"]').click();
+          await wait(()=>orderRows()[0]?.textContent.includes('물 잔'),'편집 목록에서 물 잔이 위로 이동해야 합니다.');
+        };
+        await moveCountHabitToTop();
+        assert(todayNames()[0].includes('물 마시기'),'저장 전에는 오늘의 습관 순서가 그대로여야 합니다.');
+        button(tab,'취소').click();
+        await wait(()=>manage(),'순서 편집이 닫혀야 합니다.');
+        assert(card('물 마시기')===tab.querySelector('.habit-card'),'취소하면 기존 순서가 보여야 합니다.');
+
+        manage().click();
+        await wait(()=>orderRows().length===4,'순서 편집이 다시 열려야 합니다.');
+        await moveCountHabitToTop();
+        failWrites=true;
+        button(tab,'순서 저장').click();
+        await wait(()=>tab.querySelector('.habit-error')&&orderRows().length===4&&button(tab,'순서 저장')?.disabled===false,
+          '저장에 실패하면 편집을 유지하고 다시 시도할 수 있어야 합니다.');
+        assert(todayNames()[0].includes('물 마시기'),'저장 실패 후 오늘의 습관 순서가 그대로여야 합니다.');
+        failWrites=false;
+        button(tab,'순서 저장').click();
+        await wait(()=>manage()&&todayNames()[0].includes('물 잔'),'저장한 순서가 오늘의 습관에 반영되어야 합니다.');
+        assert(card('물 잔')===tab.querySelector('.habit-card'),'습관 탭에서도 저장한 순서가 보여야 합니다.');
+        assert(todayNames().length===2&&todayNames()[1].includes('물 마시기'),'오늘 예정인 습관만 표시해야 합니다.');
+        assert(lastWrite()===JSON.stringify(['order',['h3','water','h2','gallery']]),'바꾼 순서 전체를 저장해야 합니다.');
+      `);
+
       if(process.env.PLANER_HABITS_SHOT){
         // 화면 확인용 캡처: 숨긴 창은 예전 화면이 찍혀서 잠깐 띄운다(포커스는 가져가지 않음)
         win.showInactive();await new Promise(resolve=>setTimeout(resolve,800));
         fs.writeFileSync(process.env.PLANER_HABITS_SHOT,(await win.webContents.capturePage()).toPNG());
       }
-      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,cardLayout:true,selfCheck:true}));app.exit(0);
+      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,cardLayout:true,selfCheck:true,habitOrder:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

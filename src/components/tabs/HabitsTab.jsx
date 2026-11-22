@@ -4,16 +4,20 @@ import HabitCard from '../habits/HabitCard';
 import HabitHistory from '../habits/HabitHistory';
 import { useHabitCheck } from '../habits/useHabitCheck';
 import WeekReview from '../habits/WeekReview';
-import { byFrequency, scheduleLabel, totalDone } from '../../features/habits/habitCore.mjs';
+import { orderHabits, scheduleLabel, totalDone } from '../../features/habits/habitCore.mjs';
 import '../../styles/habits.css';
 
 export default function HabitsTab({ uid, habitsData }) {
-  const { habits, today, loading, error, addHabit, updateHabit, archiveHabit, restoreHabit, deleteHabit, setLog, setAutomaticity } = habitsData;
+  const { habits, today, loading, error, orderReady, orderError, saveOrder,
+    addHabit, updateHabit, archiveHabit, restoreHabit, deleteHabit, setLog, setAutomaticity } = habitsData;
   const check = useHabitCheck(setLog);
   const [editing, setEditing] = useState(null); // null | 'new' | 습관
   const [failure, setFailure] = useState('');
-  const active = byFrequency(habits.filter(h => !h.archived));
+  const [orderDraft, setOrderDraft] = useState(null);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const active = habits.filter(h => !h.archived);
   const archived = habits.filter(h => h.archived);
+  const draftHabits = orderDraft && orderHabits(active, orderDraft);
 
   const run = async (action, message) => {
     setFailure('');
@@ -24,19 +28,75 @@ export default function HabitsTab({ uid, habitsData }) {
     run(() => deleteHabit(habit.id), '습관을 삭제하지 못했어요.');
   };
 
+  const startReordering = () => {
+    setFailure('');
+    setOrderDraft(active.map(habit => habit.id));
+  };
+  const cancelReordering = () => {
+    setFailure('');
+    setOrderDraft(null);
+  };
+  const moveHabit = (id, direction) => {
+    setOrderDraft(draft => {
+      const ids = orderHabits(active, draft).map(habit => habit.id);
+      const from = ids.indexOf(id);
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= ids.length) return draft;
+      [ids[from], ids[to]] = [ids[to], ids[from]];
+      return ids;
+    });
+  };
+  const saveReordering = async () => {
+    const ids = draftHabits.map(habit => habit.id);
+    if (ids.every((id, index) => active[index].id === id)) {
+      cancelReordering();
+      return;
+    }
+
+    // 보관한 습관은 되돌렸을 때 원래 자리를 찾을 수 있게 유지한다.
+    let index = 0;
+    const savedIds = habits.map(habit => habit.archived ? habit.id : ids[index++]);
+    setSavingOrder(true);
+    await run(async () => {
+      await saveOrder(savedIds);
+      setOrderDraft(null);
+    }, '습관 순서를 저장하지 못했어요. 다시 시도해 주세요.');
+    setSavingOrder(false);
+  };
+
   return <div className="habits-tab">
     <div className="habits-hdr">
       <div>
         <h2 className="habits-title">🔁 습관</h2>
         <p className="habits-intro">작게 시작하고, 하루 빠져도 괜찮아요. 두 번 연속만 피하면 연속 기록이 이어져요.</p>
       </div>
-      <button type="button" className="btn btn-login" onClick={() => setEditing('new')}>+ 새 습관</button>
+      <div className="habits-hdr-actions">
+        {draftHabits ? <>
+          <button type="button" className="block-manage-btn" onClick={cancelReordering} disabled={savingOrder}>취소</button>
+          <button type="button" className="btn btn-login" onClick={saveReordering} disabled={savingOrder || Boolean(orderError)}>
+            {savingOrder ? '저장 중…' : '순서 저장'}
+          </button>
+        </> : <>
+          {active.length > 1 && <button type="button" className="block-manage-btn" onClick={startReordering}
+            disabled={!orderReady || Boolean(orderError)}>순서 변경</button>}
+          <button type="button" className="btn btn-login" onClick={() => setEditing('new')}>+ 새 습관</button>
+        </>}
+      </div>
     </div>
 
     {error && <p role="alert">습관을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.</p>}
+    {orderError && <p role="alert" className="habit-error">습관 순서를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.</p>}
     {(failure || check.failure) && <p role="alert" className="habit-error">{failure || check.failure}</p>}
-    {!loading && <WeekReview uid={uid} habits={habits} today={today} />}
-    {loading ? <p role="status" className="today-block-empty">불러오는 중…</p>
+    {!loading && !draftHabits && <WeekReview uid={uid} habits={habits} today={today} />}
+    {draftHabits ? <ol className="habit-order-list" aria-label="습관 순서 편집">
+      {draftHabits.map((habit, index) => <li key={habit.id}>
+        <span>{habit.emoji} {habit.name}</span>
+        <button type="button" className="habit-edit-btn" aria-label={`${habit.name} 위로 이동`} title="위로 이동"
+          disabled={savingOrder || index === 0} onClick={() => moveHabit(habit.id, -1)}>↑</button>
+        <button type="button" className="habit-edit-btn" aria-label={`${habit.name} 아래로 이동`} title="아래로 이동"
+          disabled={savingOrder || index === draftHabits.length - 1} onClick={() => moveHabit(habit.id, 1)}>↓</button>
+      </li>)}
+    </ol> : loading ? <p role="status" className="today-block-empty">불러오는 중…</p>
       : active.length === 0 ? <div className="habits-empty">
         <p>아직 습관이 없어요.</p>
         <p>이미 매일 하는 일(커피, 양치, 출근) 뒤에 붙일 <strong>아주 작은 행동</strong> 하나로 시작해 보세요.</p>
@@ -46,9 +106,9 @@ export default function HabitsTab({ uid, habitsData }) {
         {active.map(habit => <HabitCard key={habit.id} uid={uid} habit={habit} today={today} check={check} onAutomaticity={setAutomaticity}
           onEdit={() => setEditing(habit)} />)}
       </div>}
-    {!loading && active.length > 0 && <HabitHistory habits={active} today={today} />}
+    {!loading && !draftHabits && active.length > 0 && <HabitHistory habits={active} today={today} />}
 
-    {archived.length > 0 && <details className="habits-archive">
+    {!draftHabits && archived.length > 0 && <details className="habits-archive">
       <summary>보관한 습관 {archived.length}개</summary>
       <ul>
         {archived.map(habit => <li key={habit.id}>

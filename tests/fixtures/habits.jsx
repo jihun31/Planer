@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import HabitsTab from '../../src/components/tabs/HabitsTab.jsx';
 import TodayHabitsBlock from '../../src/components/today/TodayHabitsBlock.jsx';
+import { orderHabits } from '../../src/features/habits/habitCore.mjs';
 import '../../src/styles/app.css';
 import '../../src/styles/tasks.css';
 
@@ -12,11 +13,13 @@ const later=()=>new Promise(resolve=>setTimeout(resolve,20));
 const write=async(entry)=>{await later();if(globalThis.failWrites)throw Error('offline');globalThis.writes.push(entry);};
 
 function Preview(){
+  const [orderedIds,setOrderedIds]=useState([]);
   const [habits,setHabits]=useState([{id:'water',name:'물 마시기',emoji:'💧',anchor:'아침에 일어나서',tinyVersion:'한 모금',
     schedule:{type:'daily'},startDate:'2026-11-01',archived:false,logs:{'2026-11-03':'full','2026-11-10':'full','2026-11-11':'full','2026-11-17':'full','2026-11-18':'full'},automaticity:{'2026-11-09':4}},
     {id:'gallery',name:'갤러리 정리',emoji:'📷',anchor:'',tinyVersion:'',schedule:{type:'monthdays',days:[1]},startDate:'2026-08-20',archived:false,logs:{'2026-10-01':'full'}}]);
   const patch=(id,change)=>setHabits(list=>list.map(h=>h.id===id?{...h,...change(h)}:h));
-  const habitsData={habits,today:TODAY,loading:false,error:null,
+  const habitsData={habits:orderHabits(habits,orderedIds),today:TODAY,loading:false,error:null,orderReady:true,
+    saveOrder:async ids=>{await write(['order',ids]);setOrderedIds(ids);},
     addHabit:async value=>{await write(['add',value]);setHabits(list=>[...list,{...value,id:'h'+list.length,archived:false,logs:{}}]);},
     updateHabit:async(id,value)=>{await write(['update',id,value]);patch(id,()=>value);},
     archiveHabit:async id=>{await write(['archive',id]);patch(id,()=>({archived:true}));},

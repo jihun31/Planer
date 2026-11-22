@@ -250,6 +250,17 @@ service cloud.firestore {
         && editedOk('archived') && editedOk('updatedAt') && editedOk('automaticity')
         && (!changed('logs') || validLogChange(resource.data.get('logs', {}), request.resource.data.logs));
     }
+    match /habitOrders/{userId} {
+      function validHabitIds(ids) {
+        return ids is list && ids.toSet().size() == ids.size()
+          // 문서 ID는 슬래시 없이 비어 있지 않은 문자열이어야 한다.
+          && !('' in ids) && (ids.size() == 0 || ids.join('/').split('/') == ids);
+      }
+      allow get: if signedIn() && userId == request.auth.uid;
+      allow create, update: if signedIn() && userId == request.auth.uid
+        && request.resource.data.keys().hasOnly(['ids'])
+        && validHabitIds(request.resource.data.ids);
+    }
     match /calendarEvents/{eventId} {
       function validEvent() {
         return request.resource.data.keys().hasOnly(['uid', 'title', 'date', 'note', 'color', 'taskId', 'createdAt', 'updatedAt'])

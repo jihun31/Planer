@@ -1,5 +1,5 @@
 import {
-  collection, addDoc, doc, updateDoc, deleteField, FieldPath,
+  collection, addDoc, doc, setDoc, updateDoc, deleteField, FieldPath,
   query, where, onSnapshot, serverTimestamp, getDocs, writeBatch,
 } from "firebase/firestore";
 import { db } from "../../firebase/config";
@@ -18,6 +18,14 @@ export const subscribeHabits = (uid, cb, onError) =>
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0))),
     onError
   );
+
+const orderRef = uid => doc(db, "habitOrders", uid);
+
+export const subscribeHabitOrder = (uid, cb, onError) =>
+  onSnapshot(orderRef(uid), snap => cb(snap.data()?.ids ?? []), onError);
+
+export const saveHabitOrder = (uid, ids) =>
+  setDoc(orderRef(uid), { ids });
 
 export const addHabit = (uid, value) =>
   addDoc(collection(db, "habits"), {

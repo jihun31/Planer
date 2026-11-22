@@ -1,22 +1,21 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DAY_START_HOUR, plannerDate } from '../../features/planner/scheduleTime.mjs';
 
-const REMINDER_HOURS = new Map([['오전', 10], ['오후', 14], ['저녁', 19]]);
-const CHANGE_HOURS = [DAY_START_HOUR, ...REMINDER_HOURS.values()];
+const SLOT_ORDER = new Map([['오전', 0], ['오후', 1], ['저녁', 2]]);
+const slotIndex = task => SLOT_ORDER.get(task.timeSlot) ?? SLOT_ORDER.size;
 
-function useReminderTime() {
-  const [now, setNow] = useState(() => new Date());
+function useReminderDate() {
+  const [date, setDate] = useState(() => plannerDate());
   useEffect(() => {
     let timer;
     const refresh = () => {
       clearTimeout(timer);
       const current = new Date();
-      setNow(current);
+      setDate(plannerDate(current));
 
-      const nextHour = CHANGE_HOURS.find(hour => hour > current.getHours());
       const next = new Date(current);
-      if (nextHour === undefined) next.setDate(next.getDate() + 1);
-      next.setHours(nextHour ?? DAY_START_HOUR, 0, 0, 0);
+      if (current.getHours() >= DAY_START_HOUR) next.setDate(next.getDate() + 1);
+      next.setHours(DAY_START_HOUR, 0, 0, 0);
       timer = setTimeout(refresh, next - current);
     };
     refresh();
@@ -28,7 +27,7 @@ function useReminderTime() {
       document.removeEventListener('visibilitychange', refresh);
     };
   }, []);
-  return now;
+  return date;
 }
 
 function useFittingCount(measureRef, items) {
@@ -73,12 +72,12 @@ function useFittingCount(measureRef, items) {
   return count;
 }
 
-function ReminderItem({ task, measuring, pending, onComplete }) {
+function ReminderItem({ task, measuring, pending, onToggle }) {
   const details = <>
-    <span className="task-reminder-slot">{task.timeSlot}</span>
+    {task.timeSlot && <span className="task-reminder-slot">{task.timeSlot}</span>}
     {measuring ? <span className="task-reminder-check" />
       : <input type="checkbox" className="task-reminder-check" aria-label={task.title + ' 완료'}
-          checked={Boolean(pending)} disabled={pending} onChange={() => onComplete(task)} />}
+          checked={Boolean(task.completed)} disabled={pending} onChange={() => onToggle(task)} />}
     <span className="task-reminder-title" title={measuring ? undefined : task.title}>{task.title}</span>
   </>;
   return measuring ? <span className="task-reminder-item">{details}</span>
@@ -86,15 +85,9 @@ function ReminderItem({ task, measuring, pending, onComplete }) {
 }
 
 export default function TaskReminder({ tasks, onToggle }) {
-  const now = useReminderTime();
-  const date = plannerDate(now);
-  const hour = now.getHours();
-  const items = useMemo(() => {
-    const elapsedHour = hour < DAY_START_HOUR ? hour + 24 : hour;
-    return tasks.filter(task => task.dueDate === date && !task.completed && REMINDER_HOURS.get(task.timeSlot) <= elapsedHour)
-      .sort((a, b) => REMINDER_HOURS.get(a.timeSlot) - REMINDER_HOURS.get(b.timeSlot)
-        || (a.createdAtMs ?? 0) - (b.createdAtMs ?? 0));
-  }, [tasks, date, hour]);
+  const date = useReminderDate();
+  const items = useMemo(() => tasks.filter(task => task.dueDate === date)
+    .sort((a, b) => slotIndex(a) - slotIndex(b) || (a.createdAtMs ?? 0) - (b.createdAtMs ?? 0)), [tasks, date]);
 
   const expandedId = useId();
   const [expandedDate, setExpandedDate] = useState(null);
@@ -105,11 +98,11 @@ export default function TaskReminder({ tasks, onToggle }) {
   const extra = items.slice(count);
   const expanded = expandedDate === date && extra.length > 0;
 
-  const complete = async task => {
+  const toggle = async task => {
     setPendingIds(ids => new Set(ids).add(task.id));
     setErrorDate(null);
     try {
-      await onToggle(task.id, false);
+      await onToggle(task.id, Boolean(task.completed));
     } catch {
       setErrorDate(date);
     } finally {
@@ -123,7 +116,7 @@ export default function TaskReminder({ tasks, onToggle }) {
 
   if (!items.length && errorDate !== date) return null;
   return (
-    <section className="task-reminder" aria-label="오늘 미완료 할 일"
+    <section className="task-reminder" aria-label="오늘 할 일"
       onKeyDown={event => { if (event.key === 'Tab') event.stopPropagation(); }}>
       {items.length > 0 && <>
         <div className="task-reminder-line task-reminder-measure" ref={measureRef} aria-hidden="true">
@@ -132,7 +125,7 @@ export default function TaskReminder({ tasks, onToggle }) {
         </div>
         <div className="task-reminder-line">
           {items.slice(0, count).map(task => <ReminderItem key={task.id} task={task}
-            pending={pendingIds.has(task.id)} onComplete={complete} />)}
+            pending={pendingIds.has(task.id)} onToggle={toggle} />)}
           {extra.length > 0 && <button type="button" className="task-reminder-more"
             aria-expanded={expanded} aria-controls={expandedId} onClick={() => setExpandedDate(expanded ? null : date)}>
             {expanded ? '접기' : '+' + extra.length + '개 더 보기'}
@@ -140,10 +133,10 @@ export default function TaskReminder({ tasks, onToggle }) {
         </div>
         <div className="task-reminder-extra" id={expandedId} hidden={!expanded}>
           {expanded && extra.map(task => <ReminderItem key={task.id} task={task}
-            pending={pendingIds.has(task.id)} onComplete={complete} />)}
+            pending={pendingIds.has(task.id)} onToggle={toggle} />)}
         </div>
       </>}
-      {errorDate === date && <p className="task-reminder-error" role="alert">할 일 완료를 저장하지 못했습니다. 다시 시도해 주세요.</p>}
+      {errorDate === date && <p className="task-reminder-error" role="alert">할 일 상태를 저장하지 못했습니다. 다시 시도해 주세요.</p>}
     </section>
   );
 }

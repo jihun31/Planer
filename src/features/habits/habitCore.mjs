@@ -343,6 +343,11 @@ export function weeklyFrequency(schedule) {
 // 자주 하는 습관부터(매일 → 주 3회 → 주 1회 → 월 1회). 같으면 원래 순서
 export const byFrequency = habits => [...habits].sort((a, b) => weeklyFrequency(b.schedule) - weeklyFrequency(a.schedule));
 
+export function orderHabits(habits, ids) {
+  const ranks = new Map(ids.map((id, index) => [id, index]));
+  return byFrequency(habits).sort((a, b) => (ranks.get(a.id) ?? ranks.size) - (ranks.get(b.id) ?? ranks.size));
+}
+
 export const countLabel = (habit, n) => `${n}/${countTarget(habit)}${habit.target?.unit || '회'}`;
 export const percent = rate => (rate === null ? '–' : `${Math.round(rate * 100)}%`);
 

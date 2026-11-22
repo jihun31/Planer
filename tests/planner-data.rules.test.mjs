@@ -78,6 +78,24 @@ test('activities keep their color rules and archive flow', async () => {
   await assertSucceeds(updateDoc(doc(alice, 'controlActivities', 'c1'), { archived: true, archivedAt: serverTimestamp() }));
 });
 
+test('saved habit order is accessible only by its owner and rejects malformed order documents', async () => {
+  const alice = doc(db(), 'habitOrders', uid);
+  const bob = doc(env.authenticatedContext('data-bob').firestore(), 'habitOrders', uid);
+  const guest = doc(env.unauthenticatedContext().firestore(), 'habitOrders', uid);
+  await assertSucceeds(getDoc(alice));
+  await assertSucceeds(setDoc(alice, { ids: ['habit-a', 'habit-b'] }));
+  await assertSucceeds(setDoc(alice, { ids: ['habit-b', 'habit-a'] }));
+  assert.deepEqual((await assertSucceeds(getDoc(alice))).data().ids, ['habit-b', 'habit-a']);
+  for (const data of [{}, { ids: 'habit-a' }, { ids: ['habit-a', 'habit-a'] }, { ids: ['habit/a'] },
+    { ids: [''] }, { ids: [123] }, { ids: [], extra: true }]) {
+    await assertFails(setDoc(alice, data));
+  }
+  for (const ref of [bob, guest]) {
+    await assertFails(getDoc(ref));
+    await assertFails(setDoc(ref, { ids: ['habit-b'] }));
+  }
+});
+
 test('schedule blocks accept every app record shape and reject broken time ranges', async () => {
   const alice = db();
   const base = { date: '2026-11-20', startMin: 60, endMin: 120, uid, createdAt: serverTimestamp() };
