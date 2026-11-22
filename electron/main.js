@@ -13,11 +13,11 @@ let timerMode = 'elapsed';
 let timerState = null;
 let clearRestReminder = () => {};
 
-// Planer는 한 번만 실행한다. 두 번째 실행은 이미 떠 있는 창을 앞으로 가져오고 끝난다.
+// Planner는 한 번만 실행한다. 두 번째 실행은 이미 떠 있는 창을 앞으로 가져오고 끝난다.
 // 둘이 함께 돌면 휴식 알림과 타이머 팝업이 두 개씩 생긴다.
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) {
-  if (isDev) console.warn('[planer] 이미 실행 중인 Planer가 있어 그 창을 앞으로 가져오고 종료합니다.');
+  if (isDev) console.warn('[planer] 이미 실행 중인 Planner가 있어 그 창을 앞으로 가져오고 종료합니다.');
   app.quit();
 }
 
@@ -80,7 +80,7 @@ function createMainWindow() {
   const { bounds, maximized } = loadWindowState(windowStatePath(), { workAreas, minWidth, minHeight });
   mainWindow = new BrowserWindow({
     ...bounds, minWidth, minHeight, show: false,
-    title: 'Planer', autoHideMenuBar: true,
+    title: 'Planner', autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false, contextIsolation: true, sandbox: true,
       preload: path.join(__dirname, 'preload.cjs'),

@@ -23,7 +23,7 @@ function registerRestReminder({ ipcMain, powerMonitor, Notification, fromMain, r
     reminder.sent = true;
     onElapsed?.(reminder.key);
     if (!Notification.isSupported()) return;
-    notification = new Notification({ title: 'Planer', body: '휴식 시간이 끝났어요.' });
+    notification = new Notification({ title: 'Planner', body: '휴식 시간이 끝났어요.' });
     notification.on('click', revealMain);
     notification.show();
   }

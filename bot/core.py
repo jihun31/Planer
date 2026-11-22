@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 KST = ZoneInfo("Asia/Seoul")
-DAY_START_HOUR = 5   # 하루 기준: 새벽 5시 (Planer 앱 시간관리와 같음). 0:00~4:59는 전날
+DAY_START_HOUR = 5   # 하루 기준: 새벽 5시 (Planner 앱 시간관리와 같음). 0:00~4:59는 전날
 
 WEEKDAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
 PLAN_CATEGORIES = ["Daily", "Routine", "Weekly", "Monthly", "Interval", "OneTime", "Limit"]

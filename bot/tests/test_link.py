@@ -50,7 +50,7 @@ async def test_link_flow(store, raw):
     assert "해제했어요" in await run(BOB, 동작=Choice("unlink"))
     assert not raw.collection("links").document("uid-a2").get().exists
     assert raw.collection("members").document(str(BOB.id)).get().to_dict()["uid"] is None
-    assert "연동된 Planer 앱 계정이 없어요" in await run(BOB, 동작=Choice("unlink"))
+    assert "연동된 Planner 앱 계정이 없어요" in await run(BOB, 동작=Choice("unlink"))
 
 async def test_expired_and_rate_limit(store, raw):
     account.link_failures.clear()

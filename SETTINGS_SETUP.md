@@ -4,7 +4,7 @@
 
 현재 CLI에 로그인된 계정은 프로젝트의 서버 규칙 조회 권한이 없어 규칙 자동 반영을 완료하지 못했습니다(403).
 
-1. 기존 Planer 프로젝트 소유자 계정으로 Firebase Console을 엽니다.
+1. 기존 Planner 프로젝트 소유자 계정으로 Firebase Console을 엽니다.
 2. Firestore Database → 규칙으로 이동합니다.
 3. 기존 규칙은 유지하고, 아래 내용을 match /databases/{database}/documents { ... } 안에 추가합니다.
 4. 게시 후 앱을 다시 실행합니다. 사용자 이름 옆 설정에서 시간을 변경합니다.

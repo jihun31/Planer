@@ -71,7 +71,7 @@ test('build and release settings publish what the updater reads', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.ok(pkg.dependencies['electron-updater'], 'electron-updater must ship with the app');
   assert.deepEqual(pkg.build.publish, [{ provider: 'github', owner: 'jihun31', repo: 'Planer' }]);
-  assert.equal(pkg.build.nsis.artifactName, 'Planer-Setup-${version}.${ext}'); // 공백 없는 이름 = latest.yml과 일치
+  assert.equal(pkg.build.nsis.artifactName, 'Planner-Setup-${version}.${ext}'); // 공백 없는 이름 = latest.yml과 일치
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   // 버전은 로컬 install:local과 같은 규칙(scripts/app-version.mjs)으로 정하고, 커밋 수를 세려고 전체 기록을 받는다
   assert.match(workflow, /node scripts\/app-version\.mjs/);
@@ -88,7 +88,7 @@ test('build and release settings publish what the updater reads', () => {
   for (const p of ["'src/**'", "'electron/**'", "'package.json'"]) assert.ok(workflow.includes(p), p);
   assert.ok(!workflow.includes("'bot/**'"));
   assert.match(workflow, /cancel-in-progress: false/);
-  for (const name of ['latest.yml', 'Planer-Setup-$version.exe.blockmap', 'Planer-Setup-$version.exe'])
+  for (const name of ['latest.yml', 'Planner-Setup-$version.exe.blockmap', 'Planner-Setup-$version.exe'])
     assert.ok(workflow.includes(name), name);
   const main = fs.readFileSync(path.join(root, 'electron/main.js'), 'utf8');
   assert.match(main, /if \(!isDev\)[\s\S]*setupAutoUpdate/);

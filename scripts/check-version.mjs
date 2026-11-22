@@ -123,10 +123,10 @@ function checkRelease(dir, expected) {
     const ymlText = fs.readFileSync(yml, 'utf8');
     const ymlVersion = versionFromLatestYml(ymlText);
     if (ymlVersion !== expected) problems.push(`latest.yml version ${ymlVersion} ≠ ${expected}`);
-    if (!ymlText.includes(`Planer-Setup-${expected}.exe`)) problems.push(`latest.yml이 Planer-Setup-${expected}.exe를 가리키지 않음`);
+    if (!ymlText.includes(`Planner-Setup-${expected}.exe`)) problems.push(`latest.yml이 Planner-Setup-${expected}.exe를 가리키지 않음`);
   }
 
-  for (const name of [`Planer-Setup-${expected}.exe`, `Planer-Setup-${expected}.exe.blockmap`]) {
+  for (const name of [`Planner-Setup-${expected}.exe`, `Planner-Setup-${expected}.exe.blockmap`]) {
     if (!fs.existsSync(path.join(releaseDir, name))) problems.push(`설치 파일 없음: ${name}`);
   }
 

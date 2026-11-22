@@ -171,7 +171,7 @@ function App() {
       <div className="landing-bg">
         <div className="landing-card">
           <div className="landing-icon">🗓</div>
-          <h1 className="landing-title">Planer</h1>
+          <h1 className="landing-title">Planner</h1>
           <p className="landing-desc">
             장기 목표부터 일상 할 일까지<br />
             모든 계획을 한 곳에서 관리하세요.
@@ -227,7 +227,7 @@ function App() {
       <header className="header">
         <div className="header-brand">
           <span className="brand-icon">🗓</span>
-          <span className="brand-name">Planer</span>
+          <span className="brand-name">Planner</span>
         </div>
         <div className="header-user">
           {user.photoURL && (

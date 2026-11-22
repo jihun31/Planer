@@ -32,7 +32,7 @@ npx firebase deploy --only firestore:rules --project planer-f8cb7
 1. Google Cloud 콘솔 https://console.cloud.google.com/ 에서 같은 프로젝트 planer-f8cb7 선택.
 2. Google Auth Platform → 클라이언트 → 클라이언트 만들기.
    기존 UI라면 API 및 서비스 → 사용자 인증 정보 → 사용자 인증 정보 만들기 → OAuth 클라이언트 ID.
-3. 애플리케이션 유형: 데스크톱 앱. 이름: Planer Desktop.
+3. 애플리케이션 유형: 데스크톱 앱. 이름: Planner Desktop.
 4. 생성된 클라이언트의 JSON 파일을 다운로드.
 5. 다운로드한 JSON을 이 프로젝트의 electron/google-oauth.json 로 저장.
    예제 파일 값을 임의로 채우지 말고 다운로드한 파일을 그대로 사용합니다.

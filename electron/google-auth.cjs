@@ -63,7 +63,7 @@ function startGoogleLogin({ config, openExternal, fetchImpl = fetch, timeoutMs =
     if (processing || settled) { respond(res, 409, 'Login already handled'); return; }
     const providerError = url.searchParams.get('error');
     if (providerError) {
-      respond(res, 400, '로그인이 취소되었습니다. Planer로 돌아가 다시 시도해 주세요.');
+      respond(res, 400, '로그인이 취소되었습니다. Planner로 돌아가 다시 시도해 주세요.');
       finish(authError(providerError === 'access_denied' ? 'desktop/cancelled' : 'desktop/provider-error'));
       return;
     }
@@ -88,11 +88,11 @@ function startGoogleLogin({ config, openExternal, fetchImpl = fetch, timeoutMs =
         throw authError('desktop/token-exchange-failed');
       }
       if (settled) return;
-      respond(res, 200, 'Google 인증을 마쳤습니다. Planer에서 로그인 결과를 확인해 주세요. 이 창은 닫아도 됩니다.');
+      respond(res, 200, 'Google 인증을 마쳤습니다. Planner에서 로그인 결과를 확인해 주세요. 이 창은 닫아도 됩니다.');
       finish(null, { accessToken: tokens.access_token });
     } catch {
       if (!settled) {
-        respond(res, 502, '로그인에 실패했습니다. Planer에서 다시 시도해 주세요.');
+        respond(res, 502, '로그인에 실패했습니다. Planner에서 다시 시도해 주세요.');
         finish(authError('desktop/token-exchange-failed'));
       }
     }

@@ -1,4 +1,4 @@
-"""계정·설정: /연동 (Planer 앱 계정 연결), /알림시간"""
+"""계정·설정: /연동 (Planner 앱 계정 연결), /알림시간"""
 import re
 
 import discord
@@ -33,8 +33,8 @@ class Account(commands.Cog):
             msg += f"\n💡 **참고:** 새벽(0~{core.DAY_START_HOUR - 1}시)은 **'어제 날짜'**의 기록을 검사합니다. (밤샘러를 위한 배려!)"
         await interaction.response.send_message(msg, ephemeral=True)
 
-    #Planer 앱 계정 연동
-    @app_commands.command(name="연동", description="Planer 앱과 연동합니다. 앱 설정에서 받은 코드를 입력하세요.")
+    #Planner 앱 계정 연동
+    @app_commands.command(name="연동", description="Planner 앱과 연동합니다. 앱 설정에서 받은 코드를 입력하세요.")
     @app_commands.describe(코드="앱 설정 → 디스코드 연동에서 받은 8자리 코드 (비우면 연동 상태 확인)",
                            동작="연결하기(기본) / 연동 해제")
     @app_commands.choices(동작=[
@@ -48,15 +48,15 @@ class Account(commands.Cog):
 
         if 동작 and 동작.value == "unlink":
             if await store.unlink_account(user_id):
-                await interaction.response.send_message("🔌 Planer 앱 연동을 해제했어요. 앱에서는 더 이상 인증·멤버 정보가 보이지 않아요.", ephemeral=True)
+                await interaction.response.send_message("🔌 Planner 앱 연동을 해제했어요. 앱에서는 더 이상 인증·멤버 정보가 보이지 않아요.", ephemeral=True)
             else:
-                await interaction.response.send_message("❓ 연동된 Planer 앱 계정이 없어요.", ephemeral=True)
+                await interaction.response.send_message("❓ 연동된 Planner 앱 계정이 없어요.", ephemeral=True)
             return
 
         if not 코드:
             linked = bool((store.data["members"].get(str(user_id)) or {}).get("uid"))
-            msg = ("✅ Planer 앱과 연동되어 있어요. 해제하려면 `/연동 동작:연동 해제`" if linked else
-                   "🔗 아직 연동 전이에요. Planer 앱 → ⚙ 설정 → **디스코드 연동**에서 코드를 받아 `/연동 코드:XXXXXXXX`로 입력하세요.")
+            msg = ("✅ Planner 앱과 연동되어 있어요. 해제하려면 `/연동 동작:연동 해제`" if linked else
+                   "🔗 아직 연동 전이에요. Planner 앱 → ⚙ 설정 → **디스코드 연동**에서 코드를 받아 `/연동 코드:XXXXXXXX`로 입력하세요.")
             await interaction.response.send_message(msg, ephemeral=True)
             return
 
@@ -72,7 +72,7 @@ class Account(commands.Cog):
         if result == "linked":
             link_failures.pop(user_id, None)
             await interaction.response.send_message(
-                f"🎉 Planer 앱과 연동됐어요! 앱에서 **{interaction.guild.name}** 멤버들의 진행 상황을 볼 수 있고, 앱에서도 인증할 수 있어요.\n"
+                f"🎉 Planner 앱과 연동됐어요! 앱에서 **{interaction.guild.name}** 멤버들의 진행 상황을 볼 수 있고, 앱에서도 인증할 수 있어요.\n"
                 "(사진이 필요한 계획은 지금처럼 디스코드에서 인증해주세요)", ephemeral=True)
             return
 

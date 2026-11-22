@@ -67,7 +67,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "Planer-Setup-${version}.${ext}"
+      "shortcutName": "Planner",
+      "artifactName": "Planner-Setup-${version}.${ext}"
     },
     "publish": [
       {
