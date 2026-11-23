@@ -26,7 +26,7 @@ export function NotesHelp() {
     {open && <div ref={panel} id={panelId} className="notes-help-panel" role="region" aria-label="메모 사용법">
       <ol>
         <li>글자를 드래그하면 서식 메뉴가 열립니다.</li>
-        <li>폴더는 드래그로 순서를 바꾸고, 우클릭으로 삭제합니다.</li>
+        <li>폴더는 드래그로 순서를 바꾸고, 다른 폴더 가운데에 놓으면 그 안으로 넣습니다(3단계까지). 우클릭으로 하위 폴더를 만들거나 삭제합니다.</li>
         <li>서식 메뉴에서 각 서식의 단축키를 확인할 수 있습니다.</li>
         <li>취소선은 글자를 선택한 뒤 서식 메뉴의 S를 누르거나 Ctrl+Shift+S로 적용·해제합니다.</li>
         <li>/를 입력하면 제목·인용·구분선 등이 표시됩니다.</li>

@@ -5,6 +5,7 @@ import { NotesWorkspace } from '../notes/NotesWorkspace.jsx';
 import { NoteTextEditor } from '../notes/NoteTextEditor.jsx';
 import { MAX_NOTE_LENGTH } from '../../features/notes/notepadStore.mjs';
 import { notePlainText } from '../../features/notes/noteRichText.mjs';
+import { folderTree } from '../../features/notes/noteLibrary.mjs';
 import '../../styles/notes.css';
 
 // The editor is separate from its data hook so its save states can be previewed.
@@ -66,7 +67,7 @@ export function NoteDocument({ note, folders, run, library, notepad }) {
       <div className="notes-document-actions">
         <select aria-label="메모 폴더" disabled={notepad.deleting || notepad.deleted} value={folders.some(folder => folder.id === note.folderId) ? note.folderId : ''}
           onChange={event => run(() => library.move(note.id,event.target.value || null))}>
-          <option value="">폴더 없음</option>{folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+          <option value="">폴더 없음</option>{folderTree(folders).map(({folder,depth}) => <option key={folder.id} value={folder.id}>{'\u00a0\u00a0\u00a0'.repeat(depth-1) + folder.name}</option>)}
         </select>
         <button type="button" disabled={notepad.deleting || notepad.deleted} onClick={() => run(() => notepad.remove(() => library.remove(note.id)))}>
           {notepad.deleting ? '삭제 중…' : '삭제'}

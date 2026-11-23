@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ALL_NOTES, movedFolderIds, visibleNotes } from '../../features/notes/noteLibrary.mjs';
+import { ALL_NOTES, MAX_FOLDER_DEPTH, folderDescendantIds, folderMove, folderTree, foldersWithMove, visibleNotes } from '../../features/notes/noteLibrary.mjs';
 import { notePlainText } from '../../features/notes/noteRichText.mjs';
 import { NotesHelp } from './NotesHelp.jsx';
+
+const collapsedKey = uid => `planer:note-folders-collapsed:${uid ?? ''}`;
+function readCollapsed(uid) {
+  try { const value = JSON.parse(window.localStorage.getItem(collapsedKey(uid)) || '[]'); return new Set(Array.isArray(value) ? value : []); }
+  catch { return new Set(); }
+}
+// Drop zone: the middle half of a folder nests into it, the outer quarters reorder around it.
+function dropPosition(event) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const ratio = window.matchMedia('(max-width:900px)').matches ? (event.clientX-rect.left)/rect.width : (event.clientY-rect.top)/rect.height;
+  return ratio < .25 ? 'before' : ratio > .75 ? 'after' : 'inside';
+}
 
 export function NotesWorkspace({ library, renderEditor }) {
   const {notes,folders,error,setView} = library;
@@ -17,11 +29,24 @@ export function NotesWorkspace({ library, renderEditor }) {
   const [failure,setFailure] = useState('');
   const [draggedId,setDraggedId] = useState(null);
   const [dropTarget,setDropTarget] = useState(null);
-  const [folderOrder,setFolderOrder] = useState(null);
-  const displayFolders = folderOrder ? [...folders].sort((a,b) => {
-    const position = id => {const index = folderOrder.indexOf(id);return index < 0 ? Infinity : index;};
-    return position(a.id)-position(b.id);
-  }) : folders;
+  const [pendingMove,setPendingMove] = useState(null);
+  const displayFolders = foldersWithMove(folders,pendingMove);
+  const tree = folderTree(displayFolders);
+  const [collapsed,setCollapsed] = useState(() => ({uid:library.uid,ids:readCollapsed(library.uid)}));
+  const collapsedIds = collapsed.uid === library.uid ? collapsed.ids : readCollapsed(library.uid);
+  function setFolderOpen(id,open) {
+    const next = new Set(collapsedIds);
+    if (open) next.delete(id); else next.add(id);
+    try { window.localStorage.setItem(collapsedKey(library.uid),JSON.stringify([...next])); } catch { /* Only this window remembers it. */ }
+    setCollapsed({uid:library.uid,ids:next});
+  }
+  let hiddenBelow = Infinity;
+  const shownRows = tree.filter(row => {
+    if (row.depth > hiddenBelow) return false;
+    hiddenBelow = row.hasChildren && collapsedIds.has(row.folder.id) ? row.depth : Infinity;
+    return true;
+  });
+  const folderDepth = id => tree.find(row => row.folder.id === id)?.depth ?? 1;
   const currentFolder = folders.find(item => item.id === folder);
   const activeFolder = currentFolder ? folder : ALL_NOTES;
   const folderName = currentFolder?.name || '전체 메모';
@@ -80,26 +105,31 @@ export function NotesWorkspace({ library, renderEditor }) {
   }
   async function saveFolder(event) {
     event.preventDefault();
-    const result = await run(() => library.saveFolder(folderForm.id,folderForm.name));
-    if (result.ok) { selectFolder(result.value); setFolderForm(null); }
+    const result = await run(() => library.saveFolder(folderForm.id,folderForm.name,folderForm.parentId ?? null));
+    if (result.ok) { if (folderForm.parentId) setFolderOpen(folderForm.parentId,true); selectFolder(result.value); setFolderForm(null); }
   }
   async function removeFolder(item) {
-    if (!window.confirm(`'${item.name}' 폴더를 삭제할까요? 안의 메모는 전체 메모에 그대로 남습니다.`)) return;
-    const result = await run(() => library.deleteFolder(item.id));
-    if (result.ok) { if (folder === item.id) selectFolder(ALL_NOTES); setMenu(null); }
+    const descendants = folderDescendantIds(folders,item.id), ids = [item.id,...descendants];
+    const counted = ids.every(id => Number.isFinite(library.counts?.[id]));
+    const noteCount = counted ? ids.reduce((sum,id) => sum + library.counts[id],0)
+      : notes.filter(note => !note.archived && ids.includes(note.folderId)).length;
+    if (!window.confirm(`'${item.name}' 폴더를 삭제할까요?\n하위 폴더 ${descendants.length}개, 메모 ${noteCount}개${counted ? '' : ' 이상'}가 함께 영구 삭제됩니다.\n휴지통이 없어 되돌릴 수 없습니다.`)) return;
+    const result = await run(() => library.deleteFolder(ids));
+    if (result.ok) { if (ids.includes(folder)) selectFolder(ALL_NOTES); setMenu(null); }
   }
   async function dropFolder(event,item) {
     event.preventDefault();
     if (!draggedId || !dropTarget || busy) return;
-    const next = movedFolderIds(displayFolders,draggedId,item.id,dropTarget.after);
+    const move = folderMove(displayFolders,draggedId,item.id,dropTarget.position);
     setDraggedId(null);setDropTarget(null);
-    if (next.every((id,index) => id === displayFolders[index].id)) return;
-    setFolderOrder(next);
-    await run(() => library.reorderFolders(next));
-    setFolderOrder(null);
+    if (!move) return;
+    if (move.parentId) setFolderOpen(move.parentId,true);
+    setPendingMove(move);
+    await run(() => library.moveFolder(move));
+    setPendingMove(null);
   }
   const folderButton = (id,label,count,item) => <button type="button" className={`notes-folder-button${activeFolder === id ? ' is-selected' : ''}`}
-    draggable={!!item && !busy} title={item ? '드래그하여 순서 변경 · 우클릭하여 관리' : undefined}
+    draggable={!!item && !busy} title={item ? '드래그하여 순서 변경 · 다른 폴더 가운데에 놓으면 그 안으로 이동 · 우클릭하여 관리' : undefined}
     onDragStart={item ? event => {
       setMenu(null);setDraggedId(id);event.dataTransfer.effectAllowed = 'move';event.dataTransfer.setData('application/x-planer-folder',id);
     } : undefined} onDragEnd={() => {setDraggedId(null);setDropTarget(null);}}
@@ -107,7 +137,7 @@ export function NotesWorkspace({ library, renderEditor }) {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
       setMenu({item,trigger:event.currentTarget,x:Math.max(8,Math.min(event.clientX || rect.left,window.innerWidth - 148)),
-        y:Math.max(8,Math.min(event.clientY || rect.bottom,window.innerHeight - 90))});
+        y:Math.max(8,Math.min(event.clientY || rect.bottom,window.innerHeight - 120))});
     } : undefined} onClick={() => selectFolder(id)}><span>{label}</span><small>{count}</small></button>;
   return <section className="notes-page" aria-labelledby="notes-title">
     <div className="notes-heading"><div><h1 id="notes-title">메모</h1><p>메모를 나누어 적고 폴더로 정리하세요.</p></div>
@@ -119,25 +149,31 @@ export function NotesWorkspace({ library, renderEditor }) {
     <div className="notes-workspace">
       <aside className="notes-folders" aria-label="메모 폴더 목록">
         <div className="notes-sidebar-heading"><h2>폴더</h2><button type="button" aria-label="새 폴더" title="새 폴더" disabled={busy || loading || !!error}
-          onClick={() => setFolderForm({id:null,name:''})}>＋</button></div>
+          onClick={() => setFolderForm({id:null,name:'',parentId:null})}>＋</button></div>
         {folderForm && <form className="notes-folder-form" onSubmit={saveFolder}>
+          {folderForm.parentId && <p>'{folders.find(item => item.id === folderForm.parentId)?.name}' 안에 만들기</p>}
           <input aria-label="폴더 이름" placeholder="폴더 이름" autoFocus maxLength={80} required value={folderForm.name}
             onChange={event => setFolderForm({...folderForm,name:event.target.value})} />
           <div><button type="submit" disabled={busy || !folderForm.name.trim()}>저장</button><button type="button" onClick={() => setFolderForm(null)}>취소</button></div>
         </form>}
         <div className="notes-folder-list">
           {folderButton(ALL_NOTES,'전체 메모',library.counts?.all ?? '…')}
-          {displayFolders.map(item => <div className={`notes-folder-entry${draggedId === item.id ? ' is-dragging' : ''}${dropTarget?.id === item.id ? dropTarget.after ? ' drop-after' : ' drop-before' : ''}`} key={item.id}
+          {shownRows.map(({folder:item,depth,hasChildren}) => { const open = !collapsedIds.has(item.id);
+            return <div className={`notes-folder-entry${draggedId === item.id ? ' is-dragging' : ''}${dropTarget?.id === item.id ? ` drop-${dropTarget.position}` : ''}`} key={item.id}
+            style={{'--indent':`${(depth-1)*14}px`}} data-depth={depth}
             onDragOver={event => {
               if (!draggedId || busy || draggedId === item.id) return;
+              const position = dropPosition(event);
+              if (!folderMove(displayFolders,draggedId,item.id,position)) { setDropTarget(null); return; }
               event.preventDefault();event.dataTransfer.dropEffect = 'move';
-              const rect = event.currentTarget.getBoundingClientRect();
-              const after = window.matchMedia('(max-width:900px)').matches ? event.clientX > rect.left + rect.width / 2 : event.clientY > rect.top + rect.height / 2;
-              setDropTarget(previous => previous?.id === item.id && previous.after === after ? previous : {id:item.id,after});
+              setDropTarget(previous => previous?.id === item.id && previous.position === position ? previous : {id:item.id,position});
             }} onDragLeave={event => {if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null);}}
             onDrop={event => dropFolder(event,item)}>
+            {hasChildren ? <button type="button" className="notes-folder-toggle" aria-expanded={open}
+              aria-label={`${item.name} 하위 폴더 ${open ? '접기' : '펼치기'}`} onClick={() => setFolderOpen(item.id,!open)}>{open ? '▾' : '▸'}</button>
+              : <span className="notes-folder-toggle" aria-hidden="true" />}
             {folderButton(item.id,item.name,library.counts?.[item.id] ?? '…',item)}
-          </div>)}
+          </div>; })}
         </div>
         <NotesHelp />
       </aside>
@@ -160,6 +196,9 @@ export function NotesWorkspace({ library, renderEditor }) {
     </div>
     {menu && createPortal(<div ref={menuRef} className="notes-folder-menu" role="menu" aria-label={`${menu.item.name} 폴더 관리`}
       style={{left:menu.x,top:menu.y}}>
+      <button type="button" role="menuitem" disabled={busy || folderDepth(menu.item.id) >= MAX_FOLDER_DEPTH}
+        title={folderDepth(menu.item.id) >= MAX_FOLDER_DEPTH ? `폴더는 ${MAX_FOLDER_DEPTH}단계까지 만들 수 있습니다.` : undefined}
+        onClick={() => {setFolderForm({id:null,name:'',parentId:menu.item.id});setMenu(null);}}>하위 폴더 만들기</button>
       <button type="button" role="menuitem" onClick={() => {setFolderForm({id:menu.item.id,name:menu.item.name});setMenu(null);}}>이름 변경</button>
       <button type="button" role="menuitem" disabled={busy} onClick={() => {const item = menu.item;setMenu(null);removeFolder(item);}}>폴더 삭제</button>
     </div>,document.body)}

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { visibleNotes, sortedNoteFolders, movedFolderIds } from '../src/features/notes/noteLibrary.mjs';
+import { visibleNotes, sortedNoteFolders, folderTree, folderMove, folderDescendantIds, foldersWithMove } from '../src/features/notes/noteLibrary.mjs';
 import { createNotepadStore } from '../src/features/notes/notepadStore.mjs';
 
 const strip = source => source.replace(/import[\s\S]*?from\s*['"][^'"]+['"];?/g,'').replace(/export\s+(?=(?:async )?(?:const|function))/g,'');
@@ -32,7 +32,7 @@ function serviceFixture() {
     updateDoc:async (ref,data) => updates.push({path:ref.path,data}),
   });
   vm.runInContext(strip(fs.readFileSync('src/features/notes/noteLibraryService.js','utf8')) +
-    '\nglobalThis.library = {initializeNoteLibrary,deleteNoteFolder,createNote,reorderNoteFolders,deleteNote,purgeArchivedNotes,prepareNoteLibrary,getNoteCounts};',context);
+    '\nglobalThis.library = {initializeNoteLibrary,deleteNoteFolder,createNote,reorderNoteFolders,moveNoteFolder,saveNoteFolder,deleteNote,purgeArchivedNotes,prepareNoteLibrary,getNoteCounts};',context);
   vm.runInContext(strip(fs.readFileSync('src/features/notes/notepadService.js','utf8')) +
     '\nglobalThis.saveBody = saveNotepad;',context);
   return {documents,updates,writes,deletions,reads,queries,library:context.library,saveBody:context.saveBody};
@@ -55,7 +55,7 @@ test('paginated startup reuses legacy metadata and checks archived records beyon
   assert.ok(f.documents.has('notepads/alice/notes/a'));assert.ok(f.documents.has('notepads/bob/notes/other'));
 });
 
-test('folder deletion moves notes beyond loaded pages and counts remain global without downloading bodies', async()=>{
+test('folder deletion removes notes beyond loaded pages and counts remain global without downloading bodies', async()=>{
   const f=serviceFixture();
   for(let index=0;index<45;index++) f.documents.set(`notepads/alice/notes/${index}`,{folderId:'study',archived:false,text:'원문'});
   f.documents.set('notepads/alice/notes/other',{folderId:null,archived:false});
@@ -63,10 +63,14 @@ test('folder deletion moves notes beyond loaded pages and counts remain global w
   f.documents.set('notepads/bob/notes/private',{folderId:'study',archived:false});
   const counts=await f.library.getNoteCounts('alice',['study']);
   assert.equal(counts.all,46);assert.equal(counts.study,45);
-  await f.library.deleteNoteFolder('alice','study');
-  assert.equal(f.updates.length,46);
-  assert.ok(f.updates.every(item=>item.path.startsWith('notepads/alice/notes/') && item.data.folderId === null));
-  assert.ok(f.updates.every(item=>!('text' in item.data)));
+  const removed=await f.library.deleteNoteFolder('alice',['study']);
+  assert.equal(removed.length,46);
+  assert.equal(f.deletions.length,47);
+  assert.ok(f.deletions.includes('notepads/alice/notes/trash'));
+  assert.ok(!f.deletions.includes('notepads/alice/notes/other'));
+  assert.ok(!f.deletions.some(item=>item.startsWith('notepads/bob/')));
+  assert.equal(f.deletions.at(-1),'notepads/alice/folders/study');
+  assert.deepEqual(f.updates,[]);
 });
 
 test('saving note text reuses counts; changed membership, explicit retry and a different account refresh them', async()=>{
@@ -131,12 +135,46 @@ test('deleting the legacy note erases its body and prevents stale drafts or save
 test('folder order retains legacy alphabetical order, supports dropping on either side, and appends unranked folders', () => {
   const folders = [{id:'b',name:'나'},{id:'a',name:'가'},{id:'c',name:'다'}];
   assert.deepEqual(sortedNoteFolders(folders).map(item => item.id),['a','b','c']);
-  const next = movedFolderIds(sortedNoteFolders(folders),'c','a',false);
-  assert.deepEqual(next,['c','a','b']);
-  const ranked = folders.map(item => ({...item,sortOrder:next.indexOf(item.id)}));
+  const move = folderMove(folders,'c','a','before');
+  assert.deepEqual({...move,ids:[...move.ids]},{id:'c',parentId:null,ids:['c','a','b']});
+  const ranked = foldersWithMove(folders,move);
   assert.deepEqual(sortedNoteFolders([...ranked,{id:'new',name:'새 폴더'}]).map(item => item.id),['c','a','b','new']);
-  assert.deepEqual(movedFolderIds(sortedNoteFolders(ranked),'c','b',true),['a','b','c']);
-  assert.deepEqual(movedFolderIds(ranked,'missing','a',false),folders.map(item => item.id));
+  assert.deepEqual([...folderMove(ranked,'c','b','after').ids],['a','b','c']);
+  assert.equal(folderMove(ranked,'missing','a','before'),null);
+  assert.equal(folderMove(ranked,'c','a','before'),null,'A drop that changes nothing is not saved');
+});
+
+test('folders nest up to three levels and old folders without parentId stay top-level', () => {
+  const folders = [
+    {id:'major',name:'전공',sortOrder:0},{id:'math',name:'수학',parentId:'major',sortOrder:0},
+    {id:'calc',name:'미적분',parentId:'math',sortOrder:0},{id:'old',name:'예전 폴더'},
+    {id:'orphan',name:'고아',parentId:'removed'},{id:'eng',name:'영어',parentId:'major',sortOrder:1},
+  ];
+  assert.deepEqual(folderTree(folders).map(row => [row.folder.id,row.depth]),
+    [['major',1],['math',2],['calc',3],['eng',2],['orphan',1],['old',1]]);
+  assert.deepEqual(folderDescendantIds(folders,'major'),['math','calc','eng']);
+  assert.deepEqual(folderDescendantIds(folders,'calc'),[]);
+  // Into a folder: appended to its children.
+  assert.deepEqual({...folderMove(folders,'old','eng','inside'),ids:[...folderMove(folders,'old','eng','inside').ids]},{id:'old',parentId:'eng',ids:['old']});
+  assert.deepEqual([...folderMove(folders,'old','major','inside').ids],['math','eng','old']);
+  // Reordering beside a nested folder moves into that folder's parent.
+  assert.equal(folderMove(folders,'old','calc','before').parentId,'math');
+  // A fourth level is refused, both for the folder itself and for a subtree carried along.
+  assert.equal(folderMove(folders,'old','calc','inside'),null);
+  assert.equal(folderMove(folders,'math','eng','inside'),null);
+  assert.equal(folderMove(folders,'major','old','inside'),null);
+  // A folder cannot go inside itself or its own descendants.
+  assert.equal(folderMove(folders,'major','major','inside'),null);
+  assert.equal(folderMove(folders,'major','math','inside'),null);
+  assert.equal(folderMove(folders,'major','calc','after'),null);
+  // Moving a nested folder out to the top level.
+  assert.equal(folderMove(folders,'calc','old','after').parentId,null);
+});
+
+test('a corrupted parent cycle still shows every folder exactly once', () => {
+  const rows = folderTree([{id:'a',name:'가',parentId:'b'},{id:'b',name:'나',parentId:'a'},{id:'c',name:'다',parentId:'c'}]);
+  assert.deepEqual(rows.map(row => row.folder.id).sort(),['a','b','c']);
+  assert.ok(rows.every(row => row.depth <= 2));
 });
 
 test('folder reordering persists only owner folder metadata and rejects duplicate or malformed ids', async () => {
@@ -146,6 +184,14 @@ test('folder reordering persists only owner folder metadata and rejects duplicat
   for (const item of f.updates) assert.deepEqual(Object.keys(item.data).sort(),['sortOrder','updatedAt']);
   await assert.rejects(f.library.reorderNoteFolders('alice',['a','a']));
   await assert.rejects(f.library.reorderNoteFolders('alice',['../bob']));
+  f.updates.length = 0;
+  await f.library.moveNoteFolder('alice',{id:'a',parentId:'major',ids:['x','a']});
+  assert.deepEqual(f.updates.map(item => [item.path,item.data.sortOrder,item.data.parentId]),
+    [['notepads/alice/folders/x',0,undefined],['notepads/alice/folders/a',1,'major']]);
+  await assert.rejects(f.library.moveNoteFolder('alice',{id:'a',parentId:'../bob',ids:['a']}));
+  await assert.rejects(f.library.moveNoteFolder('alice',{id:'a',parentId:null,ids:['b']}));
+  await f.library.saveNoteFolder('alice',null,'하위','major');
+  assert.equal(f.writes.at(-1).data.parentId,'major');
 });
 
 test('legacy migration adds only one library entry and preserves both old cloud text and metadata', async () => {
@@ -166,19 +212,21 @@ test('legacy migration adds only one library entry and preserves both old cloud 
   assert.equal(fresh.writes[0].path,'notepads/bob/notes/legacy');
 });
 
-test('deleting a folder moves active and trashed notes without touching their bodies or revisions', async () => {
+test('deleting a folder removes its subfolders and their notes, and marks the legacy note deleted', async () => {
   const f = serviceFixture();
-  await f.library.deleteNoteFolder('alice','study',[
-    {id:'a',folderId:'study',text:'원문',revision:4},
-    {id:'b',folderId:'study',archived:true,text:'보관 원문',revision:6},
-    {id:'c',folderId:'other'},
-  ]);
-  assert.deepEqual(f.updates.map(item => item.path),['notepads/alice/notes/a','notepads/alice/notes/b']);
-  for (const item of f.updates) {
-    assert.equal(item.data.folderId,null);
-    assert.deepEqual(Object.keys(item.data).sort(),['folderId','updatedAt']);
-  }
-  assert.deepEqual(f.deletions,['notepads/alice/folders/study']);
+  f.documents.set('notepads/alice',{uid:'alice',text:'이전 원문',revision:2});
+  f.documents.set('notepads/alice/notes/legacy',{folderId:'child',archived:false});
+  f.documents.set('notepads/alice/notes/a',{folderId:'study',text:'원문',archived:false});
+  f.documents.set('notepads/alice/notes/b',{folderId:'child',archived:true,text:'보관 원문'});
+  f.documents.set('notepads/alice/notes/c',{folderId:'other',archived:false});
+  const removed = await f.library.deleteNoteFolder('alice',['study','child']);
+  assert.deepEqual([...removed].sort(),['a','b','legacy']);
+  assert.ok(!f.deletions.includes('notepads/alice/notes/c'));
+  assert.deepEqual(f.deletions.slice(-2),['notepads/alice/folders/child','notepads/alice/folders/study']);
+  assert.equal(f.documents.get('notepads/alice').deleted,true);
+  assert.equal(f.documents.get('notepads/alice').text,'');
+  await assert.rejects(f.library.deleteNoteFolder('alice',[]));
+  await assert.rejects(f.library.deleteNoteFolder('alice',['../bob']));
 });
 
 test('body saves preserve title and folder metadata, and keep legacy writes on the original path', async () => {

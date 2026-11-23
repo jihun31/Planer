@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useCollection } from '../../lib/useCollection';
-import { createNote, deleteNote, deleteNoteFolder, getNoteCounts, moveNote, prepareNoteLibrary, renameNote, reorderNoteFolders, saveNoteFolder,
+import { createNote, deleteNote, deleteNoteFolder, getNoteCounts, moveNote, moveNoteFolder, prepareNoteLibrary, renameNote, saveNoteFolder,
   subscribeNoteFolders, subscribeNotes } from './noteLibraryService';
 import { sortedNoteFolders } from './noteLibrary.mjs';
 import { noteDraftKey } from './notepadStore.mjs';
@@ -45,7 +45,7 @@ export function useNoteLibrary(uid) {
     }).catch(error => { if (active) setInitialization({ready:true,error}); });
     return () => { active = false;controller.abort(); };
   },[uid,listeners]);
-  return {notes,pageNotes,folders:sortedNoteFolders(folders),setView,loadMore,
+  return {uid,notes,pageNotes,folders:sortedNoteFolders(folders),setView,loadMore,
     counts:countState?.uid === uid ? countState.counts : {},
     pageFolder:page.folder,searchAll:page.all,hasMore:page.hasMore,loadingMore:page.loadingMore,
     loading:!notesReady || !page.ready || !foldersReady || !initialization.ready,
@@ -56,7 +56,8 @@ export function useNoteLibrary(uid) {
     },
     create:folderId => createNote(uid,folderId),rename:(id,title) => renameNote(uid,id,title),
     move:(id,folderId) => moveNote(uid,id,folderId),remove:async id => {await deleteNote(uid,id);clearDraft(uid,id);},
-    saveFolder:(id,name) => saveNoteFolder(uid,id,name),deleteFolder:id => deleteNoteFolder(uid,id),
-    reorderFolders:ids => reorderNoteFolders(uid,ids),
+    saveFolder:(id,name,parentId) => saveNoteFolder(uid,id,name,parentId),
+    deleteFolder:async ids => {(await deleteNoteFolder(uid,ids)).forEach(id => clearDraft(uid,id));},
+    moveFolder:move => moveNoteFolder(uid,move),
   };
 }

@@ -256,6 +256,14 @@ test('note folders are owner-scoped and allow rename and deletion without broade
   await assertFails(setDoc(doc(bob,'notepads','alice','folders','forged'),{...data,uid:'bob'}));
   await assertFails(updateDoc(ref,{name:'x'.repeat(81),updatedAt:serverTimestamp()}));
   await assertFails(updateDoc(ref,{extra:true,updatedAt:serverTimestamp()}));
+  await assertSucceeds(setDoc(doc(alice,'notepads','alice','folders','major'),{...data,name:'전공',parentId:null}));
+  await assertSucceeds(updateDoc(ref,{parentId:'major',sortOrder:0,updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(ref,{parentId:null,updatedAt:serverTimestamp()}));
+  await assertSucceeds(setDoc(doc(alice,'notepads','alice','folders','child'),{...data,name:'하위',parentId:'study'}));
+  await assertFails(updateDoc(ref,{parentId:'study',updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{parentId:'',updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{parentId:3,updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(ref,{parentId:'x'.repeat(129),updatedAt:serverTimestamp()}));
   await assertFails(deleteDoc(doc(bob,'notepads','alice','folders','study')));
   await assertSucceeds(deleteDoc(ref));
 });

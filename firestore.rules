@@ -360,10 +360,13 @@ service cloud.firestore {
       }
       match /folders/{folderId} {
         function validFolder() {
-          return request.resource.data.keys().hasOnly(['uid', 'name', 'sortOrder', 'createdAt', 'updatedAt'])
+          return request.resource.data.keys().hasOnly(['uid', 'name', 'sortOrder', 'parentId', 'createdAt', 'updatedAt'])
             && request.resource.data.uid == request.auth.uid
             && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80
             && (!('sortOrder' in request.resource.data) || (request.resource.data.sortOrder is int && request.resource.data.sortOrder >= 0))
+            && (!('parentId' in request.resource.data) || request.resource.data.parentId == null
+              || (request.resource.data.parentId is string && request.resource.data.parentId.size() > 0
+                && request.resource.data.parentId.size() <= 128 && request.resource.data.parentId != folderId))
             && request.resource.data.createdAt is timestamp && request.resource.data.updatedAt == request.time;
         }
         allow read, delete: if signedIn() && userId == request.auth.uid;
