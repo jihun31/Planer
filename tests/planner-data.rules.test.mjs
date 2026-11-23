@@ -167,6 +167,9 @@ test('habits validate settings on create/edit and each daily log or weekly score
   await assertSucceeds(setDoc(doc(alice, 'habits', 'h3'), { ...habit, schedule: { type: 'daily' }, emoji: '' }));
   await assertSucceeds(setDoc(doc(alice, 'habits', 'h4'), { ...habit, schedule: { type: 'monthly', count: 10 } }));
   await assertSucceeds(setDoc(doc(alice, 'habits', 'h5'), { ...habit, schedule: { type: 'monthdays', days: [1, 15, 31] } }));
+  // 하루 계획 칸: 없거나 '' 또는 오전·오후·저녁
+  await assertSucceeds(setDoc(doc(alice, 'habits', 'h6'), { ...habit, planSlot: '오전' }));
+  await assertSucceeds(setDoc(doc(alice, 'habits', 'h7'), { ...habit, planSlot: '' }));
   const invalid = [
     { schedule: { type: 'monthly', count: 0 } }, { schedule: { type: 'monthly', count: 32 } }, { schedule: { type: 'monthly', count: 3, days: [1] } },
     { schedule: { type: 'monthdays', days: [] } }, { schedule: { type: 'monthdays', days: [0] } }, { schedule: { type: 'monthdays', days: [32] } },
@@ -177,6 +180,7 @@ test('habits validate settings on create/edit and each daily log or weekly score
     { schedule: { type: 'daily', count: 3 } }, { target: { type: 'count', value: 1, unit: '회' } }, { target: { type: 'count', value: 5, unit: '1234567' } },
     { target: { type: 'check', value: 3 } }, { startDate: 'today' }, { logs: { '2026-11-16': 'full' } }, { archived: true },
     { order: 'first' }, { automaticity: {} }, { extra: 1 },
+    { planSlot: '새벽' }, { planSlot: 1 }, { planSlot: null },
   ];
   for (const bad of invalid) await assertFails(setDoc(doc(alice, 'habits', 'bad'), { ...habit, ...bad }));
 
@@ -186,6 +190,9 @@ test('habits validate settings on create/edit and each daily log or weekly score
   await assertFails(updateDoc(doc(alice, 'habits', 'h1'), { schedule: { type: 'weekly', count: 0 }, updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(alice, 'habits', 'h1'), { name: '이름', updatedAt: Timestamp.fromMillis(1) }));
   await assertFails(updateDoc(doc(alice, 'habits', 'h1'), { order: 5 }));
+  await assertSucceeds(updateDoc(doc(alice, 'habits', 'h1'), { ...value, planSlot: '저녁', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(alice, 'habits', 'h1'), { planSlot: '', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(alice, 'habits', 'h1'), { planSlot: '밤', updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(alice, 'habits', 'h1'), { createdAt: serverTimestamp() }));
 
   // 하루 기록: 앱처럼 logs.<날짜> 한 칸씩

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { todayStr } from "../../features/habits/habitService";
 import { isCalendarDate } from "../../features/calendar/calendarDates.mjs";
+import { isSkipped, planChecked, planHabits, planToggleValue } from "../../features/habits/habitCore.mjs";
 
 function shiftDate(dateStr, delta) {
   const d = new Date(dateStr);
@@ -23,9 +24,23 @@ function TaskRow({ task, onToggle, onDelete }) {
   );
 }
 
+/* 하루 계획에 고정한 습관: 체크하면 습관 기록(logs)에 바로 남아 습관 탭과 통계에도 같이 보인다. */
+function HabitRow({ habit, date, onToggle, pending }) {
+  const done = planChecked(habit, date);
+  const skipped = isSkipped(habit, date);
+  return (
+    <li className={`today-task-item today-habit-item ${done ? 'today-task-done' : ''}`}>
+      <input type="checkbox" className="today-checkbox" aria-label={`${habit.name} 완료`}
+        checked={done} disabled={skipped || pending} onChange={() => onToggle(habit)} />
+      <span className="today-task-title">{habit.emoji ? `${habit.emoji} ` : ''}{habit.name}</span>
+      <span className="today-habit-tag">{skipped ? '쉬는 날' : '습관'}</span>
+    </li>
+  );
+}
+
 /* 시간대 한 칸: 항목이 없어도 항상 보여서 빈 시간대를 바로 알 수 있다.
    평소엔 '+ 추가' 글자만 보이고, 누르면 입력칸이 열린다. Enter 뒤에도 열려 있어 연달아 적을 수 있다. */
-function SlotLane({ slot, items, date, onAdd, onToggle, onDelete }) {
+function SlotLane({ slot, items, habits = [], date, onAdd, onToggle, onDelete, onToggleHabit, pendingHabit }) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,9 +61,10 @@ function SlotLane({ slot, items, date, onAdd, onToggle, onDelete }) {
   return (
     <section className={`today-lane ${cls}`} aria-label={`${slot} 할 일`}>
       <h3 className="today-lane-label"><span aria-hidden="true">{icon}</span>{slot}
-        {items.length > 0 && <span className="today-lane-count">{items.length}</span>}</h3>
-      {items.length > 0 && (
+        {items.length + habits.length > 0 && <span className="today-lane-count">{items.length + habits.length}</span>}</h3>
+      {items.length + habits.length > 0 && (
         <ul className="today-task-list">
+          {habits.map(h => <HabitRow key={`habit-${h.id}`} habit={h} date={date} onToggle={onToggleHabit} pending={pendingHabit === h.id} />)}
           {items.map(t => <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} />)}
         </ul>
       )}
@@ -67,10 +83,25 @@ function SlotLane({ slot, items, date, onAdd, onToggle, onDelete }) {
 }
 
 /* ── 하루 계획: 날짜 헤더 + 오전/오후/저녁 ── */
-function TodayMain({ tasks, selectedDate, onAdd, onToggle, onDelete, onDateChange }) {
+function TodayMain({ tasks, habits = [], selectedDate, onAdd, onToggle, onDelete, onDateChange, onSetHabitLog }) {
   const dateTasks = useMemo(() => tasks.filter(t => t.dueDate === selectedDate), [tasks, selectedDate]);
-  const done  = dateTasks.filter(t => t.completed).length;
-  const total = dateTasks.length;
+  const slotHabits = useMemo(() => Object.fromEntries(TIME_SLOTS.map(slot => [slot, planHabits(habits, selectedDate, slot)])),
+    [habits, selectedDate]);
+  // 쉬는 날로 기록한 습관은 진행률에서 뺀다
+  const countedHabits = TIME_SLOTS.flatMap(slot => slotHabits[slot]).filter(h => !isSkipped(h, selectedDate));
+  const done  = dateTasks.filter(t => t.completed).length + countedHabits.filter(h => planChecked(h, selectedDate)).length;
+  const total = dateTasks.length + countedHabits.length;
+
+  const [pendingHabit, setPendingHabit] = useState(null);
+  const [habitFailure, setHabitFailure] = useState('');
+  const toggleHabit = async (habit) => {
+    if (!onSetHabitLog || pendingHabit) return;
+    setPendingHabit(habit.id);
+    setHabitFailure('');
+    try { await onSetHabitLog(habit.id, selectedDate, planToggleValue(habit, selectedDate)); }
+    catch { setHabitFailure('습관 기록을 저장하지 못했어요. 연결 상태를 확인해 주세요.'); }
+    finally { setPendingHabit(null); }
+  };
 
   const grouped = useMemo(() => {
     const g = { '오전': [], '오후': [], '저녁': [], '기타': [] };
@@ -121,10 +152,11 @@ function TodayMain({ tasks, selectedDate, onAdd, onToggle, onDelete, onDateChang
 
       <div className="today-lanes">
         {TIME_SLOTS.map(slot => (
-          <SlotLane key={`${selectedDate}-${slot}`} slot={slot} items={grouped[slot]} date={selectedDate}
-            onAdd={onAdd} onToggle={onToggle} onDelete={onDelete} />
+          <SlotLane key={`${selectedDate}-${slot}`} slot={slot} items={grouped[slot]} habits={slotHabits[slot]} date={selectedDate}
+            onAdd={onAdd} onToggle={onToggle} onDelete={onDelete} onToggleHabit={toggleHabit} pendingHabit={pendingHabit} />
         ))}
       </div>
+      {habitFailure && <p role="alert" className="habit-error">{habitFailure}</p>}
 
       {grouped['기타'].length > 0 && (
         <section className="today-lane-extra" aria-label="시간대 없는 할 일">

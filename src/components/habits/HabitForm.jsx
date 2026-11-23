@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import EmojiPicker from './EmojiPicker';
-import { COUNT_MAX, MONTH_DAY_MAX, NAME_MAX, TEXT_MAX, UNIT_MAX, WEEKDAY_LABELS, WEEK_ORDER, normalizeHabit, startSuggestions }
+import { COUNT_MAX, MONTH_DAY_MAX, NAME_MAX, PLAN_SLOTS, TEXT_MAX, UNIT_MAX, WEEKDAY_LABELS, WEEK_ORDER, normalizeHabit, startSuggestions }
   from '../../features/habits/habitCore.mjs';
 
 // 주기 버튼 순서: 고정 일정(매일·요일·날짜) → 유연한 일정(주·월 N회)
@@ -23,6 +23,7 @@ export default function HabitForm({ habit, today, onSave, onArchive, onClose }) 
     targetValue: habit?.target?.value ?? 8,
     unit: habit?.target?.unit ?? '',
     startDate: habit?.startDate ?? today,
+    planSlot: habit?.planSlot ?? '',
   }));
   const counting = form.targetType === 'count';
   const [busy, setBusy] = useState(false);
@@ -73,6 +74,18 @@ export default function HabitForm({ habit, today, onSave, onArchive, onClose }) 
           <input className="today-add-input" value={form.anchor} maxLength={TEXT_MAX} placeholder="예: 아침에 커피를 마신 뒤"
             aria-label="언제 할지" onChange={e => set('anchor', e.target.value)} />
         </label>
+
+        <fieldset className="habit-field">
+          <label className="habit-plan-toggle">
+            <input type="checkbox" checked={Boolean(form.planSlot)}
+              onChange={e => set('planSlot', e.target.checked ? PLAN_SLOTS[0] : '')} />
+            하루 계획에 고정 <em>할 날마다 하루 계획의 정한 칸에 자동으로 들어가요</em>
+          </label>
+          {form.planSlot && <div className="habit-choice-row" role="group" aria-label="하루 계획 칸">
+            {PLAN_SLOTS.map(slot => <button key={slot} type="button" className={`habit-chip ${form.planSlot === slot ? 'on' : ''}`}
+              aria-pressed={form.planSlot === slot} onClick={() => set('planSlot', slot)}>{slot}</button>)}
+          </div>}
+        </fieldset>
 
         <fieldset className="habit-field">
           <legend>목표</legend>

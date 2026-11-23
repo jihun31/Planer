@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import HabitsTab from '../../src/components/tabs/HabitsTab.jsx';
 import TodayHabitsBlock from '../../src/components/today/TodayHabitsBlock.jsx';
+import TodayMain from '../../src/components/today/TodayMain.jsx';
 import { orderHabits } from '../../src/features/habits/habitCore.mjs';
 import '../../src/styles/app.css';
 import '../../src/styles/tasks.css';
@@ -31,6 +32,8 @@ function Preview(){
   return <main style={{display:'grid',gridTemplateColumns:'320px 1fr',gap:16,padding:16,alignItems:'start'}}>
     <section id="today"><TodayHabitsBlock habitsData={habitsData} onOpen={()=>{globalThis.opened=true;}}/></section>
     <section id="tab"><HabitsTab uid="tester" habitsData={habitsData}/></section>
+    <section id="plan"><TodayMain tasks={[]} habits={habitsData.habits} onSetHabitLog={habitsData.setLog} selectedDate={TODAY}
+      onAdd={async()=>{}} onToggle={()=>{}} onDelete={()=>{}} onDateChange={()=>{}}/></section>
   </main>;
 }
 createRoot(document.getElementById('root')).render(<Preview/>);

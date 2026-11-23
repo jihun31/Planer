@@ -143,6 +143,7 @@
 .habit-field { display: flex; flex-direction: column; gap: 6px; border: 0; font-size: 0.84rem; font-weight: 600; }
 .habit-field legend { margin-bottom: 6px; }
 .habit-field em, .habit-inline em { font-style: normal; font-weight: 400; color: var(--text-light); font-size: 0.75rem; margin-left: 4px; }
+.habit-plan-toggle { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; cursor: pointer; }
 .habit-name-row { display: flex; gap: 6px; }
 .habit-emoji-input { width: 56px; flex: 0 0 56px; text-align: center; }
 .habit-preview { font-size: 0.84rem; background: var(--bg); border-radius: var(--radius-sm); padding: 8px 12px; overflow-wrap: anywhere; }

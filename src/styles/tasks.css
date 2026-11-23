@@ -1204,3 +1204,13 @@
 .act-color-name{font-size:.8rem;font-weight:700}
 .act-color-hint{font-size:.78rem;color:var(--text-muted)}
 
+
+/* 하루 계획에 고정한 습관 줄 */
+.today-habit-tag {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--text-light);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+}

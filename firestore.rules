@@ -177,7 +177,7 @@ service cloud.firestore {
     // 습관. 기록은 logs 맵({ 'YYYY-MM-DD': 'full' | 'tiny' | 'skip' | 1~999 }), 자동화 점수는 automaticity 맵({ 월요일: 1~5 })
     function habitFields() {
       return ['uid', 'name', 'emoji', 'anchor', 'tinyVersion', 'schedule', 'target', 'startDate',
-        'logs', 'automaticity', 'archived', 'order', 'createdAt', 'updatedAt'];
+        'logs', 'automaticity', 'archived', 'order', 'createdAt', 'updatedAt', 'planSlot'];
     }
     function validSchedule(s) {
       return s is map && (
@@ -221,6 +221,8 @@ service cloud.firestore {
         || (field == 'target' && validTarget(d.target))
         || (field == 'startDate' && isDate(d.startDate))
         || (field == 'archived' && d.archived is bool)
+        // 하루 계획에 고정할 칸. ''이면 고정하지 않음(예전 문서에는 없다)
+        || (field == 'planSlot' && (!('planSlot' in d) || d.planSlot in ['', '오전', '오후', '저녁']))
         || (field == 'updatedAt' && d.updatedAt == request.time)
         || (field == 'automaticity' && dateKeyed(d.automaticity, 600) && d.automaticity.values().hasOnly([1, 2, 3, 4, 5]));
     }
@@ -239,13 +241,14 @@ service cloud.firestore {
         && validHabitField('schedule', request.resource.data)
         && validHabitField('target', request.resource.data)
         && validHabitField('startDate', request.resource.data)
+        && validHabitField('planSlot', request.resource.data)
         && request.resource.data.logs is map && request.resource.data.logs.size() == 0
         && request.resource.data.archived == false
         && request.resource.data.order is int
         && createdNow();
       allow update: if updatesOwn(['name', 'emoji', 'anchor', 'tinyVersion', 'schedule', 'target', 'startDate',
-          'archived', 'updatedAt', 'logs', 'automaticity'])
-        && editedOk('name') && editedOk('emoji') && editedOk('anchor') && editedOk('tinyVersion')
+          'archived', 'updatedAt', 'logs', 'automaticity', 'planSlot'])
+        && editedOk('planSlot') && editedOk('name') && editedOk('emoji') && editedOk('anchor') && editedOk('tinyVersion')
         && editedOk('schedule') && editedOk('target') && editedOk('startDate')
         && editedOk('archived') && editedOk('updatedAt') && editedOk('automaticity')
         && (!changed('logs') || validLogChange(resource.data.get('logs', {}), request.resource.data.logs));

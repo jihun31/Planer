@@ -22,6 +22,8 @@ export const MONTH_DAY_MAX = 31;
 export const TARGET_TYPES = ['check', 'count'];
 export const LOG_VALUES = ['full', 'tiny', 'skip'];
 export const DONE_STATES = ['full', 'tiny'];
+// 하루 계획에 고정할 수 있는 칸. 빈 문자열이면 고정하지 않는다.
+export const PLAN_SLOTS = ['오전', '오후', '저녁'];
 export const NAME_MAX = 40;
 export const TEXT_MAX = 80;
 export const UNIT_MAX = 6;
@@ -334,6 +336,18 @@ export function dueToday(habits, today) {
   });
 }
 
+// 하루 계획의 그 칸에 들어갈 습관: 칸을 고정했고 그날 습관 목록에 보이는 것(쉬는 요일은 빠진다).
+export const planHabits = (habits, day, slot) =>
+  dueToday(habits, day).filter(habit => habit.planSlot === slot);
+
+// 하루 계획 체크박스가 켜졌는지: 완료나 최소 버전이면 켜진다. 횟수 습관은 목표를 다 채워야 켜진다(덜 채웠으면 누를 때 채운다).
+export const planChecked = (habit, day) =>
+  (isCountHabit(habit) ? statusOf(habit, day) === 'full' : isDone(habit, day));
+
+// 하루 계획 체크박스를 눌렀을 때 저장할 값: 켜져 있으면 기록을 지우고, 아니면 완료로 둔다. 횟수 습관의 완료는 목표 횟수.
+export const planToggleValue = (habit, day) =>
+  (planChecked(habit, day) ? null : isCountHabit(habit) ? countTarget(habit) : 'full');
+
 export const totalDone = habit => Object.keys(habit?.logs ?? {})
   .filter(day => day >= habit.startDate && isDone(habit, day)).length;
 
@@ -387,6 +401,7 @@ export function normalizeHabit(input) {
   let tinyVersion = String(input?.tinyVersion ?? '').trim();
   const type = input?.schedule?.type;
   const targetType = input?.target?.type ?? 'check';
+  const planSlot = input?.planSlot ?? '';
   if (!name) return { error: '습관 이름을 입력해 주세요.' };
   if (name.length > NAME_MAX) return { error: `이름은 ${NAME_MAX}자 이하로 입력해 주세요.` };
   if ([...emoji].length > 4) return { error: '이모지는 하나만 넣어 주세요.' };
@@ -394,6 +409,7 @@ export function normalizeHabit(input) {
   if (!SCHEDULE_TYPES.includes(type)) return { error: '주기를 골라 주세요.' };
   if (!TARGET_TYPES.includes(targetType)) return { error: '목표 방식을 골라 주세요.' };
   if (!isDay(input?.startDate)) return { error: '시작일을 골라 주세요.' };
+  if (planSlot && !PLAN_SLOTS.includes(planSlot)) return { error: '하루 계획 칸을 골라 주세요.' };
   let schedule;
   if (type === 'weekly') {
     const count = Number(input.schedule.count);
@@ -421,7 +437,7 @@ export function normalizeHabit(input) {
     target = { type: 'count', value, unit };
     tinyVersion = ''; // 횟수 습관은 한 번이라도 하면 최소로 친다
   }
-  return { value: { name, emoji, anchor, tinyVersion, schedule, target, startDate: input.startDate } };
+  return { value: { name, emoji, anchor, tinyVersion, schedule, target, startDate: input.startDate, planSlot } };
 }
 
 // ===== 자동화 자가 체크 =====

@@ -317,13 +317,45 @@ if(!process.versions.electron){
         assert(lastWrite()===JSON.stringify(['order',['h3','water','h2','gallery']]),'바꾼 순서 전체를 저장해야 합니다.');
       `);
 
+      // 하루 계획에 고정: 켠 습관만 칸을 고르고, 하루 계획과 습관 탭 어느 쪽에서 체크해도 같은 기록을 쓴다
+      await step(`
+        const plan=document.querySelector('#plan');
+        const lane=slot=>plan.querySelector('[aria-label="'+slot+' 할 일"]');
+        const planBox=()=>lane('저녁').querySelector('[aria-label="물 마시기 완료"]');
+        assert(!plan.querySelector('.today-habit-item'),'고정하지 않은 습관은 하루 계획에 없어야 합니다.');
+        (await openRow('물 마시기')).querySelector('[aria-label="수정"]').click();
+        await wait(()=>document.querySelector('.habit-form'),'Edit form did not open');
+        const form=document.querySelector('.habit-form');
+        assert(!form.querySelector('[aria-label="하루 계획 칸"]'),'칸 설정은 고정을 켠 습관에만 보여야 합니다.');
+        form.querySelector('.habit-plan-toggle input').click();
+        await wait(()=>form.querySelector('[aria-label="하루 계획 칸"]'),'고정을 켜면 칸 버튼이 보여야 합니다.');
+        button(form,'저녁').click();
+        await wait(()=>button(form,'저녁').getAttribute('aria-pressed')==='true','저녁 칸이 선택되지 않았습니다.');
+        button(form,'저장').click();
+        await wait(()=>!document.querySelector('.habit-form')&&planBox(),'저장한 칸(저녁)에 습관이 들어가야 합니다.');
+        assert(writes.at(-1)[0]==='update'&&writes.at(-1)[2].planSlot==='저녁','칸을 저장해야 합니다: '+lastWrite());
+        assert(!lane('오전').querySelector('.today-habit-item'),'다른 칸에는 없어야 합니다.');
+        assert(!planBox().checked,'아직 안 한 습관은 체크되지 않아야 합니다.');
+        planBox().click();
+        await wait(()=>planBox().checked&&today().querySelector('.habit-check.full'),'하루 계획에서 체크하면 오늘의 습관도 완료여야 합니다.');
+        assert(lastWrite()===JSON.stringify(['log','water','2026-11-20','full']),'습관 기록으로 저장해야 합니다: '+lastWrite());
+        assert(cells('물 마시기')[4]==='full','습관 탭의 오늘 칸도 완료여야 합니다.');
+        card('물 마시기').querySelector('[aria-label="물 마시기 기록 취소"]').click();
+        await wait(()=>!planBox().checked,'습관 탭에서 취소하면 하루 계획에서도 풀려야 합니다.');
+        card('물 마시기').querySelector('[aria-label="물 마시기 완료"]').click();
+        await wait(()=>planBox().checked,'습관 탭에서 체크하면 하루 계획에도 완료로 보여야 합니다.');
+        planBox().click();
+        await wait(()=>!planBox().checked&&cells('물 마시기')[4]==='open','하루 계획에서 다시 누르면 기록을 지워야 합니다.');
+        assert(lastWrite()===JSON.stringify(['log','water','2026-11-20',null]),'기록 삭제를 저장해야 합니다: '+lastWrite());
+      `);
+
       if(process.env.PLANER_HABITS_SHOT){
         // 화면 확인용 캡처: 숨긴 창은 예전 화면이 찍혀서 잠깐 띄운다(포커스는 가져가지 않음)
         await win.webContents.executeJavaScript(`document.querySelector('#tab .habit-row:nth-child(2) .habit-row-toggle').click()`);
         win.showInactive();await new Promise(resolve=>setTimeout(resolve,800));
         fs.writeFileSync(process.env.PLANER_HABITS_SHOT,(await win.webContents.capturePage()).toPNG());
       }
-      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,rowLayout:true,selfCheck:true,habitOrder:true}));app.exit(0);
+      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,rowLayout:true,selfCheck:true,habitOrder:true,planSlot:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

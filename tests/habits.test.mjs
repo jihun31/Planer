@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   completion, countLabel, countOf, historyWeeks, isValidLog, nextCellValue, statusOf, stepCount, weekReview,
-  addDays, dayKey, dueToday, isDay, isDue, normalizeHabit, scheduleLabel, startSuggestions,
+  addDays, dayKey, dueToday, planHabits, planToggleValue, isDay, isDue, normalizeHabit, scheduleLabel, startSuggestions,
   streakOf, totalDone, weekCells, weekDoneCount, weekStart, weeklyTarget,
 } from '../src/features/habits/habitCore.mjs';
 
@@ -135,7 +135,9 @@ test("today's list shows what is due, unfinished weekly targets, and what is alr
 test('normalizeHabit trims input, checks every field and keeps only known schedule fields', () => {
   const base = { name: ' 운동 ', emoji: '🏃', anchor: ' 아침 커피를 마시고 ', tinyVersion: '운동복 입기', startDate: '2026-11-23' };
   assert.deepEqual(normalizeHabit({ ...base, schedule: { type: 'weekly', count: '3', days: [1] } }).value,
-    { name: '운동', emoji: '🏃', anchor: '아침 커피를 마시고', tinyVersion: '운동복 입기', schedule: { type: 'weekly', count: 3 }, target: { type: 'check' }, startDate: '2026-11-23' });
+    { name: '운동', emoji: '🏃', anchor: '아침 커피를 마시고', tinyVersion: '운동복 입기', schedule: { type: 'weekly', count: 3 }, target: { type: 'check' }, startDate: '2026-11-23', planSlot: '' });
+  assert.equal(normalizeHabit({ ...base, schedule: { type: 'daily' }, planSlot: '저녁' }).value.planSlot, '저녁');
+  assert.match(normalizeHabit({ ...base, schedule: { type: 'daily' }, planSlot: '새벽' }).error, /하루 계획/);
   const count = normalizeHabit({ ...base, schedule: { type: 'daily' }, target: { type: 'count', value: '8', unit: ' 잔 ' } }).value;
   assert.deepEqual(count.target, { type: 'count', value: 8, unit: '잔' });
   assert.equal(count.tinyVersion, ''); // 횟수 습관은 1회 이상이면 최소
@@ -373,4 +375,26 @@ test('monthly habits count completions per month, like weekly ones per week', as
   assert.match(normalizeHabit({ name: '독서', startDate: '2026-11-01', schedule: { type: 'monthly', count: 32 } }).error, /1~31/);
   assert.deepEqual(normalizeHabit({ name: '독서', startDate: '2026-11-01', schedule: { type: 'monthly', count: '10', days: [1] } }).value.schedule,
     { type: 'monthly', count: 10 });
+});
+
+test('habits pinned to a day plan slot appear on their due days and toggle between done and empty', () => {
+  const list = [
+    { ...habit({ type: 'daily' }), id: 'morning', planSlot: '오전' },
+    { ...habit({ type: 'weekdays', days: [1, 3, 5] }), id: 'mwf-evening', planSlot: '저녁' },
+    { ...habit({ type: 'daily' }), id: 'unpinned', planSlot: '' },
+    { ...habit({ type: 'daily' }), id: 'legacy' },
+    { ...habit({ type: 'daily' }), id: 'archived', planSlot: '오전', archived: true },
+  ];
+  assert.deepEqual(planHabits(list, '2026-11-20', '오전').map(h => h.id), ['morning']);
+  assert.deepEqual(planHabits(list, '2026-11-20', '저녁').map(h => h.id), ['mwf-evening']); // 금요일
+  assert.deepEqual(planHabits(list, '2026-11-21', '저녁').map(h => h.id), []); // 토요일은 쉬는 요일
+  assert.deepEqual(planHabits(list, '2026-11-20', '오후'), []);
+
+  const day = '2026-11-20';
+  assert.equal(planToggleValue(habit({ type: 'daily' }), day), 'full');
+  assert.equal(planToggleValue(habit({ type: 'daily' }, { [day]: 'full' }), day), null);
+  assert.equal(planToggleValue(habit({ type: 'daily' }, { [day]: 'tiny' }), day), null);
+  const count = { ...habit({ type: 'daily' }, { [day]: 2 }), target: { type: 'count', value: 8, unit: '잔' } };
+  assert.equal(planToggleValue(count, day), 8); // 덜 채운 횟수 습관은 목표까지 채운다
+  assert.equal(planToggleValue({ ...count, logs: { [day]: 8 } }, day), null);
 });

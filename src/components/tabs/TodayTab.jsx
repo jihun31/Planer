@@ -25,7 +25,7 @@ function TodayTab({ uid, tasks: tasksData, todos: todosData, goalsData, priority
         {/* 하루 계획: 날짜별 할 일과 계획표가 같은 날짜를 쓴다 */}
         <section className="today-plan-card" aria-label="하루 계획">
           <TodayMain
-            tasks={tasks} selectedDate={selectedDate}
+            tasks={tasks} habits={habitsData?.habits} onSetHabitLog={habitsData?.setLog} selectedDate={selectedDate}
             onAdd={addTask} onToggle={toggleTask} onDelete={deleteTask}
             onDateChange={setSelectedDate}
           />
