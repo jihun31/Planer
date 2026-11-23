@@ -1,4 +1,9 @@
 /* ===== 습관 ===== */
+:root {
+  --habit-streak: #c2410c; --habit-rest: #eef2f7; --habit-rest-line: #cbd5e1; --habit-tiny: #86efac; --habit-missed: #fecaca;
+  --habit-settled: #166534; --habit-down: #b45309; --habit-auto-line: #c7d2fe; --habit-auto-3: #60a5fa; --habit-auto-4: #34d399;
+  --habit-l1: #d1fae5; --habit-l2: #6ee7b7; --habit-l3: #34d399;
+}
 .habits-tab { display: flex; flex-direction: column; gap: 16px; }
 .habits-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .habits-hdr-actions { display: flex; align-items: center; gap: 8px; }
@@ -10,19 +15,7 @@
   display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
 .habits-empty strong { color: var(--text); }
-.habits-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; align-items: start; }
 
-.habit-card {
-  position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow-sm); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
-}
-/* 헤더 한 줄: 제목(줄어듦, 최대 두 줄) · 빈도 · 연속 기록 · 연필 버튼 */
-.habit-card-hdr { display: flex; align-items: center; gap: 8px; }
-.habit-card-hdr > :not(.habit-card-title) { flex-shrink: 0; }
-.habit-card-title { flex: 1 1 auto; font-size: 0.98rem; font-weight: 700; display: flex; align-items: center; gap: 6px; min-width: 0; line-height: 1.35; }
-.habit-card-name {
-  min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
 .habit-emoji { font-size: 1.1rem; line-height: 1.2; }
 .habit-edit-btn {
   flex-shrink: 0; width: 34px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
@@ -37,42 +30,60 @@
 .habit-order-list li + li { border-top: 1px solid var(--border); }
 .habit-order-list li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .habit-order-list .habit-edit-btn:disabled { opacity: 0.45; cursor: default; border-color: var(--border); color: var(--text); }
-.habit-badge {
-  font-size: 0.7rem; font-weight: 600; color: var(--primary-dark); background: var(--primary-light);
-  border-radius: 999px; padding: 2px 8px; white-space: nowrap;
-}
-.habit-streak { font-size: 0.75rem; font-weight: 700; color: #c2410c; white-space: nowrap; }
-/* 트리거 · 최소 버전 한 줄. 넘치면 말줄임(전체는 마우스를 올리면 보임) */
-.habit-info { display: flex; align-items: baseline; gap: 6px; min-height: 1.4em; font-size: 0.8rem; white-space: nowrap; overflow: hidden; }
-.habit-info > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.habit-anchor { color: var(--text); flex: 0 1 auto; }
-.habit-tiny { color: var(--text-muted); flex: 0 1000 auto; }
-.habit-anchor + .habit-tiny::before { content: '·'; margin-right: 6px; color: var(--text-light); }
+.habit-streak { font-size: 0.75rem; font-weight: 700; color: var(--habit-streak); white-space: nowrap; }
 
-.habit-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-.habit-cell {
-  display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 0;
-  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg);
-  color: var(--text-light); font: inherit; cursor: pointer; transition: transform 0.12s, border-color 0.12s;
+/* 습관 목록: 습관 하나가 한 줄. 동그라미 · 이름과 빈도·트리거 · 기록 점 7개 · 연속 기록 */
+.habits-list {
+  list-style: none; margin: 0; padding: 0; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm);
 }
-.habit-cell:not(:disabled):hover { border-color: var(--primary); }
-.habit-cell:disabled { cursor: default; }
-.habit-cell-day { font-size: 0.68rem; font-weight: 600; color: var(--text-muted); }
-.habit-cell-mark { font-size: 0.9rem; line-height: 1.2; min-height: 1.1em; }
-.habit-cell.full { background: var(--green); border-color: var(--green); color: #fff; }
-.habit-cell.full .habit-cell-day { color: #ecfdf5; }
-.habit-cell.tiny { background: var(--green-light); border-color: var(--green); color: var(--green); }
-.habit-cell.missed { color: var(--red); }
-.habit-cell.off, .habit-cell.before { background: transparent; border-style: dashed; }
-.habit-cell.month { cursor: default; }
-.habit-cell.month .habit-cell-mark { font-size: 0.72rem; font-weight: 600; }
-.habit-cell.month.missed .habit-cell-mark { color: var(--red); }
+.habit-row { position: relative; }
+.habit-row + .habit-row { border-top: 1px solid var(--border); }
+.habit-row-main { display: flex; align-items: center; gap: 10px; padding: 8px 14px; min-height: 52px; }
+.habit-row.open .habit-row-main { background: var(--primary-light); }
+.habit-row:first-child .habit-row-main { border-radius: var(--radius) var(--radius) 0 0; }
+.habit-row:last-child:not(.open) .habit-row-main { border-radius: 0 0 var(--radius) var(--radius); }
+.habit-check.waiting { cursor: default; border-style: dashed; }
+.habit-row-toggle {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 2px 4px; border: none; border-radius: 6px; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.habit-row-toggle:hover .habit-row-name { color: var(--primary-dark); }
+.habit-row-name {
+  max-width: 100%; font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.habit-row.full .habit-row-name, .habit-row.skip .habit-row-name { color: var(--text-muted); }
+.habit-row-name .habit-emoji { font-size: 1rem; }
+.habit-row-meta { max-width: 100%; font-size: 0.72rem; color: var(--text-light); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.habit-row-badges { flex: 0 0 108px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 
-.habit-card-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 32px; font-size: 0.76rem; color: var(--text-muted); }
+/* 기록 점: 누르는 자리는 22px, 보이는 점은 12px. 요일·상태는 마우스를 올리면 보인다 */
+.habit-row-dots { flex: none; display: flex; align-items: center; }
+.habit-day-dot {
+  width: 22px; height: 26px; padding: 0; border: none; background: none; display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.habit-day-dot:disabled, .habit-day-dot.month { cursor: default; }
+.habit-day-dot i { display: block; width: 12px; height: 12px; border-radius: 3px; background: var(--habit-rest); transition: transform 0.12s; }
+.habit-day-dot:not(:disabled):not(.month):hover i { transform: scale(1.25); }
+.habit-day-dot.full i { background: var(--green); }
+.habit-day-dot.tiny i { background: var(--habit-tiny); }
+.habit-day-dot.skip i { background: repeating-linear-gradient(45deg, var(--habit-rest-line) 0 2px, var(--habit-rest) 2px 4px); }
+.habit-day-dot.missed i { background: var(--habit-missed); }
+.habit-day-dot.open i, .habit-day-dot.empty i { background: var(--habit-rest); }
+.habit-day-dot.off i, .habit-day-dot.before i, .habit-day-dot.future i { background: transparent; box-shadow: 0 0 0 1px var(--habit-rest-line) inset; }
+.habit-day-dot.today i { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+/* 펼친 상세: 트리거·최소 버전·진행·누적 · 최소만·쉬기 · 수정, 아래에 그 습관의 26주 기록 */
+.habit-row-detail { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 12px; border-top: 1px dashed var(--border); }
+.habit-detail-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.habit-detail-facts { flex: 1 1 260px; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.78rem; color: var(--text-muted); }
+.habit-detail-facts > span { overflow-wrap: anywhere; }
+.habit-detail-bar .habit-today-actions { margin-left: 0; }
+.habit-detail-edit { display: inline-flex; align-items: center; gap: 4px; }
+
 .habit-met { color: var(--green); font-weight: 700; }
-.habit-warn { font-size: 0.8rem; color: #b45309; cursor: help; }
 .habit-today-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-.habit-card-foot .habit-today-actions { height: 32px; }
 /* 기록한 뒤: 버튼 자리에 상태 표시 + 작은 취소 */
 .habit-state-label { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 6px; font-weight: 700; white-space: nowrap; }
 .habit-state-label.full { background: var(--green-light); color: var(--green); }
@@ -100,7 +111,7 @@
 .habit-error { color: var(--red); font-size: 0.8rem; }
 
 /* 축하 효과 */
-.habit-card.celebrate, .habit-today-item.celebrate { animation: habit-pop 0.45s ease-out; }
+.habit-row.celebrate, .habit-today-item.celebrate { animation: habit-pop 0.45s ease-out; }
 .habit-confetti {
   position: absolute; right: 14px; top: 6px; font-size: 1.2rem; pointer-events: none;
   animation: habit-float 0.9s ease-out forwards;
@@ -108,7 +119,7 @@
 @keyframes habit-pop { 0% { transform: scale(1); } 40% { transform: scale(1.03); } 100% { transform: scale(1); } }
 @keyframes habit-float { 0% { opacity: 0; transform: translateY(6px) scale(0.6); } 30% { opacity: 1; transform: translateY(-4px) scale(1.15); } 100% { opacity: 0; transform: translateY(-18px) scale(1); } }
 @media (prefers-reduced-motion: reduce) {
-  .habit-card.celebrate, .habit-today-item.celebrate, .habit-confetti { animation: none; }
+  .habit-row.celebrate, .habit-today-item.celebrate, .habit-confetti { animation: none; }
 }
 
 /* 오늘 탭 블록 */
@@ -156,13 +167,9 @@
 .habit-form-actions .habit-archive-btn { margin-right: auto; }
 
 /* ===== 2단계: 쉬는 날·횟수·기록·지난주 돌아보기 ===== */
-.habit-cell.skip { background: #eef2f7; border-color: #cbd5e1; color: var(--text-muted); }
-.habit-cell.empty { color: var(--text-light); }
 .habit-rest-label, .habit-count { font-weight: 600; color: var(--text-muted); }
-.habit-state-label.habit-rest-label { background: #eef2f7; }
-/* 오늘 칸은 상태와 상관없이 항상 같은 강조 테두리. 상태는 칸 안 기호(● ◐ – ○)로만 구분한다 */
-.habit-week .habit-cell.today { border: 1px solid var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
-.habit-check.skip { background: #eef2f7; border-color: #cbd5e1; font-size: 0.7rem; }
+.habit-state-label.habit-rest-label { background: var(--habit-rest); }
+.habit-check.skip { background: var(--habit-rest); border-color: var(--habit-rest-line); font-size: 0.7rem; }
 .habit-check.count { color: var(--green); font-size: 0.72rem; border-color: var(--green); }
 .habit-check.count.full { color: #fff; }
 .habit-check.count.tiny { background: var(--green-light); }
@@ -173,22 +180,22 @@
 .habit-today-item:hover .habit-today-actions, .habit-today-item:focus-within .habit-today-actions { opacity: 1; }
 @media (hover: none) { .habit-today-item .habit-today-actions { opacity: 1; } }
 
-.habit-heat { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #eef2f7; }
+.habit-heat { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--habit-rest); }
 .habit-heat.full { background: var(--green); }
-.habit-heat.tiny { background: #86efac; }
-.habit-heat.skip { background: repeating-linear-gradient(45deg, #cbd5e1 0 2px, #eef2f7 2px 4px); }
-.habit-heat.missed { background: #fecaca; }
-.habit-heat.open { background: #eef2f7; box-shadow: 0 0 0 1px var(--primary) inset; }
-.habit-heat.off, .habit-heat.before, .habit-heat.future { background: transparent; box-shadow: 0 0 0 1px #eef2f7 inset; }
+.habit-heat.tiny { background: var(--habit-tiny); }
+.habit-heat.skip { background: repeating-linear-gradient(45deg, var(--habit-rest-line) 0 2px, var(--habit-rest) 2px 4px); }
+.habit-heat.missed { background: var(--habit-missed); }
+.habit-heat.open { background: var(--habit-rest); box-shadow: 0 0 0 1px var(--primary) inset; }
+.habit-heat.off, .habit-heat.before, .habit-heat.future { background: transparent; box-shadow: 0 0 0 1px var(--habit-rest) inset; }
 /* 최근 26주 기록 패널 */
 .habit-history-panel {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow-sm); padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
 }
-.habit-history-panel-hdr { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .habit-history-title { font-size: 0.98rem; font-weight: 700; white-space: nowrap; }
-.habit-history-tabs { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.habit-history-tabs .habit-chip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.habit-history-hint { font-size: 0.74rem; color: var(--text-light); }
+.habit-row-detail .habit-history-body { grid-template-columns: minmax(0, 620px) minmax(160px, 220px); gap: 20px; }
+@media (max-width: 900px) { .habit-row-detail .habit-history-body { grid-template-columns: minmax(0, 1fr); } }
 /* 히트맵(최대 760px, 칸 약 26px) + 오른쪽 요약. 좁으면 요약이 아래로 */
 .habit-history-body { display: grid; grid-template-columns: minmax(0, 760px) minmax(180px, 240px); gap: 28px; align-items: start; }
 @media (max-width: 900px) { .habit-history-body { grid-template-columns: minmax(0, 1fr); } }
@@ -205,6 +212,12 @@
 .habit-history-stat em { font-style: normal; font-size: 0.76rem; color: var(--text-light); }
 .habit-heatmap-legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.68rem; color: var(--text-light); }
 .habit-heatmap-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.habit-heat.none { background: var(--habit-rest); }
+.habit-heat.l0 { background: var(--habit-missed); }
+.habit-heat.l1 { background: var(--habit-l1); }
+.habit-heat.l2 { background: var(--habit-l2); }
+.habit-heat.l3 { background: var(--habit-l3); }
+.habit-heat.l4 { background: var(--green); }
 
 .habit-review {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -225,33 +238,42 @@
 .habit-review-num { color: var(--text-muted); white-space: nowrap; }
 .habit-trend { font-size: 0.74rem; color: var(--text-light); text-align: right; white-space: nowrap; }
 .habit-trend.up { color: var(--green); font-weight: 700; }
-.habit-trend.down { color: #b45309; font-weight: 700; }
+.habit-trend.down { color: var(--habit-down); font-weight: 700; }
 .habit-unit-input { width: 64px; font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; }
 
 /* ===== 3단계: 자동화 점검 ===== */
+.habit-auto-panel { background: var(--primary-light); border-radius: var(--radius-sm); padding: 0 12px; }
+.habit-auto-panel.open { padding-bottom: 10px; }
+.habit-auto-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 0;
+  border: none; background: none; font: inherit; font-size: 0.82rem; color: var(--primary-dark); cursor: pointer; text-align: left;
+}
+.habit-auto-toggle-hint { font-size: 0.74rem; text-decoration: underline; text-underline-offset: 2px; }
+.habit-auto-q { font-size: 0.8rem; margin-bottom: 8px; }
+.habit-auto-ends { margin-left: 8px; font-size: 0.7rem; color: var(--text-light); }
+.habit-auto-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.habit-auto { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.habit-auto-name { flex: 1 1 140px; min-width: 0; font-size: 0.82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.habit-auto-scale { display: flex; gap: 4px; align-items: center; }
 .habit-settled {
-  font-size: 0.7rem; font-weight: 700; color: #166534; background: var(--green-light);
+  font-size: 0.7rem; font-weight: 700; color: var(--habit-settled); background: var(--green-light);
   border-radius: 999px; padding: 2px 8px; white-space: nowrap;
 }
-.habit-auto { background: var(--primary-light); border-radius: var(--radius-sm); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
-.habit-auto-q { font-size: 0.8rem; }
-.habit-auto-scale { display: flex; gap: 4px; align-items: center; }
 .habit-auto-btn {
-  width: 32px; height: 28px; border-radius: 6px; border: 1px solid #c7d2fe; background: var(--surface);
+  width: 32px; height: 28px; border-radius: 6px; border: 1px solid var(--habit-auto-line); background: var(--surface);
   font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--primary-dark); cursor: pointer;
 }
 .habit-auto-btn:hover:not(:disabled) { background: var(--primary); border-color: var(--primary); color: #fff; }
-.habit-auto-later { margin-left: auto; background: none; border: none; font: inherit; font-size: 0.74rem; color: var(--text-muted); cursor: pointer; }
+.habit-auto-later { margin-left: 4px; background: none; border: none; font: inherit; font-size: 0.74rem; color: var(--text-muted); cursor: pointer; }
 .habit-auto-later:hover { color: var(--text); }
-.habit-auto-ends { display: flex; justify-content: space-between; width: 176px; font-size: 0.66rem; color: var(--text-light); }
 .habit-auto-trend { font-size: 0.74rem; color: var(--text-muted); display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
-.habit-auto-trend strong { color: #166534; }
+.habit-auto-trend strong { color: var(--habit-settled); }
 .habit-auto-dot {
   display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px;
-  font-size: 0.66rem; font-weight: 700; color: #fff; background: #94a3b8;
+  font-size: 0.66rem; font-weight: 700; color: #fff; background: var(--text-light);
 }
-.habit-auto-dot.s3 { background: #60a5fa; }
-.habit-auto-dot.s4 { background: #34d399; }
+.habit-auto-dot.s3 { background: var(--habit-auto-3); }
+.habit-auto-dot.s4 { background: var(--habit-auto-4); }
 .habit-auto-dot.s5 { background: var(--green); }
 
 /* 이모지 고르기 */

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import HabitForm from '../habits/HabitForm';
-import HabitCard from '../habits/HabitCard';
-import HabitHistory from '../habits/HabitHistory';
+import HabitRow from '../habits/HabitCard';
+import HabitOverview from '../habits/HabitHistory';
+import { AutomaticityPanel } from '../habits/AutomaticityCheck';
+import { useSettingHelp } from '../SettingHelp';
 import { useHabitCheck } from '../habits/useHabitCheck';
 import WeekReview from '../habits/WeekReview';
 import { orderHabits, scheduleLabel, totalDone } from '../../features/habits/habitCore.mjs';
@@ -15,6 +17,8 @@ export default function HabitsTab({ uid, habitsData }) {
   const [failure, setFailure] = useState('');
   const [orderDraft, setOrderDraft] = useState(null);
   const [savingOrder, setSavingOrder] = useState(false);
+  const [openId, setOpenId] = useState(null);
+  const help = useSettingHelp();
   const active = habits.filter(h => !h.archived);
   const archived = habits.filter(h => h.archived);
   const draftHabits = orderDraft && orderHabits(active, orderDraft);
@@ -67,8 +71,9 @@ export default function HabitsTab({ uid, habitsData }) {
   return <div className="habits-tab">
     <div className="habits-hdr">
       <div>
-        <h2 className="habits-title">🔁 습관</h2>
-        <p className="habits-intro">작게 시작하고, 하루 빠져도 괜찮아요. 두 번 연속만 피하면 연속 기록이 이어져요.</p>
+        <h2 className="habits-title setting-help-label">🔁 습관{help.button('intro', '습관')}</h2>
+        {help.shown('intro') && <p className="habits-intro">작게 시작하고, 하루 빠져도 괜찮아요. 두 번 연속만 피하면 연속 기록이 이어져요.
+          동그라미로 오늘을 기록하고, 이름을 누르면 최소만·쉬기·수정과 26주 기록이 펼쳐져요.</p>}
       </div>
       <div className="habits-hdr-actions">
         {draftHabits ? <>
@@ -88,6 +93,7 @@ export default function HabitsTab({ uid, habitsData }) {
     {orderError && <p role="alert" className="habit-error">습관 순서를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.</p>}
     {(failure || check.failure) && <p role="alert" className="habit-error">{failure || check.failure}</p>}
     {!loading && !draftHabits && <WeekReview uid={uid} habits={habits} today={today} />}
+    {!loading && !draftHabits && <AutomaticityPanel uid={uid} habits={active} today={today} onAnswer={setAutomaticity} />}
     {draftHabits ? <ol className="habit-order-list" aria-label="습관 순서 편집">
       {draftHabits.map((habit, index) => <li key={habit.id}>
         <span>{habit.emoji} {habit.name}</span>
@@ -102,11 +108,12 @@ export default function HabitsTab({ uid, habitsData }) {
         <p>이미 매일 하는 일(커피, 양치, 출근) 뒤에 붙일 <strong>아주 작은 행동</strong> 하나로 시작해 보세요.</p>
         <button type="button" className="btn btn-login" onClick={() => setEditing('new')}>첫 습관 만들기</button>
       </div>
-      : <div className="habits-grid">
-        {active.map(habit => <HabitCard key={habit.id} uid={uid} habit={habit} today={today} check={check} onAutomaticity={setAutomaticity}
+      : <ul className="habits-list" aria-label="습관 목록">
+        {active.map(habit => <HabitRow key={habit.id} habit={habit} today={today} check={check}
+          open={openId === habit.id} onToggle={() => setOpenId(id => (id === habit.id ? null : habit.id))}
           onEdit={() => setEditing(habit)} />)}
-      </div>}
-    {!loading && !draftHabits && active.length > 0 && <HabitHistory habits={active} today={today} />}
+      </ul>}
+    {!loading && !draftHabits && active.length > 0 && <HabitOverview habits={active} today={today} />}
 
     {!draftHabits && archived.length > 0 && <details className="habits-archive">
       <summary>보관한 습관 {archived.length}개</summary>

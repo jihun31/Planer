@@ -249,6 +249,34 @@ export function historyWeeks(habit, today, weeks = HISTORY_WEEKS) {
   });
 }
 
+// 전체 습관을 합친 히트맵: 날마다 해야 했던 습관 중 한 비율을 0~4단계로(해야 할 습관이 없던 날은 null).
+// 한 날(full·tiny)과 빠진 날(missed)만 센다. 쉬는 날·하지 않는 날·주·월 N회의 빈 날은 넣지 않는다.
+export function combinedHistory(habits, today, weeks = HISTORY_WEEKS) {
+  const maps = habits.map(habit => historyWeeks(habit, today, weeks));
+  if (!maps.length) return [];
+  return maps[0].map((week, w) => ({ monday: week.monday, days: week.days.map((cell, d) => {
+    let done = 0, due = 0;
+    for (const map of maps) {
+      const state = map[w].days[d].state;
+      if (DONE_STATES.includes(state)) { done += 1; due += 1; }
+      else if (state === 'missed') due += 1;
+    }
+    const level = !due ? null : done === due ? 4 : Math.ceil((done / due) * 3);
+    return { day: cell.day, done, due, level, future: cell.day > today };
+  }) }));
+}
+
+// 여러 습관의 달성률 합계(completion을 습관마다 더한 값)
+export function overallCompletion(habits, from, to, today) {
+  let done = 0, total = 0;
+  for (const habit of habits) {
+    const one = completion(habit, from, to, today);
+    done += one.done;
+    total += one.total;
+  }
+  return { done, total, rate: total ? done / total : null };
+}
+
 /**
  * 기간 [from, to]의 해야 하는 일 중 한 비율. 쉬는 날은 빼고 센다.
  * 매일·요일·날짜 습관은 날 단위, 주·월 N회는 횟수 단위(기간마다 목표까지만 인정).

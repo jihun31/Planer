@@ -251,6 +251,23 @@ test('history weeks cover the last 26 weeks ending this week', () => {
   assert.equal(historyWeeks(weekly, today, 2)[0].days[0].state, 'empty');
 });
 
+test('combined history rates each day across habits, leaving out rest days and empty weekly days', async () => {
+  const { combinedHistory, overallCompletion } = await import('../src/features/habits/habitCore.mjs');
+  const today = '2026-11-20';
+  const daily = habit({ type: 'daily' }, { '2026-11-17': 'full', '2026-11-18': 'tiny', '2026-11-19': 'skip' }, '2026-11-01');
+  const other = habit({ type: 'daily' }, { '2026-11-17': 'full' }, '2026-11-01');
+  const weekly = habit({ type: 'weekly', count: 2 }, { '2026-11-16': 'full' }, '2026-11-01');
+  const week = combinedHistory([daily, other, weekly], today, 2).at(-1).days;
+  assert.deepEqual(week.map(d => [d.done, d.due]), [[1, 3], [2, 2], [1, 2], [0, 1], [0, 0], [0, 0], [0, 0]]);
+  assert.deepEqual(week.map(d => d.level), [1, 4, 2, 0, null, null, null]);
+  assert.deepEqual(week.map(d => d.future), [false, false, false, false, false, true, true]);
+  assert.deepEqual(combinedHistory([], today), []);
+  const sum = overallCompletion([daily, other], '2026-11-16', today, today);
+  const one = completion(daily, '2026-11-16', today, today), two = completion(other, '2026-11-16', today, today);
+  assert.equal(sum.done, one.done + two.done);
+  assert.equal(sum.total, one.total + two.total);
+});
+
 test('habits sort from the most frequent schedule to the least', async () => {
   const { byFrequency, weeklyFrequency } = await import('../src/features/habits/habitCore.mjs');
   const list = [
