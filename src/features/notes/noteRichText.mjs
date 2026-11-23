@@ -6,6 +6,9 @@ const PREFIX = '\u001eplaner-note:1:';
 const flags = ['bold','underline','highlight','italic','strike'];
 export const NOTE_HIGHLIGHT = '#fff0a8';
 export const MAX_NOTE_LIST_DEPTH = 8;
+export const MAX_NOTE_LIST_START = 9999;
+const validListStart = (run,value) => (run.block === 'numbered' || (run.block === 'list-text' && run.listNumbered === true))
+  && Number.isInteger(value) && value > 1 && value <= MAX_NOTE_LIST_START;
 export const NOTE_TEXT_COLORS = [
   {value:'#0f172a',label:'기본'}, {value:'#787774',label:'회색'}, {value:'#9f6b53',label:'갈색'},
   {value:'#d9730d',label:'주황'}, {value:'#b88a00',label:'노랑'}, {value:'#448361',label:'초록'},
@@ -38,7 +41,7 @@ function validRun(run,depth = 0) {
     && typeof run.open === 'boolean' && Array.isArray(run.summary) && Array.isArray(run.children)
     && [...run.summary,...run.children].every(child => validRun(child,depth + 1));
   return run && typeof run.text === 'string'
-    && Object.keys(run).every(key => ['text','url','inlineLink','author','icon','color','block','listDepth','checked','listNumbered','listContinuation',...flags].includes(key))
+    && Object.keys(run).every(key => ['text','url','inlineLink','author','icon','color','block','listDepth','checked','listNumbered','listContinuation','listStart',...flags].includes(key))
     && flags.every(flag => !(flag in run) || typeof run[flag] === 'boolean')
     && (!('url' in run) || (typeof run.url === 'string' && !!webLink(run.url)))
     && (!('inlineLink' in run) || (run.inlineLink === true && !!run.url))
@@ -49,6 +52,7 @@ function validRun(run,depth = 0) {
     && (!('checked' in run) || (run.block === 'checklist' && typeof run.checked === 'boolean'))
     && (!('listNumbered' in run) || (run.block === 'list-text' && run.listNumbered === true))
     && (!('listContinuation' in run) || (run.block === 'list-text' && run.listContinuation === true))
+    && (!('listStart' in run) || validListStart(run,run.listStart))
     && (!('listDepth' in run) || (listBlocks.includes(run.block) && Number.isInteger(run.listDepth)
       && run.listDepth >= 0 && run.listDepth <= MAX_NOTE_LIST_DEPTH));
 }
@@ -87,6 +91,7 @@ function normalizeRuns(runs,depth = 0) {
     if (run.block === 'checklist') run.checked = item.checked === true;
     if (run.block === 'list-text' && item.listNumbered) run.listNumbered = true;
     if (run.block === 'list-text' && item.listContinuation) run.listContinuation = true;
+    if (validListStart(run,item.listStart)) run.listStart = item.listStart;
     if (listBlocks.includes(run.block) && Number.isInteger(item.listDepth) && item.listDepth > 0) run.listDepth = Math.min(item.listDepth,MAX_NOTE_LIST_DEPTH);
     if (item.url && !run.imageId && webLink(item.url)) {
       run.url = item.url;
@@ -99,7 +104,7 @@ function normalizeRuns(runs,depth = 0) {
     const previous = normalized.at(-1);
     if (previous && run.text && !run.url && !previous.url && !previous.imageId && flags.every(flag => !!previous[flag] === !!run[flag])
       && previous.color === run.color && previous.block === run.block && previous.listDepth === run.listDepth && previous.checked === run.checked
-      && previous.listNumbered === run.listNumbered && previous.listContinuation === run.listContinuation) previous.text += run.text;
+      && previous.listNumbered === run.listNumbered && previous.listContinuation === run.listContinuation && previous.listStart === run.listStart) previous.text += run.text;
     else normalized.push(run);
   }
   return normalized;
@@ -122,7 +127,7 @@ export function createNoteToggle(runs) {
   for (const run of runs) {
     if (inBody) {children.push(run);continue;}
     const index = run.text.indexOf('\n');
-    const {block:_block,listDepth:_listDepth,checked:_checked,listNumbered:_numbered,listContinuation:_continuation,...inline} = run;
+    const {block:_block,listDepth:_listDepth,checked:_checked,listNumbered:_numbered,listContinuation:_continuation,listStart:_start,...inline} = run;
     summary.push({...inline,text:index < 0 ? run.text : run.text.slice(0,index)});
     if (index >= 0) {
       inBody = true;
@@ -167,6 +172,7 @@ function renderRuns(runs,blockMode,textColor) {
         line.checked = run.checked === true;
         line.listNumbered = run.listNumbered === true;
         line.listContinuation = run.listContinuation === true;
+        line.listStart = run.listStart || 0;
       };
       const parts = run.text.split('\n');
       parts.forEach((part,index) => {
@@ -195,10 +201,11 @@ function renderRuns(runs,blockMode,textColor) {
         if (!listTags.length) listBase = line.listDepth || 0;
         const level = Math.min(Math.max(1,(line.listDepth || 0)-listBase+1),listTags.length+1);
         const tag=line.block==='numbered'||line.listNumbered?'ol':'ul';
-        if (level > listTags.length) {html += `<${tag}>`;listTags.push(tag);}
+        const open = `<${tag}${tag === 'ol' && line.listStart > 1 ? ` start="${line.listStart}"` : ''}>`;
+        if (level > listTags.length) {html += open;listTags.push(tag);}
         else {
           while (listTags.length > level) closeList();
-          if(listTags.at(-1)!==tag){closeList();html+=`<${tag}>`;listTags.push(tag);}
+          if(listTags.at(-1)!==tag){closeList();html+=open;listTags.push(tag);}
           else html += '</li>';
         }
         if (line.block === 'list-text') {

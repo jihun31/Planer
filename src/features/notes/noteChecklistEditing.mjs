@@ -34,6 +34,19 @@ function ensureCaretSlot(content) {
   if (!content.textContent && !content.querySelector('br,a,img,[data-note-image-id]')) content.replaceChildren(content.ownerDocument.createElement('br'));
 }
 
+export function decorateNoteChecklistItem(item) {
+  decorateItem(item);
+}
+
+export function undecorateNoteChecklistItem(item) {
+  if (!item.hasAttribute('data-note-checked')) return;
+  item.removeAttribute('data-note-checked');item.classList.remove('notes-checklist-item');
+  if (!item.className) item.removeAttribute('class');
+  item.querySelector(':scope > [data-note-checkbox]')?.remove();
+  const content = item.querySelector(':scope > .notes-checklist-text');
+  if (content) content.replaceWith(...content.childNodes);
+}
+
 function decorateItem(item) {
   if (item.hasAttribute('data-note-checked')) return;
   const doc = item.ownerDocument, content = doc.createElement('span'), button = createCheckbox(doc);

@@ -118,16 +118,17 @@ if(!process.versions.electron){
         await key('Enter');assert(items().length===2,'Enter did not create the next checkbox');
         await type('둘째 항목');
         items()[0].querySelector('button').click();await tick();
-        assert(items()[0].getAttribute('data-note-checked')==='true','Checkbox did not toggle');
-        assert(getComputedStyle(items()[0].querySelector('.notes-checklist-text')).textDecorationLine.includes('line-through'),'Completed text is not struck through');
+        // A checked item moves below the unchecked ones.
+        assert(items()[1].getAttribute('data-note-checked')==='true'&&items()[1].textContent==='첫 항목','Checkbox did not toggle or move the item down');
+        assert(getComputedStyle(items()[1].querySelector('.notes-checklist-text')).textDecorationLine.includes('line-through'),'Completed text is not struck through');
         const checked=checklistText;
-        await key('z',{ctrlKey:true});assert(items()[0].getAttribute('data-note-checked')==='false','Undo did not restore completion');
+        await key('z',{ctrlKey:true});assert(items()[0].getAttribute('data-note-checked')==='false'&&items()[0].textContent==='첫 항목','Undo did not restore completion');
         await key('z',{ctrlKey:true,shiftKey:true});assert(checklistText===checked,'Redo did not restore completion');
         document.querySelector('#reopen').click();await tick();
-        assert(items().length===2&&items()[0].getAttribute('data-note-checked')==='true','Reopening lost completion or items');
+        assert(items().length===2&&items()[1].getAttribute('data-note-checked')==='true','Reopening lost completion or items');
         assert(readNoteEditor(root())===checklistText,'Saving and reopening changed the document');
-        caret(items()[0].querySelector('.notes-checklist-text'),false);await key('Enter');
-        assert(items().length===3&&items()[1].getAttribute('data-note-checked')==='false','Split item inherited completion');
+        caret(items()[1].querySelector('.notes-checklist-text'),false);await key('Enter');
+        assert(items().length===3&&items()[2].getAttribute('data-note-checked')==='false','Split item inherited completion');
         const splitText=notePlainText(checklistText);assert(splitText.includes('첫 항목')&&splitText.includes('둘째 항목'),'Splitting lost text');
         caret(items().at(-1).querySelector('.notes-checklist-text'));await key('Enter');await key('Enter');
         assert(items().length===3&&getSelection().anchorNode.parentElement.closest('li')===null,'Empty Enter did not exit checklist');
@@ -159,7 +160,7 @@ if(!process.versions.electron){
         await key('S',{ctrlKey:true,shiftKey:true,code:'KeyS'});
         const stricken=checklistText;document.querySelector('#reopen').click();await tick();
         assert(checklistText===stricken&&root().querySelector('s,strike'),'Manual strike disappeared after reopening');
-        assert(items()[0].getAttribute('data-note-checked')==='true','Manual strike changed checklist completion');
+        assert(items()[1].getAttribute('data-note-checked')==='true','Manual strike changed checklist completion');
         return {realSequentialInput:6,bulkDelete:true,emptyItemDelete:true,caretOutsideCheckbox:true,typingAfterDelete:true,slash:true,markdown:true,completion:true,undoRedo:true,split:true,emptyExit:true,nesting:true,backspace:true,keyboardShortcut:true,readOnly:true,formattedPersistence:true,manualStrike:true,strikeToolbar:true,strikePersistence:true};
       })()`);
       if(process.env.PLANER_CHECKLIST_SCREENSHOT){await new Promise(resolve=>setTimeout(resolve,200));fs.writeFileSync(process.env.PLANER_CHECKLIST_SCREENSHOT,(await win.webContents.capturePage()).toPNG());}

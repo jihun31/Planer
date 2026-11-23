@@ -31,6 +31,7 @@ function nodeFormat(node,inherited) {
     } else delete format.checked;
     delete format.listNumbered;
     delete format.listContinuation;
+    delete format.listStart;
     const listText = node.getAttribute?.('data-note-list-text');
     if (listText) {
       format.block = 'list-text';
@@ -41,11 +42,13 @@ function nodeFormat(node,inherited) {
     for (let parent=node.parentNode;parent && parent.nodeName !== 'DETAILS';parent=parent.parentNode) {
       if (['UL','OL'].includes(parent.nodeName)) lists++;
     }
+    const start = Number(node.parentNode?.getAttribute?.('start'));
+    if (node.parentNode?.nodeName === 'OL' && node.parentNode.firstElementChild === node && start > 1) format.listStart = start;
     if (lists > 1) format.listDepth = Math.min(lists-1,MAX_NOTE_LIST_DEPTH);
     else if (lists === 1) delete format.listDepth;
   }
   if (!['bullet','numbered','checklist','list-text'].includes(format.block)) {
-    delete format.listDepth;delete format.checked;delete format.listNumbered;delete format.listContinuation;
+    delete format.listDepth;delete format.checked;delete format.listNumbered;delete format.listContinuation;delete format.listStart;
   }
   const decoration = style?.textDecorationLine || style?.textDecoration;
   if (decoration) {format.underline = decoration.includes('underline');format.strike = decoration.includes('line-through');}
@@ -254,8 +257,8 @@ export function readNoteEditor(root,inherited = {}) {
       const summary = [...node.childNodes].find(child => child.nodeName === 'SUMMARY');
       const title = summary?.querySelector?.('.notes-toggle-title') || summary;
       const bodyNodes = [...node.childNodes].filter(child => child !== summary);
-      const {block:_block,listDepth:_listDepth,checked:_checked,listNumbered:_numbered,listContinuation:_continuation,...inlineFormat} = parentFormat;
-      const summaryRuns = title ? noteRuns(readNoteEditor(title,inlineFormat)).map(({block:_block,listDepth:_listDepth,checked:_checked,listNumbered:_numbered,listContinuation:_continuation,...run}) => run) : [];
+      const {block:_block,listDepth:_listDepth,checked:_checked,listNumbered:_numbered,listContinuation:_continuation,listStart:_start,...inlineFormat} = parentFormat;
+      const summaryRuns = title ? noteRuns(readNoteEditor(title,inlineFormat)).map(({block:_block,listDepth:_listDepth,checked:_checked,listNumbered:_numbered,listContinuation:_continuation,listStart:_start,...run}) => run) : [];
       const body = {nodeName:'DIV',childNodes:bodyNodes,firstChild:bodyNodes[0]};
       runs.push({text:'',block:'toggle',summary:summaryRuns,children:noteRuns(readNoteEditor(body,inlineFormat)),open:node.open !== false});
       return;

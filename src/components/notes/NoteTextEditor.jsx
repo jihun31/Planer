@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { MAX_NOTE_LENGTH } from '../../features/notes/notepadStore.mjs';
 import { escapeHtml, linkHtml, loadYouTubeInfo, youtubeVideo } from '../../features/notes/youtubeLinks.mjs';
 import { webLink, siteLinkHtml, loadSiteInfo } from '../../features/notes/siteLinks.mjs';
-import { NOTE_BLOCKS, NOTE_HIGHLIGHT, NOTE_TEXT_COLORS, createNoteToggle, noteColor, noteHtml, notePlainText, noteRuns, serializeNoteRuns } from '../../features/notes/noteRichText.mjs';
+import { NOTE_BLOCKS, NOTE_HIGHLIGHT, NOTE_TEXT_COLORS, createNoteToggle, noteColor, noteHtml, noteRuns, serializeNoteRuns } from '../../features/notes/noteRichText.mjs';
 import { firstEmptyNoteLine, noteFormatAt, noteInlineLinkSelector, noteLine, noteLineSelected, noteRangeHasContent, readNoteEditor, removeNoteLine, restoreNoteSelection, selectWholeNote } from '../../features/notes/noteEditorDom.mjs';
 import { toggledNoteColor, rememberNoteColor } from '../../features/notes/noteEditorPreferences.mjs';
 import { startNoteTextDrag, noteTextDropAllowed, noteTextDropIndicator, prepareNoteTextMove, applyNoteTextMove } from '../../features/notes/noteTextDrag.mjs';
@@ -11,6 +11,8 @@ import { insertNextNoteToggle } from '../../features/notes/noteToggleEditor.mjs'
 import { noteSlashShortcut } from '../../features/notes/noteSlashCommands.mjs';
 import { changeNoteListDepth, editNoteListKey } from '../../features/notes/noteListEditing.mjs';
 import { applyNoteChecklist, clearNoteChecklists, editNoteChecklistKey, repairNoteChecklists, toggleNoteChecklist } from '../../features/notes/noteChecklistEditing.mjs';
+import { convertNoteListItems, moveNoteListItemTo, moveNoteListItems, noteListDropTarget, noteListItemAtPoint, settleNoteChecklistItem } from '../../features/notes/noteListTools.mjs';
+import { noteClipboardText, noteListFromPlainText } from '../../features/notes/noteListText.mjs';
 import { attachNoteImages, noteFileDrag, noteImageFiles, noteImageSelector, observeNoteImages, openNoteImage, resizeNoteImage } from '../../features/notes/noteImages.mjs';
 
 function selectedFormats() {
@@ -32,9 +34,19 @@ function popupPosition(anchor,height,width) {
   return {left:Math.max(8,Math.min(anchor.left,window.innerWidth - width - 8)),
     top:Math.max(8,anchor.top > height + 8 ? anchor.top - height - 8 : Math.min(anchor.bottom + 8,window.innerHeight - height - 8))};
 }
+const CHOSEONG = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+// '체크리스트' -> 'ㅊㅋㄹㅅㅌ', so '/ㅊㅋ' finds the checklist block.
+const choseong = text => [...text].map(char => {
+  const code = char.charCodeAt(0) - 0xac00;
+  return code >= 0 && code < 11172 ? CHOSEONG[Math.floor(code / 588)] : char;
+}).join('');
 function slashOptions(query) {
   const search = query.replace(/\s/g,'').toLowerCase();
-  return NOTE_BLOCKS.filter(block => !block.toolbarOnly && block.search.replace(/\s/g,'').toLowerCase().includes(search));
+  return NOTE_BLOCKS.filter(block => {
+    if (block.toolbarOnly) return false;
+    const terms = block.search.replace(/\s/g,'').toLowerCase();
+    return terms.includes(search) || choseong(terms).includes(search);
+  });
 }
 
 function caretPoint(root,range) {
@@ -98,6 +110,9 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
   const [slash,setSlash] = useState(null);
   const [notice,setNotice] = useState('');
   const [dropIndicator,setDropIndicator] = useState(null);
+  const [listHandle,setListHandle] = useState(null);
+  const handleItem = useRef(null);
+  const listDrag = useRef(null);
   useLayoutEffect(() => observeNoteImages(editor.current),[]);
   useLayoutEffect(() => {
     if (saved.current !== text) {
@@ -136,7 +151,8 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
     const before = range.cloneRange();before.selectNodeContents(block || root);before.setEnd(range.startContainer,range.startOffset);
     const prefix = before.toString();
     const match = prefix.match(/^\/([^\n/]{0,24})$/);
-    if (!match || dismissedSlash.current === prefix) {setSlash(null);if (!match) dismissedSlash.current = null;return;}
+    // Text that only starts with '/' (a path, a date) closes the menu instead of showing an empty one.
+    if (!match || dismissedSlash.current === prefix || !slashOptions(match[1]).length) {setSlash(null);if (!match) dismissedSlash.current = null;return;}
     slashRange.current = before;
     setSlash(previous => previous?.query === match[1] && sameAnchor(previous.anchor,position) ? previous
       : {query:match[1],anchor:position,index:previous?.query === match[1] ? previous.index : 0});
@@ -146,6 +162,8 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       if (!editor.current?.contains(event.target) && !popup.current?.contains(event.target)) {setAnchor(null);setSlash(null);setMenu(null);}
     };
     const hideDropIndicator = () => setDropIndicator(null);
+    const hideHandle = () => {if (!listDrag.current) {handleItem.current = null;setListHandle(null);}};
+    window.addEventListener('scroll',hideHandle,true);
     document.addEventListener('selectionchange',inspectSelection);
     document.addEventListener('pointerdown',outside);
     window.addEventListener('scroll',inspectSelection,true);
@@ -158,6 +176,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       window.removeEventListener('scroll',inspectSelection,true);window.removeEventListener('resize',inspectSelection);
       window.removeEventListener('scroll',hideDropIndicator,true);window.removeEventListener('resize',hideDropIndicator);
       window.removeEventListener('blur',hideDropIndicator);
+      window.removeEventListener('scroll',hideHandle,true);
       textDrag.current = null;
     };
   },[inspectSelection]);
@@ -190,7 +209,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
     if (selection.rangeCount) selectionRange.current = selection.getRangeAt(0).cloneRange();
     setMenu(null);inspectSelection();
   }
-  function applyBlock(type,fromSlash = false,shortcutRange = null,autoNumbered = false) {
+  function applyBlock(type,fromSlash = false,shortcutRange = null,autoNumbered = false,listStart = 1) {
     if (loading || readOnly) return;
     const selection = restoreSelection(shortcutRange || (fromSlash ? slashRange.current : selectionRange.current));
     const autoUndo=autoNumbered?autoNumberedUndo(editor.current,selection.getRangeAt(0)):null;
@@ -226,6 +245,18 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       return;
     }
     if (fromSlash || shortcutRange) document.execCommand('delete');
+    if (!autoNumbered && ['bullet','numbered','checklist'].includes(type)) {
+      const before = readNoteEditor(editor.current), beforeCaret = caretPoint(editor.current,selection.getRangeAt(0));
+      if (convertNoteListItems(editor.current,selection,type)) {
+        repairNoteChecklists(editor.current);
+        setSlash(null);setMenu(null);
+        if (commit() && saved.current !== before) {
+          toggleHistory.current.undo.push({before,after:saved.current,beforeCaret,afterCaret:caretPoint(editor.current,selection.getRangeAt(0))});
+          toggleHistory.current.redo = [];
+        }
+        inspectSelection();return;
+      }
+    }
     if (type === 'checklist') {
       const before=readNoteEditor(editor.current);
       if (applyNoteChecklist(editor.current,selection) && commit()) {
@@ -242,6 +273,9 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
         if(!inBullet&&!inNumbered)document.execCommand('formatBlock',false,'div');
         document.execCommand(command);
       }
+      const node = selection.rangeCount ? selection.getRangeAt(0).startContainer : null;
+      const list = (node?.nodeType === 1 ? node : node?.parentElement)?.closest('ol');
+      if (type === 'numbered' && listStart > 1 && list && editor.current.contains(list)) list.setAttribute('start',String(listStart));
     } else {
       if (inBullet) document.execCommand('insertUnorderedList');
       else if(inNumbered)document.execCommand('insertOrderedList');
@@ -253,6 +287,53 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       toggleHistory.current.redo=[];
     }
     inspectSelection();
+  }
+  function hideListHandle() {
+    if (listDrag.current || !handleItem.current) return;
+    handleItem.current = null;setListHandle(null);
+  }
+  function showListHandle(event) {
+    if (loading || readOnly || listDrag.current || textDrag.current || event.buttons) return;
+    const found = noteListItemAtPoint(editor.current,event.clientY);
+    if (!found) {hideListHandle();return;}
+    handleItem.current = found.item;
+    const next = {left:Math.round(found.rect.left - 46),top:Math.round(found.rect.top),height:Math.round(Math.min(found.rect.bottom - found.rect.top,29))};
+    setListHandle(previous => previous && previous.left === next.left && previous.top === next.top && previous.height === next.height ? previous : next);
+  }
+  function endListDrag(event,cancel = false) {
+    const drag = listDrag.current;
+    if (!drag) return;
+    listDrag.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    drag.item.classList.remove('notes-list-dragging');
+    if (!drag.item.className) drag.item.removeAttribute('class');
+    setDropIndicator(null);handleItem.current = null;setListHandle(null);
+    if (cancel || loading || readOnly || !editor.current.contains(drag.item)) return;
+    const root = editor.current, selection = window.getSelection();
+    const beforeCaret = selection?.rangeCount && root.contains(selection.getRangeAt(0).commonAncestorContainer) ? caretPoint(root,selection.getRangeAt(0)) : null;
+    if (drag.moved && drag.drop) {
+      const before = readNoteEditor(root);
+      if (!moveNoteListItemTo(root,drag.item,drag.drop)) return;
+      repairNoteChecklists(root);
+      const index = [...root.querySelectorAll('li')].indexOf(drag.item);
+      if (!commit() || saved.current === before) return;
+      // Re-render so the row takes the shape of the list it was dropped into.
+      root.innerHTML = noteHtml(saved.current,true);
+      selectionRange.current = null;
+      restoreSelection();
+      const point = {item:index,offset:Number.MAX_SAFE_INTEGER};
+      restoreCaretPoint(root,point);
+      toggleHistory.current.undo.push({before,after:saved.current,beforeCaret,afterCaret:point});
+      toggleHistory.current.redo = [];
+      inspectSelection();
+      return;
+    }
+    if (!drag.moved) {
+      // A click on the handle puts the caret at the end of its row.
+      restoreSelection();
+      restoreCaretPoint(root,{item:[...root.querySelectorAll('li')].indexOf(drag.item),offset:Number.MAX_SAFE_INTEGER});
+      inspectSelection();
+    }
   }
   function focusToggleBody(details) {
     const body = details.querySelector('.notes-toggle-body');
@@ -308,6 +389,13 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       commit();
       return;
     }
+    const pastedList = noteListFromPlainText(plain);
+    if (pastedList) {
+      document.execCommand('insertHTML',false,noteHtml(pastedList,false,pasteColor).replace(/\n/g,'<br>'));
+      repairNoteChecklists(editor.current);
+      commit();
+      return;
+    }
     const pending = [];
     let html = plain.split(/(https?:\/\/[^\s<>"']+)/g).map(part => {
       const candidate = part.replace(/[.,;!?)\]}]+$/,'');
@@ -345,7 +433,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
     const value = readNoteEditor(range.cloneContents(),format);
     event.preventDefault();
     event.clipboardData.setData('application/x-planer-note',value);
-    event.clipboardData.setData('text/plain',notePlainText(value));
+    event.clipboardData.setData('text/plain',noteClipboardText(value));
     event.clipboardData.setData('text/html',noteHtml(value).replace(/\n/g,'<br>'));
     const caretLine = caretLineCut.current;caretLineCut.current = null;
     if (!cut || loading || readOnly) return;
@@ -397,6 +485,34 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
   const activeBlockType = ['h1','h2'].includes(blockType) ? 'h3' : blockType;
   const blockLabel = NOTE_BLOCKS.find(block => block.value === activeBlockType)?.label || '일반 텍스트';
   return <>
+    {listHandle && !loading && !readOnly && createPortal(<button type="button" className="notes-list-handle"
+      aria-label="목록 항목 끌어서 옮기기" title="끌어서 옮기기" tabIndex={-1}
+      style={{left:listHandle.left,top:listHandle.top,height:listHandle.height}}
+      onMouseLeave={event => {if (!listDrag.current && !editor.current?.contains(event.relatedTarget)) hideListHandle();}}
+      onPointerDown={event => {
+        const item = handleItem.current;
+        if (event.button !== 0 || !item || !editor.current?.contains(item)) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        listDrag.current = {item,startY:event.clientY,moved:false,drop:null};
+        setAnchor(null);setSlash(null);setMenu(null);
+      }}
+      onPointerMove={event => {
+        const drag = listDrag.current;
+        if (!drag) return;
+        if (!drag.moved && Math.abs(event.clientY - drag.startY) < 4) return;
+        if (!drag.moved) {drag.moved = true;drag.item.classList.add('notes-list-dragging');}
+        const root = editor.current, bounds = root.getBoundingClientRect();
+        if (event.clientY < bounds.top + 24) root.scrollTop -= 12;
+        else if (event.clientY > bounds.bottom - 24) root.scrollTop += 12;
+        drag.drop = noteListDropTarget(root,drag.item,event.clientX,event.clientY);
+        const next = drag.drop?.indicator || null;
+        setDropIndicator(previous => previous && next && Object.keys(next).every(key => previous[key] === next[key]) ? previous : next);
+      }}
+      onPointerUp={event => endListDrag(event)}
+      onPointerCancel={event => endListDrag(event,true)}
+      onLostPointerCapture={event => {if (listDrag.current) endListDrag(event,true);}}>
+      <span aria-hidden="true">⋮⋮</span></button>,document.body)}
     {dropIndicator && !loading && !readOnly && createPortal(<div className="notes-drop-indicator" aria-hidden="true" style={dropIndicator} />,document.body)}
     {anchor && !loading && !readOnly && createPortal(<div ref={popup} className="notes-floating-toolbar"
       style={popupPosition(anchor,menu === 'blocks' ? NOTE_BLOCKS.length * 40 + 54 : menu === 'colors' ? 190 : 42,330)}
@@ -438,13 +554,13 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
           <span style={{color:color.value}}>A</span>{color.label}</button>)}
       </div>}
     </div>,document.body)}
-    {slash && !loading && !readOnly && createPortal(<div ref={popup} id={menuId} className="notes-slash-menu"
+    {slash && options.length > 0 && !loading && !readOnly && createPortal(<div ref={popup} id={menuId} className="notes-slash-menu"
       style={popupPosition(slash.anchor,Math.min(296,options.length * 40 + 10),280)}
       role="listbox" aria-label="블록 추가" onMouseDown={event => event.preventDefault()}>
       {options.length ? options.map((block,index) => <button type="button" key={block.value} id={`${menuId}-${index}`}
         role="option" aria-selected={index === slash.index % options.length} className={index === slash.index % options.length ? 'is-active' : ''}
         onMouseEnter={() => setSlash(current => current ? {...current,index} : current)} onClick={() => applyBlock(block.value,true)}>
-        <span className="notes-block-icon">{block.icon}</span><span>{block.label}</span></button>) : <div className="notes-slash-empty">일치하는 블록이 없습니다.</div>}
+        <span className="notes-block-icon">{block.icon}</span><span>{block.label}</span></button>) : null}
     </div>,document.body)}
     <div ref={editor} className="notes-text-editor" role="textbox" aria-label="메모 내용" aria-multiline="true"
       aria-readonly={readOnly || loading} aria-disabled={loading} data-placeholder="메모를 입력하거나 / 로 블록을 선택하세요."
@@ -453,6 +569,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       contentEditable={!loading && !readOnly} suppressContentEditableWarning spellCheck={false}
       onInput={() => {
         toggleHistory.current.redo=[];
+        hideListHandle();
         if (!loading && !readOnly && !composing.current) repairNoteChecklists(editor.current);
         if (!loading && !readOnly && !composing.current && !dismissedSlash.current) {
           const shortcut=noteSlashShortcut(editor.current,window.getSelection(),true);
@@ -476,6 +593,8 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
         setDropIndicator(previous => previous && next && Object.keys(next).every(key=>previous[key]===next[key]) ? previous : next);
       }}
       onDragLeave={event => {if (!event.currentTarget.contains(event.relatedTarget)) setDropIndicator(null);}}
+      onMouseMove={showListHandle}
+      onMouseLeave={event => {if (!event.relatedTarget?.closest?.('.notes-list-handle')) hideListHandle();}}
       onDrop={event => {
         event.preventDefault();
         // The move is handled here; native drag cleanup must not delete it again.
@@ -548,6 +667,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
           repairNoteChecklists(editor.current);
           const before=readNoteEditor(editor.current);
           toggleNoteChecklist(checkbox.closest('li'));
+          settleNoteChecklistItem(checkbox.closest('li'));
           if (commit()) {toggleHistory.current.undo.push({before,after:saved.current});toggleHistory.current.redo=[];}
           return;
         }
@@ -591,6 +711,20 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
           }
         }
         if (event.nativeEvent.isComposing || event.keyCode === 229 || composing.current) return;
+        hideListHandle();
+        if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && ['ArrowUp','ArrowDown'].includes(event.key) && !loading && !readOnly) {
+          const selection = window.getSelection();
+          let moved = false;
+          if (selection?.rangeCount && editor.current.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+            applyEditorChange(selection,root => {moved = moveNoteListItems(root,selection,event.key === 'ArrowUp');});
+          }
+          if (moved) {
+            event.preventDefault();
+            const node = selection.focusNode;
+            (node?.nodeType === 1 ? node : node?.parentElement)?.scrollIntoView?.({block:'nearest'});
+            return;
+          }
+        }
         if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey && !loading && !readOnly) {
           const before=readNoteEditor(editor.current);
           if (changeNoteListDepth(editor.current,window.getSelection(),event.shiftKey)) {
@@ -711,8 +845,13 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
               if (['[]','[ ]'].includes(prefix.toString())) {
                 event.preventDefault();applyBlock('checklist',false,prefix);return;
               }
-              if (prefix.toString()==='1.'&&block?.parentElement?.nodeName!=='OL') {
-                event.preventDefault();applyBlock('numbered',false,prefix,true);return;
+              const number = prefix.toString().match(/^([1-9]\d{0,3})\.$/);
+              if (number&&block?.parentElement?.nodeName!=='OL') {
+                event.preventDefault();applyBlock('numbered',false,prefix,true,Number(number[1]));return;
+              }
+              const markdown = {'>':'quote','##':'h3'}[prefix.toString()];
+              if (markdown && !block?.closest?.('.notes-toggle-title,li')) {
+                event.preventDefault();applyBlock(markdown,false,prefix,true);return;
               }
               if (prefix.toString() === '-' && block?.nodeName !== 'LI') {
                 event.preventDefault();

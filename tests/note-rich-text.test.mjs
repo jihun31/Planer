@@ -6,6 +6,7 @@ import {noteRuns,noteHtml,notePlainText,serializeNoteRuns,createNoteToggle} from
 import {noteFormatAt,readNoteEditor,restoreNoteSelection} from '../src/features/notes/noteEditorDom.mjs';
 import {youtubeToken,escapeHtml,youtubeVideo} from '../src/features/notes/youtubeLinks.mjs';
 import {webLink} from '../src/features/notes/siteLinks.mjs';
+import {noteListFromPlainText} from '../src/features/notes/noteListText.mjs';
 import {recentNoteColor,rememberNoteColor,toggledNoteColor} from '../src/features/notes/noteEditorPreferences.mjs';
 import {startNoteTextDrag,noteTextDropAllowed} from '../src/features/notes/noteTextDrag.mjs';
 
@@ -62,7 +63,7 @@ test('direct slash commands wait for Korean composition to finish and respect mo
   const applied=[],composing={current:false},dismissedSlash={current:null};
   const opened=[];
   const context=vm.createContext({loading:false,readOnly:false,composing,dismissedSlash,editor:{current:{}},window:{getSelection:()=>({})},
-    noteSlashShortcut:()=>({type:'h3',range:'command-range'}),applyBlock:(...args)=>applied.push(args),
+    noteSlashShortcut:()=>({type:'h3',range:'command-range'}),applyBlock:(...args)=>applied.push(args),hideListHandle(){},
     noteImageSelector:'[data-note-image-id]',openNoteImage:image=>{opened.push(image);return true;}});
   vm.runInContext('globalThis.keyDown=event=>{'+body+'};',context);
   const key=(overrides={})=>context.keyDown({key:'Enter',nativeEvent:{isComposing:false},preventDefault(){},target:{closest:()=>null},...overrides});
@@ -83,7 +84,7 @@ test('paste uses the live typing color for external text and copied notes, inclu
   let activeColor = '#9065b0', inserted = '';
   const attached = [];
   const context = vm.createContext({loading:false,readOnly:false,selectedFormats:()=>({color:activeColor}),
-    setNotice(){},commit:()=>true,escapeHtml,youtubeVideo,webLink,noteHtml,editor:{current:'editor'},
+    setNotice(){},commit:()=>true,escapeHtml,youtubeVideo,webLink,noteHtml,noteListFromPlainText,repairNoteChecklists(){},editor:{current:'editor'},
     noteImageFiles:transfer=>transfer.files||[],attachNoteImages:(...args)=>attached.push(args),
     restoreSelection:()=>({getRangeAt:()=>({cloneRange:()=>'caret'})}),
     document:{execCommand(command,_ui,html){assert.equal(command,'insertHTML');inserted=html;return true;}}});
@@ -104,6 +105,8 @@ test('paste uses the live typing color for external text and copied notes, inclu
   assert.ok(!inserted.includes('color:#337ea9'));
   context.paste(event('기본색 붙여넣기'));
   assert.equal(inserted,'<span style="color:#0f172a">기본색 붙여넣기</span>');
+  context.paste(event('- 우유\n- 빵'));
+  assert.equal(inserted,'<ul><li><span style="color:#0f172a">우유</span></li><li><span style="color:#0f172a">빵</span></li></ul>','Plain-text lists are pasted as list rows');
 });
 
 const text=value=>({nodeType:3,nodeName:'#text',data:value});

@@ -8,6 +8,10 @@
 .notes-floating-toolbar,.notes-slash-menu { position:fixed; z-index:1200; max-width:calc(100vw - 16px); padding:5px; border:1px solid #e5e7eb; border-radius:10px; background:white; color:var(--text); box-shadow:0 6px 24px #0f172a24; font-size:13px; }
 .notes-floating-toolbar { width:330px; }
 .notes-drop-indicator { position:fixed; z-index:1250; border-radius:2px; background:#8ab4f8; pointer-events:none; }
+.notes-list-handle { position:fixed; z-index:1150; display:flex; align-items:center; justify-content:center; width:20px; padding:0; border:0; border-radius:4px; background:transparent; color:#9ca3af; font-size:13px; line-height:1; letter-spacing:-3px; cursor:grab; touch-action:none; user-select:none; }
+.notes-list-handle:hover { background:#f1f3f5; color:#4b5563; }
+.notes-list-handle:active { cursor:grabbing; }
+.notes-text-editor li.notes-list-dragging { opacity:.45; }
 .notes-floating-actions { display:flex; align-items:center; gap:2px; }
 .notes-block-picker { display:flex; align-items:center; justify-content:space-between; flex:0 1 104px; min-width:0; gap:6px; padding:7px 6px; border:0; border-radius:5px; background:none; color:var(--text); font:inherit; font-size:12px; white-space:nowrap; cursor:pointer; }
 .notes-block-label { overflow:hidden; text-overflow:ellipsis; }
@@ -23,7 +27,6 @@
 .notes-color-menu button > span { font-size:17px; font-weight:600; }
 .notes-color-menu button:hover,.notes-color-menu button[aria-checked="true"] { background:#f1f3f5; }
 .notes-slash-menu { width:280px; max-height:calc(100vh - 16px); overflow-y:auto; }
-.notes-slash-empty { padding:14px 8px; color:var(--text-muted); }
 .notes-floating-toolbar button:focus-visible,.notes-slash-menu button:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
 .notes-format-button { display:inline-flex; align-items:center; justify-content:center; min-width:29px; height:27px; padding:3px 8px; border:0; border-radius:5px; background:transparent; color:var(--text-muted); font:inherit; font-size:13px; cursor:pointer; }
 .notes-format-button:hover { background:var(--bg); }
