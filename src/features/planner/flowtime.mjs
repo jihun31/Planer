@@ -14,9 +14,12 @@ export function flowRestMinutes(workMs) {
   return restSteps.find(([limit]) => worked < limit)?.[1] ?? longRest;
 }
 
-export const BREAK_NUDGE_OPTIONS = [25, 30, 45, 50, 60, 90];
+// 알림 시점은 사용자가 분 단위 정수로 직접 입력한다.
+export const BREAK_NUDGE_MIN_MINUTES = 1;
+export const BREAK_NUDGE_MAX_MINUTES = 240;
 export const DEFAULT_BREAK_NUDGE_MINUTES = 50;
-export const isBreakNudgeMinutes = value => BREAK_NUDGE_OPTIONS.includes(value);
+export const isBreakNudgeMinutes = value => Number.isInteger(value)
+  && value >= BREAK_NUDGE_MIN_MINUTES && value <= BREAK_NUDGE_MAX_MINUTES;
 
 export function breakNudgeText(minutes) {
   return `${minutes}분 지났어요 · 쉬어 갈까요?`;

@@ -20,7 +20,13 @@ test('flow rest length follows worked time', () => {
 
 test('break nudge options and text', () => {
   assert.ok(isBreakNudgeMinutes(50));
-  assert.ok(!isBreakNudgeMinutes(7));
+  assert.ok(isBreakNudgeMinutes(7));
+  assert.ok(isBreakNudgeMinutes(1));
+  assert.ok(isBreakNudgeMinutes(240));
+  assert.ok(!isBreakNudgeMinutes(0));
+  assert.ok(!isBreakNudgeMinutes(241));
+  assert.ok(!isBreakNudgeMinutes(12.5));
+  assert.ok(!isBreakNudgeMinutes(NaN));
   assert.ok(!isBreakNudgeMinutes('50'));
   assert.equal(breakNudgeText(45), '45분 지났어요 · 쉬어 갈까요?');
 });

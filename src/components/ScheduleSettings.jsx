@@ -4,7 +4,7 @@ import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs'
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
 import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference,
   useBreakNudgePreference, useBreakNudgeMinutes, useFlowRestPreference } from '../features/planner/timerPreferences';
-import { BREAK_NUDGE_OPTIONS } from '../features/planner/flowtime.mjs';
+import { BREAK_NUDGE_MIN_MINUTES, BREAK_NUDGE_MAX_MINUTES, isBreakNudgeMinutes } from '../features/planner/flowtime.mjs';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
 import { useTabOrder } from '../features/navigation/useTabOrder';
 import { DEFAULT_TAB_ORDER, moveTab, orderTabs, tabAvailable, tabViews } from '../features/navigation/appTabs.mjs';
@@ -19,6 +19,8 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
   const [timerSwitchEnabled, setTimerSwitchEnabled] = useTimerSwitchPreference(uid);
   const [breakNudgeEnabled, setBreakNudgeEnabled] = useBreakNudgePreference(uid);
   const [breakNudgeMinutes, setBreakNudgeMinutes] = useBreakNudgeMinutes(uid);
+  // 입력 중인 글자(빈 칸·범위 밖 값 포함). 칸을 벗어나면 저장된 값으로 돌아간다.
+  const [nudgeDraft, setNudgeDraft] = useState(null);
   const [flowRestEnabled, setFlowRestEnabled] = useFlowRestPreference(uid);
   const [timerFailure, setTimerFailure] = useState('');
   const saveTimerPreference = apply => {
@@ -89,10 +91,18 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
       <p>{copy.field('timerSwitchNote')}</p>
       <label>{copy.field('breakNudge')}<input type="checkbox" disabled={copy.editing} checked={breakNudgeEnabled}
         onChange={e => saveTimerPreference(() => setBreakNudgeEnabled(e.target.checked))} /></label>
-      <label>{copy.field('breakNudgeMinutes')}<select value={breakNudgeMinutes} disabled={copy.editing || !breakNudgeEnabled}
-        onChange={e => saveTimerPreference(() => setBreakNudgeMinutes(Number(e.target.value)))}>
-        {BREAK_NUDGE_OPTIONS.map(minutes => <option key={minutes} value={minutes}>{minutes}분</option>)}
-      </select></label>
+      <label>{copy.field('breakNudgeMinutes')}<span className="break-nudge-minutes">
+        <input type="number" inputMode="numeric" min={BREAK_NUDGE_MIN_MINUTES} max={BREAK_NUDGE_MAX_MINUTES} step="1"
+          value={nudgeDraft ?? breakNudgeMinutes} disabled={copy.editing || !breakNudgeEnabled}
+          onChange={e => {
+            const text = e.target.value;
+            const value = Number(text);
+            setNudgeDraft(text);
+            if (text !== '' && isBreakNudgeMinutes(value)) saveTimerPreference(() => setBreakNudgeMinutes(value));
+          }}
+          onBlur={() => setNudgeDraft(null)} />분</span></label>
+      {nudgeDraft !== null && !isBreakNudgeMinutes(Number(nudgeDraft)) &&
+        <p role="alert">{BREAK_NUDGE_MIN_MINUTES}~{BREAK_NUDGE_MAX_MINUTES} 사이의 정수(분)를 입력해 주세요.</p>}
       <p>{copy.field('breakNudgeNote')}</p>
       <label>{copy.field('flowRest')}<input type="checkbox" disabled={copy.editing} checked={flowRestEnabled}
         onChange={e => saveTimerPreference(() => setFlowRestEnabled(e.target.checked))} /></label>
