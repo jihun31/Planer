@@ -122,6 +122,15 @@ function App() {
   const showTimerPrompt = view => { if (currentView !== view) activateView(view); };
   const switchTargetFor = view => timerSwitch?.uid === user?.uid && timerSwitch?.view === view ? timerSwitch : null;
 
+  // 기록 타이머를 정지하면 일한 시간에 맞춘 휴식을 통제 화면의 휴식 타이머에서 바로 시작한다(Flowtime 연결).
+  const [flowRest, setFlowRest] = useState(null);
+  useEffect(() => { setFlowRest(null); }, [user?.uid]);
+  const startFlowRest = request => {
+    setFlowRest({ uid: user.uid, ...request });
+    if (currentView === 'planner' || currentView === 'control') activateView('control');
+    else setOpenedViews(opened => opened.control ? opened : { ...opened, control: true });
+  };
+
   const resumeAfterRest = activityId => {
     setRestTarget({ uid: user.uid, activityId });
     activateView('planner');
@@ -199,7 +208,8 @@ function App() {
     );
   }
 
-  const plannerProps = { uid: user.uid, scheduleHistory, settingsReady, settingsError, controlAvailable: controlVisible, onTimerSwitch: switchTimer, onTimerPrompt: showTimerPrompt };
+  const plannerProps = { uid: user.uid, scheduleHistory, settingsReady, settingsError, controlAvailable: controlVisible, onTimerSwitch: switchTimer, onTimerPrompt: showTimerPrompt,
+    onFlowRest: startFlowRest };
   const afterBlockMigration = content => blockMigration.ready ? content
     : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />;
   // 보기 id(appTabs.mjs)마다 그릴 화면
@@ -214,7 +224,8 @@ function App() {
         restTarget={restTarget?.uid === user.uid ? restTarget : null} switchTarget={switchTargetFor('planner')} />)}
     </>,
     control: () => afterBlockMigration(<PlannerTab key={`${user.uid}-control`} {...plannerProps} control
-      active={currentView === 'control'} onRestReturn={resumeAfterRest} switchTarget={switchTargetFor('control')} />),
+      active={currentView === 'control'} onRestReturn={resumeAfterRest} switchTarget={switchTargetFor('control')}
+      flowRestTarget={flowRest?.uid === user.uid ? flowRest : null} />),
     learning: () => <LearningTab key={user.uid} learning={learning} active={currentView === 'learning'} />,
     habits: () => <HabitsTab key={user.uid} uid={user.uid} habitsData={habitsData} />,
     notes: () => <NotesTab key={user.uid} uid={user.uid} />,

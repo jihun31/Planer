@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { DEFAULT_BREAK_NUDGE_MINUTES, isBreakNudgeMinutes } from './flowtime.mjs';
 
 const changeEvent = 'planer:timer-preferences';
 function subscribe(onChange) {
@@ -66,4 +67,46 @@ export function useTimerSwitchPreference(uid) {
     window.dispatchEvent(new Event(changeEvent));
   };
   return [enabled, setEnabled];
+}
+
+// Flowtime식 집중·휴식 연결. 두 기능 모두 기본으로 켜 두고 설정에서 끌 수 있다.
+function useBooleanPreference(key, fallback) {
+  const enabled = useSyncExternalStore(subscribe, () => {
+    try {
+      const value = key ? window.localStorage.getItem(key) : null;
+      return value === null ? fallback : value === 'true';
+    } catch { return fallback; }
+  }, () => fallback);
+  const setEnabled = value => {
+    if (!key || typeof value !== 'boolean') throw new Error('Invalid timer preference');
+    window.localStorage.setItem(key, String(value));
+    window.dispatchEvent(new Event(changeEvent));
+  };
+  return [enabled, setEnabled];
+}
+
+// 기록 타이머가 오래 돌면 타이머에 작은 휴식 알림을 띄운다.
+export function useBreakNudgePreference(uid) {
+  return useBooleanPreference(uid ? `planer:break-nudge:${uid}` : null, true);
+}
+
+// 기록 타이머를 정지하면 일한 시간에 맞춘 길이로 휴식 타이머를 바로 시작한다.
+export function useFlowRestPreference(uid) {
+  return useBooleanPreference(uid ? `planer:flow-rest:${uid}` : null, true);
+}
+
+export function useBreakNudgeMinutes(uid) {
+  const key = uid ? `planer:break-nudge-minutes:${uid}` : null;
+  const minutes = useSyncExternalStore(subscribe, () => {
+    try {
+      const value = key ? Number(window.localStorage.getItem(key)) : NaN;
+      return isBreakNudgeMinutes(value) ? value : DEFAULT_BREAK_NUDGE_MINUTES;
+    } catch { return DEFAULT_BREAK_NUDGE_MINUTES; }
+  }, () => DEFAULT_BREAK_NUDGE_MINUTES);
+  const setMinutes = value => {
+    if (!key || !isBreakNudgeMinutes(value)) throw new Error('Invalid timer preference');
+    window.localStorage.setItem(key, String(value));
+    window.dispatchEvent(new Event(changeEvent));
+  };
+  return [minutes, setMinutes];
 }

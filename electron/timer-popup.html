@@ -97,6 +97,8 @@
       50%       { opacity: 0.3; transform: scale(0.6); }
     }
     body[data-mode="rest"] .start-label { display: none; }
+    /* 오래 일했을 때의 작은 휴식 알림: 시작 시각 줄을 조용히 바꿔 보여 준다. */
+    .start-label.nudge { color: #64748b !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   </style>
 </head>
 <body>
@@ -112,6 +114,15 @@
   <script>
     let startTs = null;
     let restSession = null;
+    let startLabel = '';
+    let nudgeMinutes = null;
+
+    function showStartLabel(elapsedSeconds) {
+      const label = document.getElementById('start-label');
+      const due = nudgeMinutes !== null && elapsedSeconds >= nudgeMinutes * 60;
+      label.classList.toggle('nudge', due);
+      label.textContent = due ? nudgeMinutes + '분 지났어요 · 쉬어 갈까요?' : startLabel;
+    }
     let intervalId = null;
 
     function fmtElapsed(s) {
@@ -147,12 +158,14 @@
         tick();
         return;
       }
-      intervalId = setInterval(() => {
-        if (startTs !== null) {
-          document.getElementById('time').textContent =
-            fmtElapsed(Math.floor((Date.now() - startTs) / 1000));
-        }
-      }, 1000);
+      const tick = () => {
+        if (startTs === null) return;
+        const seconds = Math.floor((Date.now() - startTs) / 1000);
+        document.getElementById('time').textContent = fmtElapsed(seconds);
+        showStartLabel(seconds);
+      };
+      intervalId = setInterval(tick, 1000);
+      tick();
     }
 
     window.electronAPI.onTimerData((data) => {
@@ -161,9 +174,10 @@
       document.getElementById('close-btn').title = restSession ? '숨기기' : '닫기';
       document.getElementById('stop-btn').textContent = restSession ? '휴식 마치기' : '■ 정지 & 기록';
       document.getElementById('name').textContent = data.actName;
-      document.getElementById('start-label').textContent =
-        data.startLabel ? data.startLabel + ' 시작' : '';
+      startLabel = data.startLabel ? data.startLabel + ' 시작' : '';
+      nudgeMinutes = !restSession && Number.isInteger(data.nudgeMinutes) ? data.nudgeMinutes : null;
       applyColor(data.color);
+      showStartLabel(0);
       startTs = data.startTs;
       startTick();
     });

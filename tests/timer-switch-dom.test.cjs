@@ -188,8 +188,45 @@ if(!process.versions.electron){
           &&short.segments[0].endMin-short.segments[0].startMin===1,'Short rest was not saved as a one-minute walk');
         assert(restTimer.read('switch-user').session===null,'End did not clear the rest session');
         assert(timerSwitchRestReturns.length===1,'End invoked the return to work callback');
+
+        // Flowtime: 오래 일하면 작은 알림만 뜨고, 정지하면 일한 시간에 맞춘 휴식이 설정 창 없이 바로 시작된다.
+        const nudge=()=>document.querySelector('.float-timer .timer-break-nudge');
+        restNow=new Date(year,month-1,day,13,0,0).getTime();
+        chip(study,'강의').click();await wait(()=>floatName()==='강의');
+        await tick();assert(!nudge(),'Break nudge appeared before the chosen time');
+        restNow+=51*60000;
+        await wait(()=>nudge()?.textContent==='50분 지났어요 · 쉬어 갈까요?','Break nudge did not appear after 50 minutes');
+        assert(floatName()==='강의'&&study.querySelector('.timer-running')&&!document.querySelector('dialog[open]'),'Break nudge interrupted the work timer');
+        localStorage.setItem('planer:break-nudge-minutes:switch-user','90');window.dispatchEvent(new Event('planer:timer-preferences'));
+        await wait(()=>!nudge(),'Changing the nudge time did not hide the early nudge');
+        localStorage.setItem('planer:break-nudge-minutes:switch-user','50');window.dispatchEvent(new Event('planer:timer-preferences'));
+        await wait(()=>nudge(),'Nudge did not return at 50 minutes');
+        localStorage.setItem('planer:break-nudge:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));
+        await wait(()=>!nudge(),'Turning the nudge off did not hide it');
+        const flowPopups=popups.length,flowSaves=timerSwitchSaves.length;
+        stop();
+        await wait(()=>popups.length>flowPopups,'Stopping work did not start the rest timer');
+        const flow=restTimer.read('switch-user');
+        assert(timerSwitchSaves.length===flowSaves+1&&timerSwitchSaves.at(-1).activityId==='lecture','Work was not saved before the rest');
+        assert(flow.session.endTs-flow.session.startTs===10*60000&&flow.session.name==='휴식'&&flow.session.returnActivityId==='lecture',
+          'Flow rest length or return activity is wrong: '+JSON.stringify(flow.session));
+        assert(!prompt()&&!setup()&&!document.querySelector('.timer-running'),'Flow rest opened a dialog or left a timer running');
+        restNow+=3*60000;
+        popupCommand({type:'end',key:flow.session.startTs+':'+flow.session.endTs});
+        await wait(()=>review());
+        button(review(),'업무 복귀').click();await wait(()=>!review());
+        assert(timerSwitchRestReturns.at(-1)==='lecture','Return to work did not resume the stopped activity');
+
+        // 끄면 예전처럼 다음 활동 선택 창이 뜬다.
+        localStorage.setItem('planer:flow-rest:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));await tick();
+        chip(study,'강의').click();await wait(()=>floatName()==='강의');
+        restNow+=30*60000;
+        const offPopups=popups.length;
+        stop();await wait(()=>prompt(),'Switch prompt did not appear with flow rest off');
+        assert(popups.length===offPopups&&restTimer.read('switch-user').session===null,'Flow rest started while turned off');
+        [...prompt().querySelectorAll('button')].find(button=>button.textContent==='종료').click();await tick();
         Date.now=realNow;
-        return {offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,restEnd:true,calendarRest:true,restSaveRetry:true,saves:timerSwitchSaves.length};
+        return {flowRest:true,breakNudge:true,offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,restEnd:true,calendarRest:true,restSaveRetry:true,saves:timerSwitchSaves.length};
       })()`);
       const popup=new BrowserWindow({show:false,webPreferences:{
         sandbox:true,offscreen:true,backgroundThrottling:false,preload:path.join(__dirname,'../electron/preload.cjs'),
@@ -211,7 +248,18 @@ if(!process.versions.electron){
       })()`);
       await new Promise(resolve=>setTimeout(resolve,100));
       if(commands.length!==1||commands[0].type!=='end'||commands[0].key!==key)throw Error('Unlimited popup sent an unexpected command');
-      console.log(JSON.stringify({...result,unlimitedPopup:true}));app.exit(0);
+      // 작업 타이머 팝업은 알림 시점을 넘기면 시작 시각 줄만 조용히 바꾼다.
+      popup.webContents.send('timer:data',{actName:'강의',color:'#ef4444',startTs:Date.now()-51*60000,startLabel:'13:00',nudgeMinutes:50});
+      const popupNudge=await popup.webContents.executeJavaScript(`(async()=>{
+        const label=document.querySelector('#start-label');const deadline=Date.now()+3000;
+        while(!label.classList.contains('nudge')){if(Date.now()>deadline)break;await new Promise(resolve=>setTimeout(resolve,50));}
+        return label.textContent;
+      })()`);
+      if(popupNudge!=='50분 지났어요 · 쉬어 갈까요?')throw Error('Popup did not show the break nudge: '+popupNudge);
+      popup.webContents.send('timer:data',{actName:'강의',color:'#ef4444',startTs:Date.now()-60000,startLabel:'13:00',nudgeMinutes:50});
+      const popupLabel=await popup.webContents.executeJavaScript(`new Promise(resolve=>setTimeout(()=>resolve(document.querySelector('#start-label').textContent),100))`);
+      if(popupLabel!=='13:00 시작')throw Error('Popup nudged too early: '+popupLabel);
+      console.log(JSON.stringify({...result,unlimitedPopup:true,popupNudge:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

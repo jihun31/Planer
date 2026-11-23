@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { saveScheduleSettings } from '../features/planner/scheduleSettings';
 import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs';
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
-import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference } from '../features/planner/timerPreferences';
+import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference,
+  useBreakNudgePreference, useBreakNudgeMinutes, useFlowRestPreference } from '../features/planner/timerPreferences';
+import { BREAK_NUDGE_OPTIONS } from '../features/planner/flowtime.mjs';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
 import { useTabOrder } from '../features/navigation/useTabOrder';
 import { DEFAULT_TAB_ORDER, moveTab, orderTabs, tabAvailable, tabViews } from '../features/navigation/appTabs.mjs';
@@ -15,7 +17,14 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
   const [timerPopupPosition, setTimerPopupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled, setStudyGapEnabled] = useStudyGapPreference(uid);
   const [timerSwitchEnabled, setTimerSwitchEnabled] = useTimerSwitchPreference(uid);
+  const [breakNudgeEnabled, setBreakNudgeEnabled] = useBreakNudgePreference(uid);
+  const [breakNudgeMinutes, setBreakNudgeMinutes] = useBreakNudgeMinutes(uid);
+  const [flowRestEnabled, setFlowRestEnabled] = useFlowRestPreference(uid);
   const [timerFailure, setTimerFailure] = useState('');
+  const saveTimerPreference = apply => {
+    try { apply(); setTimerFailure(''); }
+    catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
+  };
   const [tabVisibility,setTabVisible] = useTabVisibility(uid);
   const [tabFailure,setTabFailure] = useState('');
   const [tabOrder,setTabOrder] = useTabOrder(uid);
@@ -78,6 +87,16 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
         catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
       }} /></label>
       <p>{copy.field('timerSwitchNote')}</p>
+      <label>{copy.field('breakNudge')}<input type="checkbox" disabled={copy.editing} checked={breakNudgeEnabled}
+        onChange={e => saveTimerPreference(() => setBreakNudgeEnabled(e.target.checked))} /></label>
+      <label>{copy.field('breakNudgeMinutes')}<select value={breakNudgeMinutes} disabled={copy.editing || !breakNudgeEnabled}
+        onChange={e => saveTimerPreference(() => setBreakNudgeMinutes(Number(e.target.value)))}>
+        {BREAK_NUDGE_OPTIONS.map(minutes => <option key={minutes} value={minutes}>{minutes}분</option>)}
+      </select></label>
+      <p>{copy.field('breakNudgeNote')}</p>
+      <label>{copy.field('flowRest')}<input type="checkbox" disabled={copy.editing} checked={flowRestEnabled}
+        onChange={e => saveTimerPreference(() => setFlowRestEnabled(e.target.checked))} /></label>
+      <p>{copy.field('flowRestNote')}</p>
       {timerFailure && <p role="alert">{timerFailure}</p>}
     </section>
     <section className="schedule-settings-timer">

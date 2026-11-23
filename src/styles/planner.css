@@ -371,6 +371,15 @@
   letter-spacing: 0.02em;
 }
 
+/* 오래 일했을 때의 작은 휴식 알림(무시해도 되는 글자 한 줄) */
+.timer-break-nudge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+  color: #64748b;
+}
+.ft-start.timer-break-nudge { font-size: 0.65rem; }
+
 /* 타이머 버튼 공통 */
 .timer-btn {
   padding: 9px;

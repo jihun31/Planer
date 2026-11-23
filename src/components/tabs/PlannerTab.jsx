@@ -17,7 +17,7 @@ import DailySchedule from '../planner/DailySchedule';
 import '../../styles/planner.css';
 
 function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, control = false, active = false, restTarget, onRestReturn,
-  controlAvailable = true, onTimerSwitch, switchTarget, onTimerPrompt }) {
+  controlAvailable = true, onTimerSwitch, switchTarget, onTimerPrompt, onFlowRest, flowRestTarget }) {
   const today = plannerDate();
   const [selectedDate, setSelectedDate] = useState(today);
   const [calYear,  setCalYear]  = useState(() => Number(today.slice(0, 4)));
@@ -96,6 +96,7 @@ function PlannerTab({ uid, scheduleHistory, settingsReady, settingsError, contro
           <TimerBlock uid={uid} activities={activities} allActivities={allActivities} onSaveTimer={saveTimer} startActivityRef={timerStart} control={control}
             restAvailable={control && !loading && !error} returnActivities={control ? oppositeActivities : undefined} onRestReturn={onRestReturn} restTarget={restTarget}
             switchGroups={switchGroups} onSwitch={onTimerSwitch} switchTarget={switchTarget}
+            onFlowRest={!control && controlAvailable ? onFlowRest : undefined} flowRestTarget={control ? flowRestTarget : undefined}
             onSwitchPrompt={onTimerPrompt && (() => onTimerPrompt(control ? 'control' : 'planner'))} />
           <PlannerCalendar
             year={calYear} month={calMonth} selectedDate={selectedDate}

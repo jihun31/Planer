@@ -339,6 +339,19 @@ function createPlanerRest(React, createPortal) {
       window.electronAPI?.minimizeMain?.();
     }
 
+    // 기록 타이머를 정지한 순간 설정 창 없이 바로 휴식을 시작한다(Flowtime 연결).
+    // 기본 휴식 시간(store.minutes)은 직접 고른 값으로 남겨 둔다.
+    function startNow({ minutes, returnActivityId }) {
+      if (!enabled || editingRef.current || current.current.session || !isMinutes(minutes)) return false;
+      const startTs = Date.now();
+      const returnId = availableActivities.some(item => item.id === returnActivityId) ? returnActivityId : undefined;
+      if (!save({ ...current.current, session: { startTs, endTs: startTs + minutes * minute, name: restName, action: '', returnActivityId: returnId } })) return false;
+      lock();
+      setObservedTime(startTs);
+      window.electronAPI?.minimizeMain?.();
+      return true;
+    }
+
     function extend(minutes) {
       const active = current.current.session;
       const timestamp = Date.now();
@@ -399,7 +412,7 @@ function createPlanerRest(React, createPortal) {
         onEnd={() => finish(false)} onReturn={() => finish(true)} onExtend={extend} />
     </RestDialog> : session && (popupError || error) ? <p role="alert">{popupError || error}</p> : null;
 
-    return { open, busy: Boolean(editing || session), active: Boolean(session), panel };
+    return { open, startNow, busy: Boolean(editing || session), active: Boolean(session), panel };
   }
 
   return { optionId, restName, findRest, isRestName, read, useReturnTimer, Shortcut, useTimer };

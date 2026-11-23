@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom';
 import { controlColor } from '../../features/planner/controlColors.mjs';
 import { clockLabel, timerSegments } from '../../features/planner/scheduleTime.mjs';
 import { COLORS, CUSTOM_ID, fmtElapsed } from './plannerDisplay.mjs';
-import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference } from '../../features/planner/timerPreferences';
+import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference,
+  useBreakNudgePreference, useBreakNudgeMinutes, useFlowRestPreference } from '../../features/planner/timerPreferences';
+import { breakNudgeText, flowRestMinutes } from '../../features/planner/flowtime.mjs';
 import { prepareStudyGap } from '../../features/planner/studyGapService';
 import StudyGapDialog from './StudyGapDialog';
 import TimerSwitchDialog from './TimerSwitchDialog';
@@ -12,11 +14,17 @@ import { restTimer } from './restTimer';
 let activeTimerOwner = null;
 
 function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivityRef, control = false,
-  restAvailable, returnActivities, onRestReturn, restTarget, switchGroups, onSwitch, switchTarget, onSwitchPrompt }) {
+  restAvailable, returnActivities, onRestReturn, restTarget, switchGroups, onSwitch, switchTarget, onSwitchPrompt, onFlowRest, flowRestTarget }) {
   const [popupEnabled] = useTimerPopupPreference(uid);
   const [popupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled] = useStudyGapPreference(uid);
   const [switchEnabled] = useTimerSwitchPreference(uid);
+  const [nudgeEnabled] = useBreakNudgePreference(uid);
+  const [nudgeMinutes] = useBreakNudgeMinutes(uid);
+  const [flowRestEnabled] = useFlowRestPreference(uid);
+  // 기록 타이머를 정지하면 저장한 뒤 일한 시간에 맞춘 휴식을 통제 화면에서 바로 시작한다.
+  const flowRestAfterSave = useRef(null);
+  const flowRestApplied = useRef(null);
   // 정지한 기록이 저장되면 다음 활동을 고르는 창을 띄운다.
   const [switchPrompt, setSwitchPrompt] = useState(null);
   const promptAfterSave = useRef(null);
@@ -61,6 +69,10 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       !activities.some(a => a.id === actId)) setActId('');
   }, [activities, actId, running, defaultRest]);
   const curAct    = actMap[actId];
+  // 작업(기록) 타이머가 정한 시간을 넘기면 작은 글자로만 알린다. 소리·반복·화면 가림 없음.
+  const nudgeActive = !control && nudgeEnabled;
+  const popupNudge = nudgeActive ? { nudgeMinutes } : {};
+  const nudgeDue = nudgeActive && running && elapsed >= nudgeMinutes * 60;
   const timerColor = isCustom ? (control ? controlColor(customGroup) : customColor) : (curAct?.color ?? '#6366f1');
 
   useEffect(() => {
@@ -106,7 +118,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
 
     if (popupEnabled && isElectron) {
       const actName = selectedIsCustom ? customName : (selectedActivity?.name ?? '');
-      const data = { actName, color: selectedColor, startTs: ts, startLabel: clockLabel(ts), position: popupPosition };
+      const data = { actName, color: selectedColor, startTs: ts, startLabel: clockLabel(ts), position: popupPosition, ...popupNudge };
       const api = window.electronAPI;
       if (typeof api.startTimerPopup === 'function') {
         Promise.resolve().then(() => api.startTimerPopup(data)).then(result => {
@@ -180,7 +192,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       return;
     }
     const actName = isCustom ? customName : (curAct?.name ?? '');
-    window.electronAPI.openTimerPopup({ actName, color: timerColor, startTs, startLabel, position: popupPosition });
+    window.electronAPI.openTimerPopup({ actName, color: timerColor, startTs, startLabel, position: popupPosition, ...popupNudge });
     setElectronPopupOpen(true);
   };
 
@@ -198,7 +210,9 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     }
 
     const session = sessionRef.current;
-    promptAfterSave.current = switchEnabled && onSwitch ? {
+    const restMinutes = !control && flowRestEnabled && onFlowRest ? flowRestMinutes(endTs - session.startTs) : null;
+    flowRestAfterSave.current = restMinutes ? { minutes: restMinutes, returnActivityId: session.metadata.activityId ?? undefined } : null;
+    promptAfterSave.current = !restMinutes && switchEnabled && onSwitch ? {
       name: session.metadata.activityName || session.metadata.customName || '',
       color: session.metadata.activityColor || session.metadata.customColor,
       seconds: Math.max(0, Math.floor((endTs - session.startTs) / 1000)),
@@ -216,6 +230,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       pendingSave.current = null;
       // 다른 탭에서 정지했으면 이 타이머의 탭으로 옮긴다. 숨은 탭 안에서 모달 창이 열리면 보이지 않은 채 앱 전체를 막는다.
       if (promptAfterSave.current) { setSwitchPrompt(promptAfterSave.current); promptAfterSave.current = null; onSwitchPrompt?.(); }
+      if (flowRestAfterSave.current) { const request = flowRestAfterSave.current; flowRestAfterSave.current = null; onFlowRest?.(request); }
     } catch {
       setSaveError('기록을 저장하지 못했습니다. 연결을 확인하고 다시 저장해 주세요.');
     } finally { setSaving(false); }
@@ -238,6 +253,15 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     if (builtinRest ? !(ownRest || defaultRest) : !activities.some(activity => activity.id === switchTarget.activityId)) return;
     switchApplied.current = switchTarget;
     handleStart(ownRest ? ownRest.id : switchTarget.activityId);
+  });
+
+  // 기록 타이머에서 넘어온 휴식 요청을 받아 바로 시작한다. 다른 타이머가 돌고 있으면 건너뛴다.
+  useEffect(() => {
+    if (!control || !flowRestTarget || flowRestApplied.current === flowRestTarget) return;
+    flowRestApplied.current = flowRestTarget;
+    if (running || starting || saving || pendingSave.current || rest.busy
+      || (activeTimerOwner && activeTimerOwner !== timerOwner.current)) return;
+    rest.startNow(flowRestTarget);
   });
 
   const startLabel = running && startTs !== null ? clockLabel(startTs) : null;
@@ -306,6 +330,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
           {startLabel} 시작
         </div>
       )}
+      {nudgeDue && <div className="timer-break-nudge" role="status">{breakNudgeText(nudgeMinutes)}</div>}
 
       <button
         type="button"
@@ -338,7 +363,8 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
             {isElectron && <button className="ft-pin" onClick={handlePopup} title="항상 위에 고정">📌</button>}
           </div>
           <div className="ft-time" style={{ color: timerColor }}>{fmtElapsed(elapsed)}</div>
-          {startLabel && <div className="ft-start" style={{ color: timerColor }}>{startLabel} 시작</div>}
+          {nudgeDue ? <div className="ft-start timer-break-nudge">{breakNudgeText(nudgeMinutes)}</div>
+            : startLabel && <div className="ft-start" style={{ color: timerColor }}>{startLabel} 시작</div>}
           <button className="ft-stop" style={{ borderColor: timerColor, color: timerColor }}
             disabled={saving} onClick={handleStop}>
             {saving ? '저장 중...' : '■ 정지 & 기록'}

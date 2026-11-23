@@ -133,6 +133,8 @@ function createTimerWindow(data) {
     ...(isRest ? { mode: 'rest', endTs: data.endTs, key: data.startTs + ':' + data.endTs } : {}),
     actName: data.actName, startTs: data.startTs, color: data.color,
     startLabel: typeof data.startLabel === 'string' ? data.startLabel.slice(0, 30) : '',
+    ...(!isRest && Number.isInteger(data.nudgeMinutes) && data.nudgeMinutes >= 1 && data.nudgeMinutes <= 600
+      ? { nudgeMinutes: data.nudgeMinutes } : {}),
   };
   timerState = safeData;
   if (timerWindow && !timerWindow.isDestroyed()) {
