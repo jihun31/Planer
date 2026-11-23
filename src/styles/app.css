@@ -408,6 +408,9 @@ body {
 .schedule-settings-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 .settings-dialog-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
 .settings-dialog-heading h2 { margin-bottom:0; }
+.setting-help-label { display:inline-flex; align-items:center; gap:6px; }
+.setting-help-toggle { flex:none; width:18px; height:18px; padding:0; border:1px solid var(--border); border-radius:50%; background:var(--surface); color:var(--text-muted); font-size:11px; font-weight:700; line-height:1; cursor:pointer; }
+.setting-help-toggle:hover,.setting-help-toggle[aria-expanded="true"] { border-color:var(--primary); color:var(--primary); }
 .copy-edit-actions { display:flex; align-items:center; gap:6px; margin-left:auto; flex:none; }
 .copy-edit-actions button,.copy-edit-notice button { border:1px solid var(--border); border-radius:6px; padding:5px 9px; background:white; color:var(--text-muted); font:inherit; font-size:12px; cursor:pointer; }
 .copy-edit-actions .is-active { color:var(--primary); border-color:var(--primary); background:var(--primary-light); }

@@ -10,8 +10,11 @@ import { useTabOrder } from '../features/navigation/useTabOrder';
 import { DEFAULT_TAB_ORDER, moveTab, orderTabs, tabAvailable, tabViews } from '../features/navigation/appTabs.mjs';
 import { useEditableCopy } from '../features/copy/useEditableCopy';
 import DiscordLinkSection from './DiscordLinkSection';
+import { useSettingHelp } from './SettingHelp';
 export default function ScheduleSettings({ uid, history, ready, error, onClose, discord, serverInfo }) {
   const copy = useEditableCopy('settings');
+  const help = useSettingHelp(copy.editing);
+  const labelWithHelp = (labelKey, noteKey) => <span className="setting-help-label">{copy.field(labelKey)}{help.button(noteKey, copy.value(labelKey))}</span>;
   const close = () => {if (!saving && copy.canClose()) onClose();};
   const [timerPopupEnabled, setTimerPopupEnabled] = useTimerPopupPreference(uid);
   const [timerPopupPosition, setTimerPopupPosition] = useTimerPopupPosition(uid);
@@ -79,17 +82,17 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
         <option value="left">{copy.value('timerPopupLeft')}</option>
         <option value="right">{copy.value('timerPopupRight')}</option>
       </select></label>
-      <label>{copy.field('studyGap')}<input type="checkbox" disabled={copy.editing} checked={studyGapEnabled} onChange={e => {
+      <label>{labelWithHelp('studyGap','studyGapNote')}<input type="checkbox" disabled={copy.editing} checked={studyGapEnabled} onChange={e => {
         try { setStudyGapEnabled(e.target.checked); setTimerFailure(''); }
         catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
       }} /></label>
-      <p>{copy.field('studyGapNote')}</p>
-      <label>{copy.field('timerSwitch')}<input type="checkbox" disabled={copy.editing} checked={timerSwitchEnabled} onChange={e => {
+      {help.shown('studyGapNote') && <p>{copy.field('studyGapNote')}</p>}
+      <label>{labelWithHelp('timerSwitch','timerSwitchNote')}<input type="checkbox" disabled={copy.editing} checked={timerSwitchEnabled} onChange={e => {
         try { setTimerSwitchEnabled(e.target.checked); setTimerFailure(''); }
         catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
       }} /></label>
-      <p>{copy.field('timerSwitchNote')}</p>
-      <label>{copy.field('breakNudge')}<input type="checkbox" disabled={copy.editing} checked={breakNudgeEnabled}
+      {help.shown('timerSwitchNote') && <p>{copy.field('timerSwitchNote')}</p>}
+      <label>{labelWithHelp('breakNudge','breakNudgeNote')}<input type="checkbox" disabled={copy.editing} checked={breakNudgeEnabled}
         onChange={e => saveTimerPreference(() => setBreakNudgeEnabled(e.target.checked))} /></label>
       <label>{copy.field('breakNudgeMinutes')}<span className="break-nudge-minutes">
         <input type="number" inputMode="numeric" min={BREAK_NUDGE_MIN_MINUTES} max={BREAK_NUDGE_MAX_MINUTES} step="1"
@@ -103,19 +106,19 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
           onBlur={() => setNudgeDraft(null)} />분</span></label>
       {nudgeDraft !== null && !isBreakNudgeMinutes(Number(nudgeDraft)) &&
         <p role="alert">{BREAK_NUDGE_MIN_MINUTES}~{BREAK_NUDGE_MAX_MINUTES} 사이의 정수(분)를 입력해 주세요.</p>}
-      <p>{copy.field('breakNudgeNote')}</p>
-      <label>{copy.field('flowRest')}<input type="checkbox" disabled={copy.editing} checked={flowRestEnabled}
+      {help.shown('breakNudgeNote') && <p>{copy.field('breakNudgeNote')}</p>}
+      <label>{labelWithHelp('flowRest','flowRestNote')}<input type="checkbox" disabled={copy.editing} checked={flowRestEnabled}
         onChange={e => saveTimerPreference(() => setFlowRestEnabled(e.target.checked))} /></label>
-      <p>{copy.field('flowRestNote')}</p>
+      {help.shown('flowRestNote') && <p>{copy.field('flowRestNote')}</p>}
       {timerFailure && <p role="alert">{timerFailure}</p>}
     </section>
     <section className="schedule-settings-timer">
       <div className="tab-order-heading">
-        <h3>{copy.field('tabsHeading')}</h3>
+        <h3 className="setting-help-label">{copy.field('tabsHeading')}{help.button('tabsNote', copy.value('tabsHeading'))}</h3>
         <button type="button" className="tab-order-reset" disabled={copy.editing || isDefaultOrder}
           onClick={() => saveTabOrder(null)}>{copy.field('tabOrderReset')}</button>
       </div>
-      <p>{copy.field('tabsNote')}</p>
+      {help.shown('tabsNote') && <p>{copy.field('tabsNote')}</p>}
       <ol className="tab-order-list">
         {orderedTabs.map((tab,index) => {
           // 탭은 보기가 하나라도 보이면 표시된다. 모든 보기를 숨길 수 있어야 탭째 숨길 수 있다(탭 체크는 보기 전체를 켜고 끈다).
@@ -144,14 +147,14 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
       {tabFailure && <p role="alert">{tabFailure}</p>}
     </section>
     <form onSubmit={save}>
-      <h3 className="schedule-settings-calendar-title">{copy.field('calendarHeading')}</h3>
-      <p>{copy.field('rangeNote')}</p>
+      <h3 className="schedule-settings-calendar-title setting-help-label">{copy.field('calendarHeading')}{help.button('range', copy.value('calendarHeading'))}</h3>
+      {help.shown('range') && <p>{copy.field('rangeNote')}</p>}
       <div className="schedule-settings-hours">
         <label>{copy.field('start')} <select value={startHour} onChange={e => setStartHour(Number(e.target.value))} disabled={saving || copy.editing}>{options}</select></label>
         <label>{copy.field('end')} <select value={endHour} onChange={e => setEndHour(Number(e.target.value))} disabled={saving || copy.editing}>{options}</select></label>
       </div>
-      <p>{copy.field('rangeHistory')}</p>
-      {(copy.editing || copy.value('dayBoundary')) && <p>{copy.field('dayBoundary')}</p>}
+      {help.shown('range') && <p>{copy.field('rangeHistory')}</p>}
+      {help.shown('range') && (copy.editing || copy.value('dayBoundary')) && <p>{copy.field('dayBoundary')}</p>}
       <div className="schedule-settings-display">
         <h3>{copy.field('oppositeHeading')}</h3>
         <label>{copy.field('plannerOpposite')}
