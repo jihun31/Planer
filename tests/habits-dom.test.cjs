@@ -349,13 +349,35 @@ if(!process.versions.electron){
         assert(lastWrite()===JSON.stringify(['log','water','2026-11-20',null]),'기록 삭제를 저장해야 합니다: '+lastWrite());
       `);
 
+      // 시간 관리 상단의 오늘 할 일 줄에도 하루 계획에 고정한 습관이 같은 칸 순서로 보이고, 체크하면 습관 기록에 저장된다
+      await step(`
+        const reminder=document.querySelector('#reminder');
+        const RealDate=Date;
+        window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[new RealDate(2026,10,20,10,0).getTime()]));}};
+        try{window.dispatchEvent(new Event('focus'));}finally{window.Date=RealDate;}
+        const remindBox=()=>reminder.querySelector('input[aria-label="물 마시기 완료"]');
+        await wait(()=>remindBox(),'고정한 습관이 오늘 할 일 줄에 보여야 합니다.');
+        const labels=[...reminder.querySelectorAll('.task-reminder-line:not(.task-reminder-measure) input')].map(input=>input.getAttribute('aria-label'));
+        assert(JSON.stringify(labels)===JSON.stringify(['물 마시기 완료','저녁 할 일 완료']),'같은 칸에서는 습관이 할 일보다 먼저 와야 합니다: '+JSON.stringify(labels));
+        const item=remindBox().closest('.task-reminder-item');
+        assert(item.querySelector('.task-reminder-slot').textContent==='저녁'&&item.textContent.includes('💧 물 마시기'),'칸과 이름을 보여야 합니다: '+item.textContent);
+        assert(!remindBox().checked,'안 한 습관은 체크되지 않아야 합니다.');
+        remindBox().click();
+        await wait(()=>remindBox().checked&&!remindBox().disabled&&document.querySelector('#plan [aria-label="물 마시기 완료"]').checked,'오늘 할 일 줄에서 체크하면 하루 계획에도 완료여야 합니다.');
+        assert(lastWrite()===JSON.stringify(['log','water','2026-11-20','full']),'습관 기록으로 저장해야 합니다: '+lastWrite());
+        assert(cells('물 마시기')[4]==='full','습관 탭의 오늘 칸도 완료여야 합니다.');
+        remindBox().click();
+        await wait(()=>!remindBox().checked&&cells('물 마시기')[4]==='open','다시 누르면 기록을 지워야 합니다.');
+        assert(lastWrite()===JSON.stringify(['log','water','2026-11-20',null]),'기록 삭제를 저장해야 합니다: '+lastWrite());
+      `);
+
       if(process.env.PLANER_HABITS_SHOT){
         // 화면 확인용 캡처: 숨긴 창은 예전 화면이 찍혀서 잠깐 띄운다(포커스는 가져가지 않음)
         await win.webContents.executeJavaScript(`document.querySelector('#tab .habit-row:nth-child(2) .habit-row-toggle').click()`);
         win.showInactive();await new Promise(resolve=>setTimeout(resolve,800));
         fs.writeFileSync(process.env.PLANER_HABITS_SHOT,(await win.webContents.capturePage()).toPNG());
       }
-      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,rowLayout:true,selfCheck:true,habitOrder:true,planSlot:true}));app.exit(0);
+      console.log(JSON.stringify({todayCheck:true,tinyVersion:true,celebration:true,pastCells:true,restDay:true,history:true,weekReview:true,addForm:true,countHabit:true,archive:true,failure:true,rowLayout:true,selfCheck:true,habitOrder:true,planSlot:true,reminderHabits:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

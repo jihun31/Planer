@@ -1,8 +1,26 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DAY_START_HOUR, plannerDate } from '../../features/planner/scheduleTime.mjs';
+import { PLAN_SLOTS, isSkipped, planChecked, planHabits, planToggleValue } from '../../features/habits/habitCore.mjs';
 
 const SLOT_ORDER = new Map([['오전', 0], ['오후', 1], ['저녁', 2]]);
-const slotIndex = task => SLOT_ORDER.get(task.timeSlot) ?? SLOT_ORDER.size;
+const slotIndex = item => SLOT_ORDER.get(item.timeSlot) ?? SLOT_ORDER.size;
+
+// 할 일과 하루 계획에 고정한 습관을 한 줄에 같이 보여 주려고 같은 모양으로 바꾼다.
+// 같은 칸 안에서는 하루 계획 화면(TodayMain)처럼 습관이 할 일보다 먼저 온다. 쉬는 날로 기록한 습관은 뺀다.
+function reminderItems(tasks, habits, date) {
+  const taskItems = tasks.filter(task => task.dueDate === date).map(task => ({
+    key: task.id, title: task.title, label: task.title, timeSlot: task.timeSlot, checked: Boolean(task.completed),
+    habitFirst: 1, order: task.createdAtMs ?? 0, task,
+  }));
+  const habitItems = PLAN_SLOTS.flatMap(slot => planHabits(habits, date, slot))
+    .filter(habit => !isSkipped(habit, date))
+    .map((habit, order) => ({
+      key: 'habit-' + habit.id, title: (habit.emoji ? habit.emoji + ' ' : '') + habit.name, label: habit.name, timeSlot: habit.planSlot,
+      checked: planChecked(habit, date), habitFirst: 0, order, habit,
+    }));
+  return [...habitItems, ...taskItems]
+    .sort((a, b) => slotIndex(a) - slotIndex(b) || a.habitFirst - b.habitFirst || a.order - b.order);
+}
 
 function useReminderDate() {
   const [date, setDate] = useState(() => plannerDate());
@@ -72,22 +90,22 @@ function useFittingCount(measureRef, items) {
   return count;
 }
 
-function ReminderItem({ task, measuring, pending, onToggle }) {
+function ReminderItem({ item, measuring, pending, onToggle }) {
   const details = <>
-    {task.timeSlot && <span className="task-reminder-slot">{task.timeSlot}</span>}
+    {item.timeSlot && <span className="task-reminder-slot">{item.timeSlot}</span>}
     {measuring ? <span className="task-reminder-check" />
-      : <input type="checkbox" className="task-reminder-check" aria-label={task.title + ' 완료'}
-          checked={Boolean(task.completed)} disabled={pending} onChange={() => onToggle(task)} />}
-    <span className="task-reminder-title" title={measuring ? undefined : task.title}>{task.title}</span>
+      : <input type="checkbox" className="task-reminder-check" aria-label={item.label + ' 완료'}
+          checked={item.checked} disabled={pending} onChange={() => onToggle(item)} />}
+    <span className="task-reminder-title" title={measuring ? undefined : item.title}>{item.title}</span>
   </>;
   return measuring ? <span className="task-reminder-item">{details}</span>
     : <label className="task-reminder-item">{details}</label>;
 }
 
-export default function TaskReminder({ tasks, onToggle }) {
+// habits·onSetHabitLog: 하루 계획에 고정한 습관도 보여 주고, 체크하면 습관 기록(logs)에 저장한다.
+export default function TaskReminder({ tasks, onToggle, habits = [], onSetHabitLog }) {
   const date = useReminderDate();
-  const items = useMemo(() => tasks.filter(task => task.dueDate === date)
-    .sort((a, b) => slotIndex(a) - slotIndex(b) || (a.createdAtMs ?? 0) - (b.createdAtMs ?? 0)), [tasks, date]);
+  const items = useMemo(() => reminderItems(tasks, habits, date), [tasks, habits, date]);
 
   const expandedId = useId();
   const [expandedDate, setExpandedDate] = useState(null);
@@ -98,17 +116,20 @@ export default function TaskReminder({ tasks, onToggle }) {
   const extra = items.slice(count);
   const expanded = expandedDate === date && extra.length > 0;
 
-  const toggle = async task => {
-    setPendingIds(ids => new Set(ids).add(task.id));
+  const toggle = async item => {
+    setPendingIds(ids => new Set(ids).add(item.key));
     setErrorDate(null);
     try {
-      await onToggle(task.id, Boolean(task.completed));
+      if (item.habit) {
+        if (!onSetHabitLog) throw new Error('Habit log is unavailable');
+        await onSetHabitLog(item.habit.id, date, planToggleValue(item.habit, date));
+      } else await onToggle(item.task.id, item.checked);
     } catch {
       setErrorDate(date);
     } finally {
       setPendingIds(ids => {
         const next = new Set(ids);
-        next.delete(task.id);
+        next.delete(item.key);
         return next;
       });
     }
@@ -120,20 +141,20 @@ export default function TaskReminder({ tasks, onToggle }) {
       onKeyDown={event => { if (event.key === 'Tab') event.stopPropagation(); }}>
       {items.length > 0 && <>
         <div className="task-reminder-line task-reminder-measure" ref={measureRef} aria-hidden="true">
-          {items.map(task => <ReminderItem key={task.id} task={task} measuring />)}
+          {items.map(item => <ReminderItem key={item.key} item={item} measuring />)}
           <span className="task-reminder-more">+<span>{items.length}</span>개 더 보기</span>
         </div>
         <div className="task-reminder-line">
-          {items.slice(0, count).map(task => <ReminderItem key={task.id} task={task}
-            pending={pendingIds.has(task.id)} onToggle={toggle} />)}
+          {items.slice(0, count).map(item => <ReminderItem key={item.key} item={item}
+            pending={pendingIds.has(item.key)} onToggle={toggle} />)}
           {extra.length > 0 && <button type="button" className="task-reminder-more"
             aria-expanded={expanded} aria-controls={expandedId} onClick={() => setExpandedDate(expanded ? null : date)}>
             {expanded ? '접기' : '+' + extra.length + '개 더 보기'}
           </button>}
         </div>
         <div className="task-reminder-extra" id={expandedId} hidden={!expanded}>
-          {expanded && extra.map(task => <ReminderItem key={task.id} task={task}
-            pending={pendingIds.has(task.id)} onToggle={toggle} />)}
+          {expanded && extra.map(item => <ReminderItem key={item.key} item={item}
+            pending={pendingIds.has(item.key)} onToggle={toggle} />)}
         </div>
       </>}
       {errorDate === date && <p className="task-reminder-error" role="alert">할 일 상태를 저장하지 못했습니다. 다시 시도해 주세요.</p>}

@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import HabitsTab from '../../src/components/tabs/HabitsTab.jsx';
 import TodayHabitsBlock from '../../src/components/today/TodayHabitsBlock.jsx';
 import TodayMain from '../../src/components/today/TodayMain.jsx';
+import TaskReminder from '../../src/components/planner/TaskReminder.jsx';
 import { orderHabits } from '../../src/features/habits/habitCore.mjs';
 import '../../src/styles/app.css';
 import '../../src/styles/tasks.css';
@@ -34,6 +35,8 @@ function Preview(){
     <section id="tab"><HabitsTab uid="tester" habitsData={habitsData}/></section>
     <section id="plan"><TodayMain tasks={[]} habits={habitsData.habits} onSetHabitLog={habitsData.setLog} selectedDate={TODAY}
       onAdd={async()=>{}} onToggle={()=>{}} onDelete={()=>{}} onDateChange={()=>{}}/></section>
+    <section id="reminder"><TaskReminder tasks={[{id:'evening-task',title:'저녁 할 일',timeSlot:'저녁',dueDate:TODAY,completed:false}]}
+      onToggle={async()=>{}} habits={habitsData.habits} onSetHabitLog={habitsData.setLog}/></section>
   </main>;
 }
 createRoot(document.getElementById('root')).render(<Preview/>);

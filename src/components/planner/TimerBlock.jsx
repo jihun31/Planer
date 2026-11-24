@@ -23,7 +23,6 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   const [nudgeMinutes] = useBreakNudgeMinutes(uid);
   const [flowRestEnabled] = useFlowRestPreference(uid);
   // 기록 타이머를 정지하면 저장한 뒤 일한 시간에 맞춘 휴식을 통제 화면에서 바로 시작한다.
-  const flowRestAfterSave = useRef(null);
   const flowRestApplied = useRef(null);
   // 정지한 기록이 저장되면 다음 활동을 고르는 창을 띄운다.
   const [switchPrompt, setSwitchPrompt] = useState(null);
@@ -210,12 +209,15 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     }
 
     const session = sessionRef.current;
+    // 정지 후 창 하나에서 휴식(기록 타이머만, 작업 종료 시 휴식 연결)·다음 활동 배지·종료 중 하나를 고른다.
     const restMinutes = !control && flowRestEnabled && onFlowRest ? flowRestMinutes(endTs - session.startTs) : null;
-    flowRestAfterSave.current = restMinutes ? { minutes: restMinutes, returnActivityId: session.metadata.activityId ?? undefined } : null;
-    promptAfterSave.current = !restMinutes && switchEnabled && onSwitch ? {
+    const showSwitch = switchEnabled && !!onSwitch;
+    promptAfterSave.current = restMinutes || showSwitch ? {
       name: session.metadata.activityName || session.metadata.customName || '',
       color: session.metadata.activityColor || session.metadata.customColor,
       seconds: Math.max(0, Math.floor((endTs - session.startTs) / 1000)),
+      showSwitch,
+      rest: restMinutes ? { minutes: restMinutes, returnActivityId: session.metadata.activityId ?? undefined } : null,
     } : null;
     pendingSave.current = { startTs: session.startTs, segments: timerSegments(session.startTs, endTs), metadata: session.metadata };
     await savePending();
@@ -230,7 +232,6 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       pendingSave.current = null;
       // 다른 탭에서 정지했으면 이 타이머의 탭으로 옮긴다. 숨은 탭 안에서 모달 창이 열리면 보이지 않은 채 앱 전체를 막는다.
       if (promptAfterSave.current) { setSwitchPrompt(promptAfterSave.current); promptAfterSave.current = null; onSwitchPrompt?.(); }
-      if (flowRestAfterSave.current) { const request = flowRestAfterSave.current; flowRestAfterSave.current = null; onFlowRest?.(request); }
     } catch {
       setSaveError('기록을 저장하지 못했습니다. 연결을 확인하고 다시 저장해 주세요.');
     } finally { setSaving(false); }
@@ -373,7 +374,9 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
         document.body
       )}
 
-      {switchPrompt && <TimerSwitchDialog finished={switchPrompt} groups={switchGroups ?? []} onClose={() => setSwitchPrompt(null)}
+      {switchPrompt && <TimerSwitchDialog finished={switchPrompt} groups={switchPrompt.showSwitch ? switchGroups ?? [] : []}
+        rest={switchPrompt.rest} onClose={() => setSwitchPrompt(null)}
+        onRest={request => { setSwitchPrompt(null); onFlowRest?.(request); }}
         onPick={(view, activityId) => { setSwitchPrompt(null); onSwitch(view, activityId); }} />}
 
       {rest.panel}

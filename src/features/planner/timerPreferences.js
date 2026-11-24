@@ -69,7 +69,7 @@ export function useTimerSwitchPreference(uid) {
   return [enabled, setEnabled];
 }
 
-// Flowtime식 집중·휴식 연결. 두 기능 모두 기본으로 켜 두고 설정에서 끌 수 있다.
+// Flowtime식 집중·휴식 연결. fallback은 저장한 값이 없을 때의 기본값이다.
 function useBooleanPreference(key, fallback) {
   const enabled = useSyncExternalStore(subscribe, () => {
     try {
@@ -90,9 +90,10 @@ export function useBreakNudgePreference(uid) {
   return useBooleanPreference(uid ? `planer:break-nudge:${uid}` : null, true);
 }
 
-// 기록 타이머를 정지하면 일한 시간에 맞춘 길이로 휴식 타이머를 바로 시작한다.
+// 기록 타이머를 정지하면 다음 활동 창에 일한 시간에 맞춘 "휴식 시작 (N분)" 버튼을 둔다.
+// 기본은 끔: 이 설정을 직접 켠(값이 'true'로 저장된) 사용자만 켜진다.
 export function useFlowRestPreference(uid) {
-  return useBooleanPreference(uid ? `planer:flow-rest:${uid}` : null, true);
+  return useBooleanPreference(uid ? `planer:flow-rest:${uid}` : null, false);
 }
 
 export function useBreakNudgeMinutes(uid) {

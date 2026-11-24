@@ -189,7 +189,7 @@ if(!process.versions.electron){
         assert(restTimer.read('switch-user').session===null,'End did not clear the rest session');
         assert(timerSwitchRestReturns.length===1,'End invoked the return to work callback');
 
-        // Flowtime: 오래 일하면 작은 알림만 뜨고, 정지하면 일한 시간에 맞춘 휴식을 확인 창으로 묻는다(휴식 설정 창은 거치지 않는다).
+        // Flowtime: 오래 일하면 작은 알림만 뜨고, 정지 후 창의 휴식 버튼으로 일한 시간에 맞춘 휴식을 시작한다(휴식 설정 창은 거치지 않는다).
         const nudge=()=>document.querySelector('.float-timer .timer-break-nudge');
         restNow=new Date(year,month-1,day,13,0,0).getTime();
         chip(study,'강의').click();await wait(()=>floatName()==='강의');
@@ -203,32 +203,53 @@ if(!process.versions.electron){
         await wait(()=>nudge(),'Nudge did not return at 50 minutes');
         localStorage.setItem('planer:break-nudge:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));
         await wait(()=>!nudge(),'Turning the nudge off did not hide it');
-        // 정지하면 휴식이 바로 시작되지 않고 앱 중앙에 확인 창이 뜬다. 건너뛰기·ESC·바깥 클릭은 창만 닫는다.
-        const flowAsk=()=>document.querySelector('dialog.flow-rest-confirm[open]');
-        const skipCases=[['건너뛰기',ask=>button(ask,'건너뛰기').click()],
-          ['ESC',ask=>ask.dispatchEvent(new Event('cancel',{cancelable:true}))],
-          ['backdrop',ask=>{const box=ask.getBoundingClientRect();
-            ask.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:box.left+4,clientY:box.top+4}));
-            assert(flowAsk(),'Clicking inside the confirm closed it');
-            ask.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:box.left-10,clientY:box.top-10}));}]];
-        for(const [label,close] of skipCases){
+        // 휴식 연결은 기본으로 꺼져 있다: 저장한 값이 없으면 50분 일하고 정지해도 휴식 버튼이 없다.
+        const restButton=()=>prompt()?.querySelector('.study-gap-actions .timer-switch-rest');
+        const badges=()=>[...prompt().querySelectorAll('.timer-switch-group button')].map(item=>item.textContent);
+        assert(localStorage.getItem('planer:flow-rest:switch-user')===null,'Flow rest key was set before the default check');
+        stop();await wait(()=>prompt(),'Switch prompt did not appear');
+        assert(!restButton()&&badges().includes('휴식'),'Rest button appeared while flow rest is off by default');
+        button(prompt(),'종료').click();await wait(()=>!prompt());
+        localStorage.setItem('planer:flow-rest:switch-user','true');window.dispatchEvent(new Event('planer:timer-preferences'));await tick();
+
+        // 두 설정이 모두 켜져 있으면 창 하나에 활동 배지와 휴식 버튼이 함께 나온다. 종료는 왼쪽, 휴식 시작은 오른쪽이고 휴식이 포커스를 받는다.
+        // 종료·ESC는 창만 닫고, 배지를 고르면 휴식 없이 그 활동으로 바뀐다.
+        const closeCases=[['종료',ask=>button(ask,'종료').click()],['ESC',ask=>ask.dispatchEvent(new Event('cancel',{cancelable:true}))]];
+        for(const [label,close] of closeCases){
+          chip(study,'강의').click();await wait(()=>floatName()==='강의');restNow+=50*60000;
           const skipPopups=popups.length,skipSaves=timerSwitchSaves.length;
-          stop();await wait(()=>flowAsk(),'Flow rest confirm did not appear ('+label+')');
-          assert(button(flowAsk(),'휴식 시작 (10분)'),'Confirm does not show the rest length: '+flowAsk().textContent);
+          stop();await wait(()=>restButton(),'Combined dialog has no rest button ('+label+')');
+          const actions=[...prompt().querySelectorAll('.study-gap-actions button')].map(item=>item.textContent);
+          assert(JSON.stringify(actions)===JSON.stringify(['종료','휴식 시작 (10분)']),'Unexpected action row: '+JSON.stringify(actions));
+          assert(restButton().classList.contains('study-gap-primary')&&document.activeElement===restButton(),'Rest button is not the focused primary button');
+          assert(JSON.stringify(badges())===JSON.stringify(['강의','휴식','이동','유튜브']),'Badges missing next to the rest button: '+JSON.stringify(badges()));
           await tick();
-          assert(popups.length===skipPopups&&restTimer.read('switch-user').session===null,'Rest started before confirming ('+label+')');
-          assert(timerSwitchSaves.length===skipSaves+1,'Work was not saved before the confirm ('+label+')');
-          close(flowAsk());await wait(()=>!flowAsk(),'Confirm did not close ('+label+')');await tick();
-          assert(popups.length===skipPopups&&restTimer.read('switch-user').session===null&&!prompt()&&!setup(),
-            'Skipping the rest opened something else ('+label+')');
-          chip(study,'강의').click();await wait(()=>floatName()==='강의');
-          restNow+=50*60000;
+          assert(popups.length===skipPopups&&restTimer.read('switch-user').session===null,'Rest started before pressing the button ('+label+')');
+          assert(timerSwitchSaves.length===skipSaves+1,'Work was not saved before the dialog ('+label+')');
+          close(prompt());await wait(()=>!prompt(),'Dialog did not close ('+label+')');await tick();
+          assert(popups.length===skipPopups&&restTimer.read('switch-user').session===null&&!setup()&&!document.querySelector('.timer-running'),
+            'Closing the dialog started something ('+label+')');
         }
+        chip(study,'강의').click();await wait(()=>floatName()==='강의');restNow+=50*60000;
+        stop();await wait(()=>restButton());
+        button(prompt(),'유튜브').click();
+        await wait(()=>floatName()==='유튜브','Picking a badge next to the rest button did not switch');
+        assert(!prompt()&&restTimer.read('switch-user').session===null,'Picking a badge started the rest');
+        // 통제 타이머를 정지하면 휴식 버튼 없이 활동 배지만 나온다.
+        restNow+=50*60000;
+        stop();await wait(()=>prompt());
+        assert(!restButton()&&badges().length===4,'Control timer stop offered the flow rest');
+        button(prompt(),'종료').click();await wait(()=>!prompt());
+
+        // 다음 활동 창 설정을 끄고 휴식 연결만 켜면 휴식 버튼만 나온다.
+        localStorage.setItem('planer:timer-switch-prompt:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));await tick();
+        chip(study,'강의').click();await wait(()=>floatName()==='강의');restNow+=50*60000;
         const flowPopups=popups.length,flowSaves=timerSwitchSaves.length;
-        stop();await wait(()=>flowAsk(),'Flow rest confirm did not appear');
-        button(flowAsk(),'휴식 시작 (10분)').click();
-        await wait(()=>popups.length>flowPopups,'Confirming did not start the rest timer');
-        assert(!flowAsk(),'Confirm stayed open after starting the rest');
+        stop();await wait(()=>restButton(),'Rest-only dialog did not appear');
+        assert(!prompt().querySelector('.timer-switch-group'),'Badges shown while the switch setting is off');
+        restButton().click();
+        await wait(()=>popups.length>flowPopups,'Pressing rest did not start the rest timer');
+        assert(!prompt(),'Dialog stayed open after starting the rest');
         const flow=restTimer.read('switch-user');
         assert(timerSwitchSaves.length===flowSaves+1&&timerSwitchSaves.at(-1).activityId==='lecture','Work was not saved before the rest');
         assert(flow.session.endTs-flow.session.startTs===10*60000&&flow.session.name==='휴식'&&flow.session.returnActivityId==='lecture',
@@ -240,14 +261,13 @@ if(!process.versions.electron){
         button(review(),'업무 복귀').click();await wait(()=>!review());
         assert(timerSwitchRestReturns.at(-1)==='lecture','Return to work did not resume the stopped activity');
 
-        // 끄면 예전처럼 다음 활동 선택 창이 뜬다.
-        localStorage.setItem('planer:flow-rest:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));await tick();
+        // 두 설정을 모두 끄면 정지 후 아무 창도 뜨지 않는다.
         chip(study,'강의').click();await wait(()=>floatName()==='강의');
+        localStorage.setItem('planer:flow-rest:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));await tick();
         restNow+=30*60000;
-        const offPopups=popups.length;
-        stop();await wait(()=>prompt(),'Switch prompt did not appear with flow rest off');
-        assert(popups.length===offPopups&&restTimer.read('switch-user').session===null,'Flow rest started while turned off');
-        [...prompt().querySelectorAll('button')].find(button=>button.textContent==='종료').click();await tick();
+        const offPopups=popups.length,offSaves=timerSwitchSaves.length;
+        stop();await wait(()=>timerSwitchSaves.length>offSaves);await tick();
+        assert(!prompt()&&popups.length===offPopups&&restTimer.read('switch-user').session===null,'A dialog or rest appeared with both settings off');
         Date.now=realNow;
         return {flowRest:true,breakNudge:true,offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,restEnd:true,calendarRest:true,restSaveRetry:true,saves:timerSwitchSaves.length};
       })()`);
