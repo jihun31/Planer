@@ -12,6 +12,7 @@ import TodayTab from "./components/tabs/TodayTab";
 import { restTimer } from './components/planner/restTimer';
 import LearningSummary from './components/learning/LearningSummary';
 import TaskReminder from './components/planner/TaskReminder';
+import { useFlowRestConfirm } from './components/planner/FlowRestConfirm';
 import UpdateBanner from './components/UpdateBanner';
 import { useLearning } from './features/learning/useLearning';
 import { useDiscordLink, useServerInfo } from './features/discord/useDiscord';
@@ -122,7 +123,8 @@ function App() {
   const showTimerPrompt = view => { if (currentView !== view) activateView(view); };
   const switchTargetFor = view => timerSwitch?.uid === user?.uid && timerSwitch?.view === view ? timerSwitch : null;
 
-  // 기록 타이머를 정지하면 일한 시간에 맞춘 휴식을 통제 화면의 휴식 타이머에서 바로 시작한다(Flowtime 연결).
+  // 기록 타이머를 정지하면 일한 시간에 맞춘 휴식을 할지 앱 중앙의 확인 창으로 묻고,
+  // 휴식 시작을 누르면 통제 화면의 휴식 타이머에서 시작한다(Flowtime 연결).
   const [flowRest, setFlowRest] = useState(null);
   useEffect(() => { setFlowRest(null); }, [user?.uid]);
   const startFlowRest = request => {
@@ -130,6 +132,7 @@ function App() {
     if (currentView === 'planner' || currentView === 'control') activateView('control');
     else setOpenedViews(opened => opened.control ? opened : { ...opened, control: true });
   };
+  const [askFlowRest, flowRestDialog] = useFlowRestConfirm(startFlowRest, user?.uid);
 
   const resumeAfterRest = activityId => {
     setRestTarget({ uid: user.uid, activityId });
@@ -209,7 +212,7 @@ function App() {
   }
 
   const plannerProps = { uid: user.uid, scheduleHistory, settingsReady, settingsError, controlAvailable: controlVisible, onTimerSwitch: switchTimer, onTimerPrompt: showTimerPrompt,
-    onFlowRest: startFlowRest };
+    onFlowRest: askFlowRest };
   const afterBlockMigration = content => blockMigration.ready ? content
     : <BlockMigrationNotice error={blockMigration.error} retry={blockMigration.retry} />;
   // 보기 id(appTabs.mjs)마다 그릴 화면
@@ -258,6 +261,7 @@ function App() {
           ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}
         {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
       </Suspense>
+      {flowRestDialog}
       <nav className="tab-nav">
         {tabs.map((tab) => (
           <button

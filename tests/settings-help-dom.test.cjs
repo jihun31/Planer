@@ -27,7 +27,7 @@ if(!process.versions.electron){
         const dialog=()=>document.querySelector('dialog.schedule-settings');
         const text=()=>dialog().textContent;
         const toggles=()=>[...dialog().querySelectorAll('.setting-help-toggle')];
-        const notes=['직전 기록 이후의 빈 시간','배지를 누르면','쉬어 갈 때라고','휴식 타이머가 바로 시작','화살표로 순서를','달력에 표시할','오늘부터 적용'];
+        const notes=['직전 기록 이후의 빈 시간','배지를 누르면','쉬어 갈 때라고','휴식할지 묻는 창','화살표로 순서를','달력에 표시할','오늘부터 적용'];
         await wait(()=>dialog()&&toggles().length>0,'Settings dialog did not render');
         assert(toggles().length===6,'Expected 6 help buttons, got '+toggles().length);
         assert(notes.every(note=>!text().includes(note)),'A description is visible before pressing ?');

@@ -189,7 +189,7 @@ if(!process.versions.electron){
         assert(restTimer.read('switch-user').session===null,'End did not clear the rest session');
         assert(timerSwitchRestReturns.length===1,'End invoked the return to work callback');
 
-        // Flowtime: 오래 일하면 작은 알림만 뜨고, 정지하면 일한 시간에 맞춘 휴식이 설정 창 없이 바로 시작된다.
+        // Flowtime: 오래 일하면 작은 알림만 뜨고, 정지하면 일한 시간에 맞춘 휴식을 확인 창으로 묻는다(휴식 설정 창은 거치지 않는다).
         const nudge=()=>document.querySelector('.float-timer .timer-break-nudge');
         restNow=new Date(year,month-1,day,13,0,0).getTime();
         chip(study,'강의').click();await wait(()=>floatName()==='강의');
@@ -203,9 +203,32 @@ if(!process.versions.electron){
         await wait(()=>nudge(),'Nudge did not return at 50 minutes');
         localStorage.setItem('planer:break-nudge:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));
         await wait(()=>!nudge(),'Turning the nudge off did not hide it');
+        // 정지하면 휴식이 바로 시작되지 않고 앱 중앙에 확인 창이 뜬다. 건너뛰기·ESC·바깥 클릭은 창만 닫는다.
+        const flowAsk=()=>document.querySelector('dialog.flow-rest-confirm[open]');
+        const skipCases=[['건너뛰기',ask=>button(ask,'건너뛰기').click()],
+          ['ESC',ask=>ask.dispatchEvent(new Event('cancel',{cancelable:true}))],
+          ['backdrop',ask=>{const box=ask.getBoundingClientRect();
+            ask.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:box.left+4,clientY:box.top+4}));
+            assert(flowAsk(),'Clicking inside the confirm closed it');
+            ask.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:box.left-10,clientY:box.top-10}));}]];
+        for(const [label,close] of skipCases){
+          const skipPopups=popups.length,skipSaves=timerSwitchSaves.length;
+          stop();await wait(()=>flowAsk(),'Flow rest confirm did not appear ('+label+')');
+          assert(button(flowAsk(),'휴식 시작 (10분)'),'Confirm does not show the rest length: '+flowAsk().textContent);
+          await tick();
+          assert(popups.length===skipPopups&&restTimer.read('switch-user').session===null,'Rest started before confirming ('+label+')');
+          assert(timerSwitchSaves.length===skipSaves+1,'Work was not saved before the confirm ('+label+')');
+          close(flowAsk());await wait(()=>!flowAsk(),'Confirm did not close ('+label+')');await tick();
+          assert(popups.length===skipPopups&&restTimer.read('switch-user').session===null&&!prompt()&&!setup(),
+            'Skipping the rest opened something else ('+label+')');
+          chip(study,'강의').click();await wait(()=>floatName()==='강의');
+          restNow+=50*60000;
+        }
         const flowPopups=popups.length,flowSaves=timerSwitchSaves.length;
-        stop();
-        await wait(()=>popups.length>flowPopups,'Stopping work did not start the rest timer');
+        stop();await wait(()=>flowAsk(),'Flow rest confirm did not appear');
+        button(flowAsk(),'휴식 시작 (10분)').click();
+        await wait(()=>popups.length>flowPopups,'Confirming did not start the rest timer');
+        assert(!flowAsk(),'Confirm stayed open after starting the rest');
         const flow=restTimer.read('switch-user');
         assert(timerSwitchSaves.length===flowSaves+1&&timerSwitchSaves.at(-1).activityId==='lecture','Work was not saved before the rest');
         assert(flow.session.endTs-flow.session.startTs===10*60000&&flow.session.name==='휴식'&&flow.session.returnActivityId==='lecture',
