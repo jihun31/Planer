@@ -24,7 +24,7 @@ if(!process.versions.electron){
       await win.loadURL(process.env.PLANER_PREVIEW_URL);
       const result=await win.webContents.executeJavaScript(`(async()=>{
         const assert=(condition,message)=>{if(!condition)throw Error(message);};
-        const wait=async(predicate,message='UI timed out')=>{const start=Date.now();while(!predicate()){if(Date.now()-start>8000)throw Error(message);await new Promise(resolve=>setTimeout(resolve,20));}};
+        const wait=async(predicate,message='UI timed out: '+predicate)=>{const start=Date.now();while(!predicate()){if(Date.now()-start>8000)throw Error(message);await new Promise(resolve=>setTimeout(resolve,20));}};
         const tick=()=>new Promise(resolve=>setTimeout(resolve,50));
         const study=document.querySelector('#study'),control=document.querySelector('#control');
         const schedule=root=>root.querySelector('.daily-schedule'),busy=root=>schedule(root)?.getAttribute('aria-busy')==='true';
@@ -116,6 +116,9 @@ if(!process.versions.electron){
         const todayCheck = name => [...document.querySelectorAll('#reminder-preview .today-task-list input')]
           .find(input => input.getAttribute('aria-label') === name);
         const displayedCheck = name => displayed().find(input => input.getAttribute('aria-label') === name);
+        // 한 줄에 모두 보이는지 확인하는 폭은 실행 환경의 화면 크기·글꼴에 맡기지 않고 직접 정한다(CI 화면은 좁다).
+        const wideWidth = '2000px';
+        preview.style.width = wideWidth;
         assert(setReminderClock(22, 4, 59) === 60000, '새벽 5시로 날짜 전환을 예약해야 합니다.');
         await wait(() => displayed().length === 1 && displayedCheck('어제 할 일 완료'));
         setReminderClock(22, 5, 0, true);
@@ -160,8 +163,9 @@ if(!process.versions.electron){
         await wait(() => todayCheck(extraName).checked && displayedCheck(extraName)?.checked && !displayedCheck(extraName).disabled);
         displayedCheck(extraName).click();
         await wait(() => !todayCheck(extraName).checked && displayedCheck(extraName)?.checked === false);
-        preview.style.width = '';
+        preview.style.width = wideWidth;
         await wait(() => !more() && displayed().length === 6);
+        preview.style.width = '';
         return {whitePlanHints:true,differentActivityRemovesOutline:true,adjacentActivitiesMerged:true,actualRecordsPrioritized:true,plansExcludedFromTotals:true,noFutureWrites:true,monthLayoutStable:true,scrollAndSelectionRetained:true,controlMonthStable:true,taskReminderVerified:true};
       })()`);
       for(const width of [1000,1600]){
