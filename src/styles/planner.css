@@ -853,9 +853,11 @@
   gap: 6px;
   width: max-content;
   padding: 4px 8px;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--text);
-  color: var(--surface);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-muted);
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
