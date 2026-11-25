@@ -90,6 +90,16 @@ if(!process.versions.electron){
           'Adjacent records repeat the activity label instead of centering one label');
         assert(getComputedStyle(cell(study,644)).borderRightWidth==='0px','Adjacent records retain an internal divider');
         assert(study.querySelector('.ds-header-right').textContent.includes('계획 공부 30m')&&study.querySelector('.ds-header-right').textContent.includes('실제 공부 20m'),'Merged records changed the actual duration totals');
+        const hover=node=>node.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));
+        const leave=node=>node.dispatchEvent(new MouseEvent('mouseout',{bubbles:true,relatedTarget:document.body}));
+        for(const [root,minute,expected] of [[study,623,'18:23'],[study,652,'계획 공부|18:30–19:00 (30분)'],
+          [control,80,'통제 활동|09:20–09:40 (20분)'],[control,205,'11:25']]){
+          hover(cell(root,minute));await tick();
+          const shown=[...root.querySelectorAll('.ds-time-tip > *')].map(part=>part.textContent).join('|');
+          assert(shown===expected,'Hover tip at minute '+minute+' shows "'+shown+'" instead of "'+expected+'"');
+          leave(cell(root,minute));await tick();
+          assert(!root.querySelector('.ds-time-tip'),'Hover tip remains after leaving the cell');
+        }
         cell(study,660).click();await tick();cell(study,674).click();await tick();
         [...study.querySelectorAll('.act-chip-start')].find(button=>button.textContent==='실제 공부').click();
         await wait(()=>plannerPreviewWrites.length===3&&cell(study,660).classList.contains('ds-td-filled'));
@@ -183,6 +193,25 @@ if(!process.versions.electron){
       const innerPixels=[pixel(left+4.5,middleY),pixel(right-4.5,middleY),pixel(middleX,top+4.5),pixel(middleX,bottom-4.5)];
       if(innerPixels.some(rgb=>rgb.some(channel=>Math.abs(channel-255)>1)))throw Error('Frame extends too far inward: '+JSON.stringify(innerPixels));
       result.equalRenderedEdges=true;
+      // A real pointer must reach the cell under overlays, and the tip stays within the table at both edges.
+      for(const minute of [600,659]){
+        const point=await win.webContents.executeJavaScript(`(async()=>{
+          const cell=document.querySelector('#study [data-schedule-minute="${minute}"]');cell.scrollIntoView({block:'center'});
+          await new Promise(resolve=>setTimeout(resolve,100));
+          const box=cell.getBoundingClientRect();return {x:Math.round(box.left+box.width/2),y:Math.round(box.top+box.height/2)};
+        })()`);
+        win.webContents.sendInputEvent({type:'mouseMove',...point});
+        const placed=await win.webContents.executeJavaScript(`(async()=>{
+          await new Promise(resolve=>setTimeout(resolve,250));
+          const root=document.querySelector('#study'),tip=root.querySelector('.ds-time-tip');if(!tip)return 'missing';
+          const box=tip.getBoundingClientRect(),table=root.querySelector('.ds-table').getBoundingClientRect(),
+            cell=root.querySelector('[data-schedule-minute="${minute}"]').getBoundingClientRect();
+          return box.left>=table.left&&box.right<=table.right+1&&box.bottom<=cell.top&&box.height<32?'ok':JSON.stringify({box,table,cell});
+        })()`);
+        if(placed!=='ok')throw Error('Hover tip misplaced at minute '+minute+': '+placed);
+        if(process.env.PLANER_PREVIEW_SCREENSHOT)fs.writeFileSync(process.env.PLANER_PREVIEW_SCREENSHOT.replace(/\.png$/, '-tip-'+minute+'.png'),(await win.webContents.capturePage()).toPNG());
+      }
+      result.hoverTimeShown=true;
       if(process.env.PLANER_PREVIEW_SCREENSHOT){await win.webContents.executeJavaScript('new Promise(resolve=>setTimeout(resolve,250))');fs.writeFileSync(process.env.PLANER_PREVIEW_SCREENSHOT,(await win.webContents.capturePage()).toPNG());}
       console.log(JSON.stringify(result));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}

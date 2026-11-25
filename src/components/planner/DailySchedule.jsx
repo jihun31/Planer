@@ -12,6 +12,7 @@ const NO_PLANS=[];
 function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities, oppositeMode, activities, allActivities, onAddBlock, onDeleteBlock, recordActivityRef, control = false, plans=NO_PLANS, disabled=false }) {
   const [pending, setPending]         = useState(null);
   const [hovered, setHovered]         = useState(null);
+  const [tip, setTip]                 = useState(null);
   const [selMin, setSelMin]           = useState(null);
   const [selMax, setSelMax]           = useState(null);
   const [actId, setActId]             = useState('');
@@ -179,6 +180,14 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
     if (savingRef.current) return;
     setPending(null); setSelMin(null); setSelMax(null);
   };
+  const showTip = (event, min) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTip({ min, x: rect.left + rect.width / 2, y: rect.top });
+  };
+  // 가린 반대편 기록은 빈칸처럼 시각만 알려준다.
+  const tipBlock = tip && minMap[tip.min];
+  const tipRun = tipBlock && (!tipBlock._opposite || !['blind', 'hidden'].includes(oppositeMode))
+    ? runCells.get(tip.min) : null;
   const dp = date.split('-');
 
   return (
@@ -273,10 +282,10 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
                     key={m}
                     className={cls.join(' ')}
                     data-schedule-minute={min}
-                    title={name || undefined}
                     style={color ? { background: color + (blk?._opposite && oppositeMode === 'faded' ? '12' : '30') } : undefined}
                     onClick={() => handleCellClick(min)}
-                    onMouseEnter={() => setHovered(min)}
+                    onMouseEnter={event => { setHovered(min); showTip(event, min); }}
+                    onMouseLeave={() => setTip(null)}
                   >
                     {isFirst && !blk._opposite && (
                       <button
@@ -302,6 +311,15 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
           })}
         </div>
       </div>
+
+      {/* 칸의 가로 위치만큼 왼쪽으로 당겨, 양끝 칸에서도 표 밖으로 나가지 않게 한다. */}
+      {tip && <div className="ds-time-tip" role="tooltip"
+        style={{ left: tip.x, top: tip.y, transform: `translate(-${(tip.min % 60 + 0.5) / 60 * 100}%, calc(-100% - 4px))` }}>
+        {tipRun ? <>
+          <strong>{tipRun.info.name}</strong>
+          <span>{minToTime(tipRun.startMin)}–{minToTime(tipRun.endMin)} ({tipRun.endMin - tipRun.startMin}분)</span>
+        </> : <span>{minToTime(tip.min)}</span>}
+      </div>}
 
       <form className="ds-form" onSubmit={handleAdd}>
         <fieldset className="ds-form-fields" disabled={disabled}>

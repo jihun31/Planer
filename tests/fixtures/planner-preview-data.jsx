@@ -12,7 +12,9 @@ function usePreview(uid,year,month,selectedDate,control){
   useEffect(()=>{if(!uid)return;const timer=setTimeout(()=>setReady(scope),350);return()=>clearTimeout(timer);},[uid,scope]);
   const loading=!!uid&&ready!==scope,activities=control?controlActivities:studyActivities;
   const initial=control?{id:'control',date:selectedDate,activityId:'leisure',startMin:80,endMin:100,group:'controlled'}:{id:'study',date:selectedDate,activityId:'actual',startMin:80,endMin:100};
-  return {activities,allActivities:activities,blocks:!uid||loading?[]:[initial,...records],oppositeBlocks:[],oppositeActivities:[],loading,error:null,
+  // The control tab hides opposite records by default (blind), so this one must stay anonymous.
+  const oppositeBlocks=control&&uid&&!loading?[{id:'opposite',date:selectedDate,activityId:'actual',customName:'가려진 공부',startMin:200,endMin:220}]:[];
+  return {activities,allActivities:activities,blocks:!uid||loading?[]:[initial,...records],oppositeBlocks,oppositeActivities:[],loading,error:null,
     retryLoading:()=>{},addActivity:()=>{},deleteActivity:()=>{},saveTimer:()=>{throw Error('Unexpected timer save');},deleteBlock:async id=>setRecords(previous=>previous.filter(block=>block.id!==id)),updateActivityOrder:()=>{},updateActivityGroup:()=>{},
     addBlock:async block=>{writes.push({...block,control});setRecords(previous=>[...previous,{...block,id:`new-${previous.length}`}]);}};
 }

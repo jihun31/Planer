@@ -845,6 +845,24 @@
   z-index: 2;
 }
 
+/* 마우스를 올린 칸의 시각 / 기록 구간 */
+.ds-time-tip {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  gap: 6px;
+  width: max-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ds-time-tip strong { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+
 /* 삭제 버튼 (첫 셀, 호버 시 노출) */
 .ds-del {
   position: absolute;
