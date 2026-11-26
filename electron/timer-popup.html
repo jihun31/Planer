@@ -97,12 +97,32 @@
       50%       { opacity: 0.3; transform: scale(0.6); }
     }
     body[data-mode="rest"] .start-label { display: none; }
-    /* 오래 일했을 때의 작은 휴식 알림: 시작 시각 줄을 조용히 바꿔 보여 준다. */
-    .start-label.nudge { color: #64748b !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* 최소화(B안: 136 x 66): On-air 점 유지, 시간을 상단 줄로 옮기고 하단 여백을 줄인다. */
+    body[data-compact="true"] {
+      padding: 6px 8px;
+      gap: 5px;
+      justify-content: center;
+    }
+    body[data-compact="true"] .header { gap: 4px; }
+    body[data-compact="true"] .dot { width: 6px; height: 6px; }
+    body[data-compact="true"] .name { font-size: 11.5px; min-width: 0; }
+    body[data-compact="true"] .time {
+      font-size: 13px;
+      letter-spacing: 0.01em;
+      flex-shrink: 0;
+    }
+    body[data-compact="true"] .close-btn { font-size: 11.5px; padding: 0 1px; }
+    body[data-compact="true"] .start-label { display: none; }
+    body[data-compact="true"] .stop-btn {
+      padding: 4px 0;
+      font-size: 11.5px;
+      line-height: 1.2;
+    }
   </style>
 </head>
 <body>
-  <div class="header">
+  <div class="header" id="header">
     <span class="dot" id="dot"></span>
     <span class="name" id="name">타이머</span>
     <button class="close-btn" id="close-btn" title="닫기">✕</button>
@@ -114,15 +134,6 @@
   <script>
     let startTs = null;
     let restSession = null;
-    let startLabel = '';
-    let nudgeMinutes = null;
-
-    function showStartLabel(elapsedSeconds) {
-      const label = document.getElementById('start-label');
-      const due = nudgeMinutes !== null && elapsedSeconds >= nudgeMinutes * 60;
-      label.classList.toggle('nudge', due);
-      label.textContent = due ? nudgeMinutes + '분 지났어요 · 쉬어 갈까요?' : startLabel;
-    }
     let intervalId = null;
 
     function fmtElapsed(s) {
@@ -162,7 +173,6 @@
         if (startTs === null) return;
         const seconds = Math.floor((Date.now() - startTs) / 1000);
         document.getElementById('time').textContent = fmtElapsed(seconds);
-        showStartLabel(seconds);
       };
       intervalId = setInterval(tick, 1000);
       tick();
@@ -170,14 +180,20 @@
 
     window.electronAPI.onTimerData((data) => {
       restSession = data.mode === 'rest' ? data : null;
+      const isCompact = data.compact === true;
       document.body.dataset.mode = restSession ? 'rest' : 'elapsed';
-      document.getElementById('close-btn').title = restSession ? '숨기기' : '닫기';
-      document.getElementById('stop-btn').textContent = restSession ? '휴식 마치기' : '■ 정지 & 기록';
+      document.body.dataset.compact = isCompact ? 'true' : 'false';
+      const header = document.getElementById('header');
+      const timeEl = document.getElementById('time');
+      const closeBtn = document.getElementById('close-btn');
+      const startLabelEl = document.getElementById('start-label');
+      if (isCompact) header.insertBefore(timeEl, closeBtn);
+      else document.body.insertBefore(timeEl, startLabelEl);
+      closeBtn.title = restSession ? '숨기기' : '닫기';
+      document.getElementById('stop-btn').textContent = restSession ? '휴식 마치기' : (isCompact ? '■ 정지' : '■ 정지 & 기록');
       document.getElementById('name').textContent = data.actName;
-      startLabel = data.startLabel ? data.startLabel + ' 시작' : '';
-      nudgeMinutes = !restSession && Number.isInteger(data.nudgeMinutes) ? data.nudgeMinutes : null;
+      startLabelEl.textContent = data.startLabel ? data.startLabel + ' 시작' : '';
       applyColor(data.color);
-      showStartLabel(0);
       startTs = data.startTs;
       startTick();
     });

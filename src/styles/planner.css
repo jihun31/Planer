@@ -371,15 +371,6 @@
   letter-spacing: 0.02em;
 }
 
-/* 오래 일했을 때의 작은 휴식 알림(무시해도 되는 글자 한 줄) */
-.timer-break-nudge {
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-align: center;
-  color: #64748b;
-}
-.ft-start.timer-break-nudge { font-size: 0.65rem; }
-
 /* 타이머 버튼 공통 */
 .timer-btn {
   padding: 9px;
@@ -971,6 +962,18 @@
 }
 
 .float-timer-left { left:16px; right:auto; }
+
+.float-timer-compact {
+  min-width: 136px;
+  width: 136px;
+  padding: 6px 8px;
+  gap: 5px;
+}
+.float-timer-compact .ft-header { gap: 4px; }
+.float-timer-compact .ft-dot { width: 6px; height: 6px; }
+.float-timer-compact .ft-name { font-size: 11.5px; min-width: 0; }
+.float-timer-compact .ft-time { font-size: 13px; letter-spacing: 0.01em; flex-shrink: 0; }
+.float-timer-compact .ft-stop { padding: 4px 0; font-size: 11.5px; line-height: 1.2; }
 
 @keyframes ftSlideIn {
   from { opacity: 0; transform: translateY(8px); }

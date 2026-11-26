@@ -105,6 +105,8 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
     once(name, cb) { this.events.set(name, cb); }
     loadURL(url) { this.webContents.mainFrame.url = url; }
     getSize() { return this.size; }
+    setSize(w, h) { this.size = [w, h]; }
+    setResizable() {}
     isDestroyed() { return this.dead; }
     close() { this.events.get('close')?.(); this.dead = true; this.events.get('closed')?.(); }
     destroy() { this.dead = true; this.events.get('closed')?.(); }
@@ -186,6 +188,11 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal(main.sent.filter(x => x.name === 'timer:stopped').length, 1);
   assert.equal((await invokes.get('timer:start')(eventFor(main),{...data,position:'left'})).ok,true);
   assert.deepEqual(windows[2].position, [28, 656]);
+  handlers.get('timer:close')(eventFor(main));
+  // Compact mode uses 136x66 with a 16px margin from the screen corner.
+  assert.equal((await invokes.get('timer:start')(eventFor(main),{...data,compact:true})).ok,true);
+  assert.deepEqual(windows.at(-1).getSize(), [136, 66]);
+  assert.deepEqual(windows.at(-1).position, [1000 - 136 - 16, 800 - 66 - 16]);
   handlers.get('timer:close')(eventFor(main));
   // Moving a running timer to the popup keeps the main window up.
   main.minimized = false;

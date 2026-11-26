@@ -120,11 +120,29 @@ function createMainWindow() {
   });
 }
 
+function placeTimerWindow(win, isRest, isCompact, position) {
+  // 메인 창이 있는 모니터에 띄운다. 최소화된 창은 getBounds가 화면 밖 좌표라 복원 시 크기를 쓴다.
+  const mainAlive = mainWindow && !mainWindow.isDestroyed();
+  const display = mainAlive ? screen.getDisplayMatching(mainWindow.getNormalBounds()) : screen.getPrimaryDisplay();
+  const { x, y, width, height } = display.workArea;
+  const popupWidth = isCompact ? 136 : 176;
+  const popupHeight = isCompact ? 66 : (isRest ? 112 : 128);
+  // Keep the center fixed by trimming both sides of each popup equally.
+  const previousWidth = isRest ? 184 : 200;
+  const sideMargin = isCompact ? 16 : 16 + (previousWidth - popupWidth) / 2;
+  win.setResizable(true);
+  win.setSize(popupWidth, popupHeight);
+  win.setResizable(false);
+  win.setPosition(position === 'left' ? x + sideMargin : x + width - popupWidth - sideMargin, y + height - popupHeight - 16);
+}
+
 function createTimerWindow(data) {
   if (!data || typeof data.actName !== 'string' || data.actName.length > 500 ||
       !Number.isFinite(data.startTs) || typeof data.color !== 'string' ||
       !/^#[0-9a-f]{6}$/i.test(data.color)) return false;
   const isRest = data.mode === 'rest';
+  const isCompact = data.compact === true;
+  const position = data.position === 'left' ? 'left' : 'right';
   if (isRest && (!Number.isSafeInteger(data.startTs) || (data.endTs !== null &&
       (!Number.isSafeInteger(data.endTs) || data.endTs < data.startTs)))) return false;
   if (timerWindow && !timerWindow.isDestroyed() && isRest !== (timerMode === 'rest')) return false;
@@ -133,18 +151,18 @@ function createTimerWindow(data) {
     ...(isRest ? { mode: 'rest', endTs: data.endTs, key: data.startTs + ':' + data.endTs } : {}),
     actName: data.actName, startTs: data.startTs, color: data.color,
     startLabel: typeof data.startLabel === 'string' ? data.startLabel.slice(0, 30) : '',
-    ...(!isRest && Number.isInteger(data.nudgeMinutes) && data.nudgeMinutes >= 1 && data.nudgeMinutes <= 600
-      ? { nudgeMinutes: data.nudgeMinutes } : {}),
+    compact: isCompact,
   };
   timerState = safeData;
   if (timerWindow && !timerWindow.isDestroyed()) {
+    placeTimerWindow(timerWindow, isRest, isCompact, position);
     if (!isRest) timerWindow.focus();
     else if (data.reveal && !timerWindow.webContents.isLoading()) timerWindow.show();
     timerWindow.webContents.send('timer:data', safeData);
     return true;
   }
   const win = new BrowserWindow({
-    width: 176, height: isRest ? 112 : 128, resizable: false, show: !isRest,
+    width: isCompact ? 136 : 176, height: isCompact ? 66 : (isRest ? 112 : 128), resizable: false, show: !isRest,
     alwaysOnTop: true, frame: false, backgroundColor: '#ffffff', skipTaskbar: true,
     webPreferences: {
       nodeIntegration: false, contextIsolation: true, sandbox: true,
@@ -168,16 +186,7 @@ function createTimerWindow(data) {
     timerStopPending = false;
   });
   win.on('closed', () => { if (timerWindow === win) timerWindow = null; });
-  // 메인 창이 있는 모니터에 띄운다. 최소화된 창은 getBounds가 화면 밖 좌표라 복원 시 크기를 쓴다.
-  const mainAlive = mainWindow && !mainWindow.isDestroyed();
-  const display = mainAlive ? screen.getDisplayMatching(mainWindow.getNormalBounds()) : screen.getPrimaryDisplay();
-  const { x, y, width, height } = display.workArea;
-  const position = data.position === 'left' ? 'left' : 'right';
-  const [popupWidth, popupHeight] = win.getSize();
-  // Keep the center fixed by trimming both sides of each popup equally.
-  const previousWidth = isRest ? 184 : 200;
-  const sideMargin = 16 + (previousWidth - popupWidth) / 2;
-  win.setPosition(position === 'left' ? x + sideMargin : x + width - popupWidth - sideMargin, y + height - popupHeight - 16);
+  placeTimerWindow(win, isRest, isCompact, position);
   return true;
 }
 

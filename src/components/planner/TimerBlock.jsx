@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 import { controlColor } from '../../features/planner/controlColors.mjs';
 import { clockLabel, timerSegments } from '../../features/planner/scheduleTime.mjs';
 import { COLORS, CUSTOM_ID, fmtElapsed } from './plannerDisplay.mjs';
-import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference,
-  useBreakNudgePreference, useBreakNudgeMinutes, useFlowRestPreference } from '../../features/planner/timerPreferences';
-import { breakNudgeText, flowRestMinutes } from '../../features/planner/flowtime.mjs';
+import { useTimerPopupPreference, useTimerCompactPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference,
+  useFlowRestPreference } from '../../features/planner/timerPreferences';
+import { flowRestMinutes } from '../../features/planner/flowtime.mjs';
 import { prepareStudyGap } from '../../features/planner/studyGapService';
 import StudyGapDialog from './StudyGapDialog';
 import TimerSwitchDialog from './TimerSwitchDialog';
@@ -16,11 +16,10 @@ let activeTimerOwner = null;
 function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivityRef, control = false,
   restAvailable, returnActivities, onRestReturn, restTarget, switchGroups, onSwitch, switchTarget, onSwitchPrompt, onFlowRest, flowRestTarget }) {
   const [popupEnabled] = useTimerPopupPreference(uid);
+  const [compactEnabled] = useTimerCompactPreference(uid);
   const [popupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled] = useStudyGapPreference(uid);
   const [switchEnabled] = useTimerSwitchPreference(uid);
-  const [nudgeEnabled] = useBreakNudgePreference(uid);
-  const [nudgeMinutes] = useBreakNudgeMinutes(uid);
   const [flowRestEnabled] = useFlowRestPreference(uid);
   // 기록 타이머를 정지하면 저장한 뒤 일한 시간에 맞춘 휴식을 통제 화면에서 바로 시작한다.
   const flowRestApplied = useRef(null);
@@ -52,7 +51,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   const isCustom = actId === CUSTOM_ID;
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
   const rest = restTimer.useTimer({
-    uid, enabled: control, popupPosition, returnActivities, onSaveTimer, onReturn: onRestReturn,
+    uid, enabled: control, popupPosition, popupCompact: compactEnabled, returnActivities, onSaveTimer, onReturn: onRestReturn,
     lock: () => { activeTimerOwner = timerOwner.current; },
     unlock: () => { if (activeTimerOwner === timerOwner.current) activeTimerOwner = null; },
   });
@@ -68,10 +67,6 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       !activities.some(a => a.id === actId)) setActId('');
   }, [activities, actId, running, defaultRest]);
   const curAct    = actMap[actId];
-  // 작업(기록) 타이머가 정한 시간을 넘기면 작은 글자로만 알린다. 소리·반복·화면 가림 없음.
-  const nudgeActive = !control && nudgeEnabled;
-  const popupNudge = nudgeActive ? { nudgeMinutes } : {};
-  const nudgeDue = nudgeActive && running && elapsed >= nudgeMinutes * 60;
   const timerColor = isCustom ? (control ? controlColor(customGroup) : customColor) : (curAct?.color ?? '#6366f1');
 
   useEffect(() => {
@@ -117,7 +112,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
 
     if (popupEnabled && isElectron) {
       const actName = selectedIsCustom ? customName : (selectedActivity?.name ?? '');
-      const data = { actName, color: selectedColor, startTs: ts, startLabel: clockLabel(ts), position: popupPosition, ...popupNudge };
+      const data = { actName, color: selectedColor, startTs: ts, startLabel: clockLabel(ts), position: popupPosition, compact: compactEnabled };
       const api = window.electronAPI;
       if (typeof api.startTimerPopup === 'function') {
         Promise.resolve().then(() => api.startTimerPopup(data)).then(result => {
@@ -191,7 +186,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       return;
     }
     const actName = isCustom ? customName : (curAct?.name ?? '');
-    window.electronAPI.openTimerPopup({ actName, color: timerColor, startTs, startLabel, position: popupPosition, ...popupNudge });
+    window.electronAPI.openTimerPopup({ actName, color: timerColor, startTs, startLabel, position: popupPosition, compact: compactEnabled });
     setElectronPopupOpen(true);
   };
 
@@ -331,7 +326,6 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
           {startLabel} 시작
         </div>
       )}
-      {nudgeDue && <div className="timer-break-nudge" role="status">{breakNudgeText(nudgeMinutes)}</div>}
 
       <button
         type="button"
@@ -357,18 +351,18 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
         onContinue={continueStart} onRetry={() => checkGap(startRequest.current)} onCancel={cancelStart} />}
 
       {running && sessionPopupEnabled && !electronPopupOpen && createPortal(
-        <div className={`float-timer${popupPosition === 'left' ? ' float-timer-left' : ''}`} style={{ '--ft-color': timerColor }}>
+        <div className={`float-timer${popupPosition === 'left' ? ' float-timer-left' : ''}${compactEnabled ? ' float-timer-compact' : ''}`} style={{ '--ft-color': timerColor }}>
           <div className="ft-header">
             <span className="ft-dot" style={{ background: timerColor }} />
             <span className="ft-name">{isCustom ? customName : (curAct?.name ?? '')}</span>
+            {compactEnabled && <span className="ft-time" style={{ color: timerColor }}>{fmtElapsed(elapsed)}</span>}
             {isElectron && <button className="ft-pin" onClick={handlePopup} title="항상 위에 고정">📌</button>}
           </div>
-          <div className="ft-time" style={{ color: timerColor }}>{fmtElapsed(elapsed)}</div>
-          {nudgeDue ? <div className="ft-start timer-break-nudge">{breakNudgeText(nudgeMinutes)}</div>
-            : startLabel && <div className="ft-start" style={{ color: timerColor }}>{startLabel} 시작</div>}
+          {!compactEnabled && <div className="ft-time" style={{ color: timerColor }}>{fmtElapsed(elapsed)}</div>}
+          {!compactEnabled && startLabel && <div className="ft-start" style={{ color: timerColor }}>{startLabel} 시작</div>}
           <button className="ft-stop" style={{ borderColor: timerColor, color: timerColor }}
             disabled={saving} onClick={handleStop}>
-            {saving ? '저장 중...' : '■ 정지 & 기록'}
+            {saving ? '저장 중...' : compactEnabled ? '■ 정지' : '■ 정지 & 기록'}
           </button>
         </div>,
         document.body

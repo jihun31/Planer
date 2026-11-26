@@ -189,20 +189,19 @@ if(!process.versions.electron){
         assert(restTimer.read('switch-user').session===null,'End did not clear the rest session');
         assert(timerSwitchRestReturns.length===1,'End invoked the return to work callback');
 
-        // Flowtime: 오래 일하면 작은 알림만 뜨고, 정지 후 창의 휴식 버튼으로 일한 시간에 맞춘 휴식을 시작한다(휴식 설정 창은 거치지 않는다).
-        const nudge=()=>document.querySelector('.float-timer .timer-break-nudge');
+        // 타이머 최소화: 기본으로 켜져 있고(ON), 끄면 원래 크기·버튼 문구로 돌아간다.
         restNow=new Date(year,month-1,day,13,0,0).getTime();
         chip(study,'강의').click();await wait(()=>floatName()==='강의');
-        await tick();assert(!nudge(),'Break nudge appeared before the chosen time');
+        const floatBox=()=>document.querySelector('.float-timer');
+        assert(floatBox().classList.contains('float-timer-compact'),'Compact timer is not enabled by default');
+        assert(floatBox().querySelector('.ft-stop').textContent==='■ 정지','Compact float timer did not shorten stop button');
+        assert(!floatBox().querySelector('.ft-start'),'Compact float timer showed start label');
+        localStorage.setItem('planer:timer-compact:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));
+        await wait(()=>!floatBox().classList.contains('float-timer-compact'),'Turning compact off did not expand float timer');
+        assert(floatBox().querySelector('.ft-stop').textContent==='■ 정지 & 기록','Expanded float timer did not restore stop button');
+        localStorage.setItem('planer:timer-compact:switch-user','true');window.dispatchEvent(new Event('planer:timer-preferences'));
+        await wait(()=>floatBox().classList.contains('float-timer-compact'),'Turning compact back on did not shrink float timer');
         restNow+=51*60000;
-        await wait(()=>nudge()?.textContent==='50분 지났어요 · 쉬어 갈까요?','Break nudge did not appear after 50 minutes');
-        assert(floatName()==='강의'&&study.querySelector('.timer-running')&&!document.querySelector('dialog[open]'),'Break nudge interrupted the work timer');
-        localStorage.setItem('planer:break-nudge-minutes:switch-user','90');window.dispatchEvent(new Event('planer:timer-preferences'));
-        await wait(()=>!nudge(),'Changing the nudge time did not hide the early nudge');
-        localStorage.setItem('planer:break-nudge-minutes:switch-user','50');window.dispatchEvent(new Event('planer:timer-preferences'));
-        await wait(()=>nudge(),'Nudge did not return at 50 minutes');
-        localStorage.setItem('planer:break-nudge:switch-user','false');window.dispatchEvent(new Event('planer:timer-preferences'));
-        await wait(()=>!nudge(),'Turning the nudge off did not hide it');
         // 휴식 연결은 기본으로 꺼져 있다: 저장한 값이 없으면 50분 일하고 정지해도 휴식 버튼이 없다.
         const restButton=()=>prompt()?.querySelector('.study-gap-actions .timer-switch-rest');
         const badges=()=>[...prompt().querySelectorAll('.timer-switch-group button')].map(item=>item.textContent);
@@ -269,7 +268,7 @@ if(!process.versions.electron){
         stop();await wait(()=>timerSwitchSaves.length>offSaves);await tick();
         assert(!prompt()&&popups.length===offPopups&&restTimer.read('switch-user').session===null,'A dialog or rest appeared with both settings off');
         Date.now=realNow;
-        return {flowRest:true,breakNudge:true,offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,restEnd:true,calendarRest:true,restSaveRetry:true,saves:timerSwitchSaves.length};
+        return {flowRest:true,timerCompact:true,offByDefault:true,badgesGrouped:true,switchToControl:true,switchToStudy:true,endStops:true,restOpensRestTimer:true,revealsHiddenTab:true,unlimitedRest:true,timedExtension:true,restEnd:true,calendarRest:true,restSaveRetry:true,saves:timerSwitchSaves.length};
       })()`);
       const popup=new BrowserWindow({show:false,webPreferences:{
         sandbox:true,offscreen:true,backgroundThrottling:false,preload:path.join(__dirname,'../electron/preload.cjs'),
@@ -291,18 +290,26 @@ if(!process.versions.electron){
       })()`);
       await new Promise(resolve=>setTimeout(resolve,100));
       if(commands.length!==1||commands[0].type!=='end'||commands[0].key!==key)throw Error('Unlimited popup sent an unexpected command');
-      // 작업 타이머 팝업은 알림 시점을 넘기면 시작 시각 줄만 조용히 바꾼다.
-      popup.webContents.send('timer:data',{actName:'강의',color:'#ef4444',startTs:Date.now()-51*60000,startLabel:'13:00',nudgeMinutes:50});
-      const popupNudge=await popup.webContents.executeJavaScript(`(async()=>{
-        const label=document.querySelector('#start-label');const deadline=Date.now()+3000;
-        while(!label.classList.contains('nudge')){if(Date.now()>deadline)break;await new Promise(resolve=>setTimeout(resolve,50));}
-        return label.textContent;
-      })()`);
-      if(popupNudge!=='50분 지났어요 · 쉬어 갈까요?')throw Error('Popup did not show the break nudge: '+popupNudge);
-      popup.webContents.send('timer:data',{actName:'강의',color:'#ef4444',startTs:Date.now()-60000,startLabel:'13:00',nudgeMinutes:50});
-      const popupLabel=await popup.webContents.executeJavaScript(`new Promise(resolve=>setTimeout(()=>resolve(document.querySelector('#start-label').textContent),100))`);
-      if(popupLabel!=='13:00 시작')throw Error('Popup nudged too early: '+popupLabel);
-      console.log(JSON.stringify({...result,unlimitedPopup:true,popupNudge:true}));app.exit(0);
+      // 타이머 팝업 최소화 ON/OFF 전환 검증: compact일 때 시간이 상단 줄로 이동하고 버튼이 '■ 정지'가 된다.
+      popup.webContents.send('timer:data',{actName:'글쓰기',color:'#8b5cf6',startTs:Date.now()-60000,startLabel:'13:00',compact:true});
+      const compactState=await popup.webContents.executeJavaScript(`new Promise(resolve=>setTimeout(()=>resolve({
+        compact:document.body.dataset.compact,
+        inHeader:document.querySelector('#header #time')!==null,
+        stopText:document.querySelector('#stop-btn').textContent,
+        startDisplay:getComputedStyle(document.querySelector('#start-label')).display,
+      }),80))`);
+      if(compactState.compact!=='true'||!compactState.inHeader||compactState.stopText!=='■ 정지'||compactState.startDisplay!=='none')
+        throw Error('Compact popup layout mismatch: '+JSON.stringify(compactState));
+      popup.webContents.send('timer:data',{actName:'글쓰기',color:'#8b5cf6',startTs:Date.now()-60000,startLabel:'13:00',compact:false});
+      const normalState=await popup.webContents.executeJavaScript(`new Promise(resolve=>setTimeout(()=>resolve({
+        compact:document.body.dataset.compact,
+        inHeader:document.querySelector('#header #time')!==null,
+        stopText:document.querySelector('#stop-btn').textContent,
+        startText:document.querySelector('#start-label').textContent,
+      }),80))`);
+      if(normalState.compact!=='false'||normalState.inHeader||normalState.stopText!=='■ 정지 & 기록'||normalState.startText!=='13:00 시작')
+        throw Error('Normal popup layout mismatch: '+JSON.stringify(normalState));
+      console.log(JSON.stringify({...result,unlimitedPopup:true,popupCompact:true}));app.exit(0);
     }catch(error){console.error(error?.stack||String(error));app.exit(1);}
   });
 }

@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { saveScheduleSettings } from '../features/planner/scheduleSettings';
 import { plannerDate, rangeForDate } from '../features/planner/scheduleTime.mjs';
 import { oppositeDisplayFromHistory } from '../features/planner/oppositeDisplay.mjs';
-import { useTimerPopupPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference,
-  useBreakNudgePreference, useBreakNudgeMinutes, useFlowRestPreference } from '../features/planner/timerPreferences';
-import { BREAK_NUDGE_MIN_MINUTES, BREAK_NUDGE_MAX_MINUTES, isBreakNudgeMinutes } from '../features/planner/flowtime.mjs';
+import { useTimerPopupPreference, useTimerCompactPreference, useStudyGapPreference, useTimerPopupPosition, useTimerSwitchPreference,
+  useFlowRestPreference } from '../features/planner/timerPreferences';
 import { useTabVisibility } from '../features/navigation/useTabVisibility';
 import { useTabOrder } from '../features/navigation/useTabOrder';
 import { DEFAULT_TAB_ORDER, moveTab, orderTabs, tabAvailable, tabViews } from '../features/navigation/appTabs.mjs';
@@ -17,13 +16,10 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
   const labelWithHelp = (labelKey, noteKey) => <span className="setting-help-label">{copy.field(labelKey)}{help.button(noteKey, copy.value(labelKey))}</span>;
   const close = () => {if (!saving && copy.canClose()) onClose();};
   const [timerPopupEnabled, setTimerPopupEnabled] = useTimerPopupPreference(uid);
+  const [timerCompactEnabled, setTimerCompactEnabled] = useTimerCompactPreference(uid);
   const [timerPopupPosition, setTimerPopupPosition] = useTimerPopupPosition(uid);
   const [studyGapEnabled, setStudyGapEnabled] = useStudyGapPreference(uid);
   const [timerSwitchEnabled, setTimerSwitchEnabled] = useTimerSwitchPreference(uid);
-  const [breakNudgeEnabled, setBreakNudgeEnabled] = useBreakNudgePreference(uid);
-  const [breakNudgeMinutes, setBreakNudgeMinutes] = useBreakNudgeMinutes(uid);
-  // 입력 중인 글자(빈 칸·범위 밖 값 포함). 칸을 벗어나면 저장된 값으로 돌아간다.
-  const [nudgeDraft, setNudgeDraft] = useState(null);
   const [flowRestEnabled, setFlowRestEnabled] = useFlowRestPreference(uid);
   const [timerFailure, setTimerFailure] = useState('');
   const saveTimerPreference = apply => {
@@ -75,6 +71,8 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
         try { setTimerPopupEnabled(e.target.checked); setTimerFailure(''); }
         catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
       }} /></label>
+      <label>{copy.field('timerCompact')}<input type="checkbox" disabled={copy.editing} checked={timerCompactEnabled}
+        onChange={e => saveTimerPreference(() => setTimerCompactEnabled(e.target.checked))} /></label>
       <label>{copy.field('timerPopupPosition')}<select value={timerPopupPosition} disabled={copy.editing} onChange={e => {
         try {setTimerPopupPosition(e.target.value);setTimerFailure('');}
         catch {setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
@@ -92,21 +90,6 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
         catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
       }} /></label>
       {help.shown('timerSwitchNote') && <p>{copy.field('timerSwitchNote')}</p>}
-      <label>{labelWithHelp('breakNudge','breakNudgeNote')}<input type="checkbox" disabled={copy.editing} checked={breakNudgeEnabled}
-        onChange={e => saveTimerPreference(() => setBreakNudgeEnabled(e.target.checked))} /></label>
-      <label>{copy.field('breakNudgeMinutes')}<span className="break-nudge-minutes">
-        <input type="number" inputMode="numeric" min={BREAK_NUDGE_MIN_MINUTES} max={BREAK_NUDGE_MAX_MINUTES} step="1"
-          value={nudgeDraft ?? breakNudgeMinutes} disabled={copy.editing || !breakNudgeEnabled}
-          onChange={e => {
-            const text = e.target.value;
-            const value = Number(text);
-            setNudgeDraft(text);
-            if (text !== '' && isBreakNudgeMinutes(value)) saveTimerPreference(() => setBreakNudgeMinutes(value));
-          }}
-          onBlur={() => setNudgeDraft(null)} />분</span></label>
-      {nudgeDraft !== null && !isBreakNudgeMinutes(Number(nudgeDraft)) &&
-        <p role="alert">{BREAK_NUDGE_MIN_MINUTES}~{BREAK_NUDGE_MAX_MINUTES} 사이의 정수(분)를 입력해 주세요.</p>}
-      {help.shown('breakNudgeNote') && <p>{copy.field('breakNudgeNote')}</p>}
       <label>{labelWithHelp('flowRest','flowRestNote')}<input type="checkbox" disabled={copy.editing} checked={flowRestEnabled}
         onChange={e => saveTimerPreference(() => setFlowRestEnabled(e.target.checked))} /></label>
       {help.shown('flowRestNote') && <p>{copy.field('flowRestNote')}</p>}

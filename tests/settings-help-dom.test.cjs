@@ -27,9 +27,9 @@ if(!process.versions.electron){
         const dialog=()=>document.querySelector('dialog.schedule-settings');
         const text=()=>dialog().textContent;
         const toggles=()=>[...dialog().querySelectorAll('.setting-help-toggle')];
-        const notes=['직전 기록 이후의 빈 시간','배지를 누르면','쉬어 갈 때라고','하던 활동으로 돌아갑니다','화살표로 순서를','달력에 표시할','오늘부터 적용'];
+        const notes=['직전 기록 이후의 빈 시간','배지를 누르면','하던 활동으로 돌아갑니다','화살표로 순서를','달력에 표시할','오늘부터 적용'];
         await wait(()=>dialog()&&toggles().length>0,'Settings dialog did not render');
-        assert(toggles().length===6,'Expected 6 help buttons, got '+toggles().length);
+        assert(toggles().length===5,'Expected 5 help buttons, got '+toggles().length);
         assert(notes.every(note=>!text().includes(note)),'A description is visible before pressing ?');
 
         // 체크박스 label 안의 ? 버튼은 설명만 펼치고 체크 상태를 바꾸지 않는다.
@@ -43,8 +43,8 @@ if(!process.versions.electron){
         assert(!text().includes(notes[0]),'Second ? click did not hide the description');
 
         // 시간 범위 ? 는 범위 설명 두 줄을 함께 펼친다.
-        toggles()[5].click();await tick();
-        assert(text().includes(notes[5])&&text().includes(notes[6]),'Calendar ? did not show range descriptions');
+        toggles()[4].click();await tick();
+        assert(text().includes(notes[4])&&text().includes(notes[5]),'Calendar ? did not show range descriptions');
 
         // 문구 수정 중에는 설명을 고칠 수 있게 모두 펼치고 ? 버튼은 감춘다.
         await wait(()=>!dialog().querySelector('.copy-edit-button').disabled,'Copy edit unavailable');

@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_BREAK_NUDGE_MINUTES, isBreakNudgeMinutes } from './flowtime.mjs';
 
 const changeEvent = 'planer:timer-preferences';
 function subscribe(onChange) {
@@ -85,29 +84,13 @@ function useBooleanPreference(key, fallback) {
   return [enabled, setEnabled];
 }
 
-// 기록 타이머가 오래 돌면 타이머에 작은 휴식 알림을 띄운다.
-export function useBreakNudgePreference(uid) {
-  return useBooleanPreference(uid ? `planer:break-nudge:${uid}` : null, true);
+// 타이머 팝업을 콤팩트한 크기로 표시한다. 기본은 켬.
+export function useTimerCompactPreference(uid) {
+  return useBooleanPreference(uid ? `planer:timer-compact:${uid}` : null, true);
 }
 
 // 기록 타이머를 정지하면 다음 활동 창에 일한 시간에 맞춘 "휴식 시작 (N분)" 버튼을 둔다.
 // 기본은 끔: 이 설정을 직접 켠(값이 'true'로 저장된) 사용자만 켜진다.
 export function useFlowRestPreference(uid) {
   return useBooleanPreference(uid ? `planer:flow-rest:${uid}` : null, false);
-}
-
-export function useBreakNudgeMinutes(uid) {
-  const key = uid ? `planer:break-nudge-minutes:${uid}` : null;
-  const minutes = useSyncExternalStore(subscribe, () => {
-    try {
-      const value = key ? Number(window.localStorage.getItem(key)) : NaN;
-      return isBreakNudgeMinutes(value) ? value : DEFAULT_BREAK_NUDGE_MINUTES;
-    } catch { return DEFAULT_BREAK_NUDGE_MINUTES; }
-  }, () => DEFAULT_BREAK_NUDGE_MINUTES);
-  const setMinutes = value => {
-    if (!key || !isBreakNudgeMinutes(value)) throw new Error('Invalid timer preference');
-    window.localStorage.setItem(key, String(value));
-    window.dispatchEvent(new Event(changeEvent));
-  };
-  return [minutes, setMinutes];
 }

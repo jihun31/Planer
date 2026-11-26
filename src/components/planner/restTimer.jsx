@@ -224,7 +224,7 @@ function createPlanerRest(React, createPortal) {
     </dialog>, document.body);
   }
 
-  function useTimer({ uid, enabled, popupPosition, lock, unlock, returnActivities = [], onSaveTimer, onReturn }) {
+  function useTimer({ uid, enabled, popupPosition, popupCompact = true, lock, unlock, returnActivities = [], onSaveTimer, onReturn }) {
     const [store, setStore] = useState(() => enabled ? read(uid) : null);
     const [editing, setEditing] = useState(false);
     const [observedTime, setObservedTime] = useState(Date.now);
@@ -276,7 +276,7 @@ function createPlanerRest(React, createPortal) {
 
     useEffect(() => {
       if (session && !reviewing) void showPopup(false);
-    }, [session, reviewing, popupPosition]);
+    }, [session, reviewing, popupPosition, popupCompact]);
 
     useEffect(() => {
       if (!enabled) return;
@@ -297,7 +297,7 @@ function createPlanerRest(React, createPortal) {
       try {
         result = await window.electronAPI?.openRestPopup?.({
           actName: active.name, color, startTs: active.startTs, endTs: active.endTs,
-          position: popupPosition, reveal,
+          position: popupPosition, compact: popupCompact, reveal,
         });
       } catch { /* The timer card can reopen the window. */ }
       if (current.current.session === active) setPopupError(result?.ok ? '' : '휴식 타이머를 열지 못했어요. 다시 시도해 주세요.');
