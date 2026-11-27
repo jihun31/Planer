@@ -16,6 +16,7 @@ import UpdateBanner from './components/UpdateBanner';
 import { useLearning } from './features/learning/useLearning';
 import { useDiscordLink, useServerInfo } from './features/discord/useDiscord';
 import { useTonkatsu } from './features/tonkatsu/useTonkatsu';
+import { useCheckInAlert, useCheckInAlertTime } from './features/tonkatsu/useCheckInAlert';
 import { useHabits } from './features/habits/useHabits';
 import { hasVisibleModal, isEditingTarget } from './features/navigation/keyboardShortcuts.mjs';
 import { useTabVisibility } from './features/navigation/useTabVisibility';
@@ -86,7 +87,10 @@ function App() {
   // 한 번 연 화면은 숨겨도 계속 붙여 둔다(타이머 등 상태 유지).
   const [openedViews, setOpenedViews] = useState({});
   const [lastViewByTab, setLastViewByTab] = useState({});
-  const tonkatsu = useTonkatsu(discordId, Boolean(openedViews.checkin));
+  // 인증 PC 알림을 켜 두면 인증 탭을 열지 않아도 내 인증 상태를 받아 둔다.
+  const [checkInAlertTime] = useCheckInAlertTime(user?.uid);
+  const tonkatsu = useTonkatsu(discordId, Boolean(openedViews.checkin || checkInAlertTime));
+  useCheckInAlert(user?.uid, discordId, tonkatsu, checkInAlertTime);
   // 시간 관리 화면의 요약은 최근 기록만, 학습 탭을 열면 전체 기록을 받는다.
   const learning = useLearning(openedViews.planner || openedViews.learning ? user?.uid : null,
     { full: Boolean(openedViews.learning) });
@@ -94,6 +98,7 @@ function App() {
     setActiveView(viewId);
     setOpenedViews(opened => opened[viewId] ? opened : { ...opened, [viewId]: true });
   }, []);
+  useEffect(() => window.electronAPI?.onCheckInAlertClick?.(() => activateView('checkin')), [activateView]);
   // 보던 화면이 숨겨지면 같은 탭의 다른 화면(없으면 오늘 할 일)으로 옮긴다.
   useEffect(() => { if (activeView !== currentView) activateView(currentView); }, [activeView, currentView, activateView]);
   const currentTabId = currentTab?.id;

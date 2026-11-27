@@ -110,8 +110,16 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
     isDestroyed() { return this.dead; }
     close() { this.events.get('close')?.(); this.dead = true; this.events.get('closed')?.(); }
     destroy() { this.dead = true; this.events.get('closed')?.(); }
-    focus() {} restore() {} show() {} maximize() {} minimize() { this.minimized = true; } setPosition(x,y) { this.position = [x,y]; }
+    focus() {} restore() {} show() {} maximize() {} isMinimized() { return false; } isVisible() { return true; } minimize() { this.minimized = true; } setPosition(x,y) { this.position = [x,y]; }
     getNormalBounds() { return this.bounds || { x: 0, y: 0, width: 1280, height: 800 }; }
+  }
+  const notifications = [];
+  class FakeNotification {
+    static isSupported() { return true; }
+    constructor(options) { this.options = options; this.events = new Map(); notifications.push(this); }
+    on(name, cb) { this.events.set(name, cb); }
+    show() { this.shown = true; }
+    close() { this.closed = true; }
   }
   const pathModule = await import('node:path');
   const urlModule = await import('node:url');
@@ -126,6 +134,7 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
         shell: { openExternal: () => Promise.resolve() },
         ipcMain: { on: (key, cb) => handlers.set(key, cb), handle: (key, cb) => invokes.set(key, cb) },
         powerMonitor: { on() {} },
+        Notification: FakeNotification,
         screen: {
           getPrimaryDisplay: () => displays[0],
           getAllDisplays: () => displays,
@@ -180,6 +189,18 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal(noteImagesAllowed(eventFor(main)),true);
   assert.equal(noteImagesAllowed(eventFor(timer)),false);
   assert.equal(noteImagesAllowed(maliciousFrame),false);
+  // 인증 PC 알림은 메인 창만 띄울 수 있고, 누르면 메인 창에 인증 탭을 열라고 알린다.
+  handlers.get('checkin:show-alert')(eventFor(timer), { title: 't', body: 'b' });
+  handlers.get('checkin:show-alert')(maliciousFrame, { title: 't', body: 'b' });
+  handlers.get('checkin:show-alert')(eventFor(main), { title: 't', body: 'x'.repeat(1001) });
+  handlers.get('checkin:show-alert')(eventFor(main), { title: 1, body: 'b' });
+  assert.equal(notifications.length, 0);
+  handlers.get('checkin:show-alert')(eventFor(main), { title: '돈까스 인증 1개가 남았어요', body: '[일일] 물 마시기' });
+  assert.equal(notifications.length, 1);
+  assert.ok(notifications[0].shown);
+  assert.deepEqual({ ...notifications[0].options }, { title: '돈까스 인증 1개가 남았어요', body: '[일일] 물 마시기' });
+  notifications[0].events.get('click')();
+  assert.equal(main.sent.filter(x => x.name === 'checkin:open').length, 1);
   handlers.get('timer:stop-from-popup')(eventFor(main));
   assert.ok(!timer.dead);
   const timerEvent = eventFor(timer);

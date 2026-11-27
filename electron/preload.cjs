@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onRestPopupCommand: cb => listen('rest:command', cb),
   scheduleRestReminder: data => ipcRenderer.send('rest:schedule-reminder', data),
   clearRestReminder: key => ipcRenderer.send('rest:clear-reminder', key),
+  showCheckInAlert: data => ipcRenderer.send('checkin:show-alert', data),
+  onCheckInAlertClick: cb => listen('checkin:open', cb),
   onTimerStopped: (cb) => listen('timer:stopped', cb),
   onTimerData: (cb) => listen('timer:data', cb),
   minimizeMain: () => ipcRenderer.send('window:minimize-main'),

@@ -2,6 +2,27 @@ import { useEffect, useState } from 'react';
 import { createLinkCode, deleteLinkCode } from '../features/discord/discordService';
 import { formatLinkCode, remainingSeconds } from '../features/discord/linkCode.mjs';
 import { useSettingHelp } from './SettingHelp';
+import { useCheckInAlertTime } from '../features/tonkatsu/useCheckInAlert';
+import { DEFAULT_ALERT_TIME } from '../features/tonkatsu/checkInAlert.mjs';
+
+// 오늘 할 인증이 남았을 때 띄우는 PC 알림의 시각. 이 기기에만 저장하고, 디스코드 알림 시간과는 따로 동작한다.
+function CheckInAlertSetting({ uid }) {
+  const [time, setTime] = useCheckInAlertTime(uid);
+  const [lastTime, setLastTime] = useState(time || DEFAULT_ALERT_TIME);
+  const [failure, setFailure] = useState('');
+  const save = value => {
+    try { setTime(value); if (value) setLastTime(value); setFailure(''); }
+    catch { setFailure('알림 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
+  };
+  return <div className="checkin-alert-setting">
+    <label>인증 안 했을 때 PC 알림
+      <input type="checkbox" checked={!!time} onChange={e => save(e.target.checked ? lastTime : null)} /></label>
+    {time && <label>알림 시각
+      <input type="time" aria-label="인증 알림 시각" value={time} required
+        onChange={e => { if (e.target.value) save(e.target.value); }} /></label>}
+    {failure && <p role="alert">{failure}</p>}
+  </div>;
+}
 
 // 설정 창의 '디스코드 연동' 영역
 export default function DiscordLinkSection({ uid, discord, serverInfo }) {
@@ -44,6 +65,8 @@ export default function DiscordLinkSection({ uid, discord, serverInfo }) {
     {discord.error && <p role="alert">연동 상태를 불러오지 못했습니다. Firebase 규칙이 게시되었는지 확인해 주세요.</p>}
     {discord.ready && linked && <>
       <p>✅ {serverInfo?.name ? <strong>{serverInfo.name}</strong> : '디스코드 서버'}와 연동되어 있습니다.</p>
+      <CheckInAlertSetting uid={uid} />
+      {help.shown('discord') && <p className="discord-link-note">Planner가 켜져 있을 때, 정한 시각까지 오늘 인증할 계획이 남아 있으면 Windows 알림을 한 번 보냅니다. 새벽 5시 전 시각은 그날 밤으로 칩니다.</p>}
       {help.shown('discord') && <p className="discord-link-note">해제하려면 디스코드에서 <code>/연동 동작:연동 해제</code>를 입력하세요.</p>}
     </>}
     {discord.ready && !linked && <>

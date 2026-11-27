@@ -269,6 +269,19 @@ ipcMain.on('timer:stop-from-popup', event => {
   timerStopPending = true;
   timerWindow.close();
 });
+// 돈까스 인증을 안 했을 때 렌더러가 요청하는 Windows 알림. 누르면 인증 탭을 연다.
+let checkInNotification = null;
+ipcMain.on('checkin:show-alert', (event, data) => {
+  if (!fromMain(event) || typeof data?.title !== 'string' || typeof data?.body !== 'string'
+    || data.title.length > 200 || data.body.length > 1000 || !Notification.isSupported()) return;
+  checkInNotification?.close();
+  checkInNotification = new Notification({ title: data.title, body: data.body });
+  checkInNotification.on('click', () => {
+    revealMain();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('checkin:open');
+  });
+  checkInNotification.show();
+});
 app.on('second-instance', revealMain);
 app.whenReady().then(() => {
   if (!hasInstanceLock) return;
