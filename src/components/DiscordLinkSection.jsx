@@ -17,10 +17,30 @@ function CheckInAlertSetting({ uid }) {
   return <div className="checkin-alert-setting">
     <label>인증 안 했을 때 PC 알림
       <input type="checkbox" checked={!!time} onChange={e => save(e.target.checked ? lastTime : null)} /></label>
-    {time && <label>알림 시각
-      <input type="time" aria-label="인증 알림 시각" value={time} required
-        onChange={e => { if (e.target.value) save(e.target.value); }} /></label>}
+    {time && <AlertTimeFields time={time} onSave={save} />}
     {failure && <p role="alert">{failure}</p>}
+  </div>;
+}
+
+// 시(00~23)·분(00~59)을 24시간제로 직접 입력한다. 둘 다 맞으면 바로 저장하고, 칸을 벗어날 때 두 자리로 맞춘다.
+function AlertTimeFields({ time, onSave }) {
+  const [draft, setDraft] = useState(() => { const [hour, minute] = time.split(':'); return { hour, minute }; });
+  const valid = ({ hour, minute }) => /^\d{1,2}$/.test(hour) && /^\d{1,2}$/.test(minute) && Number(hour) <= 23 && Number(minute) <= 59;
+  const format = ({ hour, minute }) => `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+  const change = (field, value) => {
+    const next = { ...draft, [field]: value.replace(/\D/g, '').slice(0, 2) };
+    setDraft(next);
+    if (valid(next) && format(next) !== time) onSave(format(next));
+  };
+  const blur = () => {
+    if (valid(draft)) { const [hour, minute] = format(draft).split(':'); setDraft({ hour, minute }); }
+    else { const [hour, minute] = time.split(':'); setDraft({ hour, minute }); }
+  };
+  const field = (name, label) => <input type="text" inputMode="numeric" maxLength={2} className="checkin-alert-time" aria-label={label}
+    value={draft[name]} onChange={e => change(name, e.target.value)} onBlur={blur} onFocus={e => e.target.select()} />;
+  return <div className="checkin-alert-time-row">
+    <span>알림 시각 <small>(24시간제, 밤 12시 30분은 00:30)</small></span>
+    <span>{field('hour', '인증 알림 시')}:{field('minute', '인증 알림 분')}</span>
   </div>;
 }
 
