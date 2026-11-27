@@ -172,12 +172,23 @@ test('learning goals are private, bounded and append-only', async () => {
   const savedSelection = await assertSucceeds(getDoc(doc(alice,'learningGoals','activities')));
   assert.deepEqual(savedSelection.data().includedActivityIds,['math','english']);
   assert.deepEqual(savedSelection.data().activityTargets,{math:45});
+  await assertSucceeds(setDoc(doc(alice,'learningGoals','empty-activities'),{
+    ...data, includedActivityIds:[], activityTargets:{},
+  }));
   await assertFails(setDoc(doc(alice,'learningGoals','partial'),{
     ...data, includedActivityIds:['math'],
   }));
   await assertFails(setDoc(doc(alice,'learningGoals','unselected-target'),{
     ...data, includedActivityIds:['math'], activityTargets:{english:30},
   }));
+  await assertFails(setDoc(doc(alice,'learningGoals','dup-activities'),{
+    ...data, includedActivityIds:['math','math'], activityTargets:{},
+  }));
+  for (const includedActivityIds of [[''], ['a/b'], [123], ['x'.repeat(129)]]) {
+    await assertFails(setDoc(doc(alice,'learningGoals','bad-activity-id'),{
+      ...data, includedActivityIds, activityTargets:{},
+    }));
+  }
   await assertSucceeds(getDocs(query(collection(alice,'learningGoals'),where('uid','==','alice'))));
   await assertFails(getDoc(doc(bob,'learningGoals','first')));
   await assertFails(setDoc(doc(bob,'learningGoals','forged'),data));
@@ -376,17 +387,25 @@ test('priority notes are private to their owner and keep a numbered list', async
   const alice = env.authenticatedContext('alice').firestore();
   const bob = env.authenticatedContext('bob').firestore();
   const guest = env.unauthenticatedContext().firestore();
+  const { serverTimestamp } = await import('firebase/firestore');
   const ref = doc(alice, 'priorityNotes', 'alice');
   const notes = [{ id: 'a', text: 'First' }, { id: 'b', text: 'Second' }];
-  await assertSucceeds(setDoc(ref, { uid: 'alice', items: notes }));
+  await assertSucceeds(setDoc(ref, { uid: 'alice', items: notes, updatedAt: serverTimestamp() }));
   await assertSucceeds(getDoc(ref));
-  await assertSucceeds(updateDoc(ref, { items: [...notes].reverse() }));
+  await assertSucceeds(updateDoc(ref, { items: [...notes].reverse(), updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(ref, { uid: 'alice', items: notes }));
+  await assertFails(setDoc(ref, { uid: 'alice', items: notes, updatedAt: Timestamp.fromMillis(1) }));
+  await assertFails(setDoc(ref, {
+    uid: 'alice',
+    items: Array.from({ length: 201 }, (_, i) => ({ id: `n${i}`, text: 'x' })),
+    updatedAt: serverTimestamp(),
+  }));
   await assertFails(getDoc(doc(bob, 'priorityNotes', 'alice')));
   await assertFails(getDoc(doc(guest, 'priorityNotes', 'alice')));
-  await assertFails(setDoc(doc(bob, 'priorityNotes', 'alice'), { uid: 'bob', items: [] }));
-  await assertFails(setDoc(doc(alice, 'priorityNotes', 'bob'), { uid: 'alice', items: [] }));
-  await assertFails(updateDoc(ref, { uid: 'bob' }));
-  await assertFails(updateDoc(ref, { items: 'not-a-list' }));
+  await assertFails(setDoc(doc(bob, 'priorityNotes', 'alice'), { uid: 'bob', items: [], updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(alice, 'priorityNotes', 'bob'), { uid: 'alice', items: [], updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { uid: 'bob', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { items: 'not-a-list', updatedAt: serverTimestamp() }));
   await assertFails(deleteDoc(ref));
 });
 
@@ -398,11 +417,17 @@ test('schedule settings are owner-scoped, validated and append-only', async () =
   const data = {uid:'alice',startHour:10,endHour:1,effectiveDate:'2026-10-05',changedAt:1,createdAt:serverTimestamp()};
   const ref=doc(alice,'plannerSettings','range');
   await assertSucceeds(setDoc(ref,data));
+  const withoutChangedAt = { ...data };
+  delete withoutChangedAt.changedAt;
+  await assertSucceeds(setDoc(doc(alice,'plannerSettings','no-changed-at'),withoutChangedAt));
   await assertSucceeds(getDocs(query(collection(alice,'plannerSettings'),where('uid','==','alice'))));
   await assertFails(getDoc(doc(bob,'plannerSettings','range')));
   await assertFails(getDoc(doc(guest,'plannerSettings','range')));
   await assertFails(setDoc(doc(bob,'plannerSettings','forged'),data));
   await assertFails(setDoc(doc(alice,'plannerSettings','invalid'),{...data,startHour:24}));
+  await assertFails(setDoc(doc(alice,'plannerSettings','invalid-date'),{...data,effectiveDate:'not-a-date'}));
+  await assertFails(setDoc(doc(alice,'plannerSettings','invalid-changedAt'),{...data,changedAt:'1'}));
+  await assertFails(setDoc(doc(alice,'plannerSettings','float-changedAt'),{...data,changedAt:1.5}));
   await assertSucceeds(setDoc(doc(alice,'plannerSettings','display'),{...data,plannerOppositeDisplay:'faded',controlOppositeDisplay:'hidden'}));
   await assertSucceeds(setDoc(doc(alice,'plannerSettings','legacy-display'),{...data,plannerOppositeDisplay:'transparent',controlOppositeDisplay:'blind'}));
   await assertFails(setDoc(doc(alice,'plannerSettings','invalid-display'),{...data,plannerOppositeDisplay:'unknown'}));

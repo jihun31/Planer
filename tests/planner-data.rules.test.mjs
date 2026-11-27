@@ -87,7 +87,8 @@ test('saved habit order is accessible only by its owner and rejects malformed or
   await assertSucceeds(setDoc(alice, { ids: ['habit-b', 'habit-a'] }));
   assert.deepEqual((await assertSucceeds(getDoc(alice))).data().ids, ['habit-b', 'habit-a']);
   for (const data of [{}, { ids: 'habit-a' }, { ids: ['habit-a', 'habit-a'] }, { ids: ['habit/a'] },
-    { ids: [''] }, { ids: [123] }, { ids: [], extra: true }]) {
+    { ids: [''] }, { ids: [123] }, { ids: [], extra: true },
+    { ids: Array.from({ length: 201 }, (_, i) => `habit-${i}`) }]) {
     await assertFails(setDoc(alice, data));
   }
   for (const ref of [bob, guest]) {
@@ -134,12 +135,16 @@ test('schedule blocks accept every app record shape and reject broken time range
   await assertSucceeds(updateDoc(doc(alice, 'scheduleBlocks', 'linked'), { activityColor: '#3b82f6' }));
   await assertSucceeds(updateDoc(doc(alice, 'scheduleBlocks', 'linkedWithoutSnapshot'), { activityName: '영어', activityColor: '#22c55e' }));
   await assertSucceeds(updateDoc(doc(alice, 'scheduleBlocks', 'custom'), { learningIncluded: false }));
+  await assertFails(updateDoc(doc(alice, 'scheduleBlocks', 'control'), { learningIncluded: true }));
+  await assertFails(updateDoc(doc(alice, 'scheduleBlocks', 'controlCustom'), { learningIncluded: false }));
   for (const bad of [{ activityColor: 'blue' }, { learningIncluded: 1 }, { endMin: 9999 }, { date: '2026-11-21' }, { uid: 'data-bob' }, { kind: 'control' }])
     await assertFails(updateDoc(doc(alice, 'scheduleBlocks', 'linked'), bad));
 
-  // 예전 형식 기록도 색은 계속 바꿀 수 있다.
+  // 예전 형식 기록도 색과 직접 입력 학습 포함 여부는 계속 바꿀 수 있다.
   await seed(['scheduleBlocks', 'legacy-slot'], { uid, date: '2026-01-01', startSlot: 1, endSlot: 2, activityId: 'a1' });
   await assertSucceeds(updateDoc(doc(alice, 'scheduleBlocks', 'legacy-slot'), { activityColor: '#3b82f6' }));
+  await seed(['scheduleBlocks', 'legacy-custom'], { uid, date: '2026-01-01', startSlot: 1, endSlot: 2, activityId: null, customName: '예전 독서' });
+  await assertSucceeds(updateDoc(doc(alice, 'scheduleBlocks', 'legacy-custom'), { learningIncluded: true }));
 });
 
 test('legacy control blocks can only be moved into schedule blocks, not created or edited', async () => {
@@ -155,6 +160,16 @@ test('legacy control blocks can only be moved into schedule blocks, not created 
   await assertFails(setDoc(doc(alice, 'scheduleBlocks', 'not-legacy-old2'), { ...old, kind: 'control' }));
   await assertFails(setDoc(doc(alice, 'scheduleBlocks', `legacy-control-${uid}-old3`), { ...old, kind: 'study' }));
   await assertFails(setDoc(doc(alice, 'scheduleBlocks', 'legacy-control-data-bob-old4'), { ...old, kind: 'control' }));
+  // 원본 controlBlocks 문서가 없거나 타인 소유이거나, 삭제 없이 복사하거나, 필드를 변조하면 거부된다.
+  await assertFails(setDoc(doc(alice, 'scheduleBlocks', `legacy-control-${uid}-missing`), { ...old, kind: 'control' }));
+  await seed(['controlBlocks', 'bob-old'], { uid: 'data-bob', date: '2026-01-01', startSlot: 1, endSlot: 2 });
+  await assertFails(setDoc(doc(alice, 'scheduleBlocks', `legacy-control-${uid}-bob-old`), { ...old, kind: 'control' }));
+  await seed(['controlBlocks', 'old2'], old);
+  await assertFails(setDoc(doc(alice, 'scheduleBlocks', `legacy-control-${uid}-old2`), { ...old, kind: 'control' }));
+  const forgedBatch = writeBatch(alice);
+  forgedBatch.set(doc(alice, 'scheduleBlocks', `legacy-control-${uid}-old2`), { ...old, kind: 'control', forged: true });
+  forgedBatch.delete(doc(alice, 'controlBlocks', 'old2'));
+  await assertFails(forgedBatch.commit());
   await assertFails(setDoc(doc(alice, 'habitLogs', 'new'), { uid, habitId: 'h1', date: '2026-01-01' }));
 });
 

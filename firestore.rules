@@ -151,20 +151,34 @@ service cloud.firestore {
         && (!('group' in d) || (d.kind == 'control' && d.group in ['controlled', 'foolish']))
         && (!('source' in d) || (d.kind == 'control' && d.source == 'study-gap'));
     }
+    function validLegacyControlSource(oldId) {
+      return isDocId(oldId)
+        && exists(/databases/$(database)/documents/controlBlocks/$(oldId))
+        && get(/databases/$(database)/documents/controlBlocks/$(oldId)).data.uid == request.auth.uid
+        && !existsAfter(/databases/$(database)/documents/controlBlocks/$(oldId))
+        && request.resource.data.diff(get(/databases/$(database)/documents/controlBlocks/$(oldId)).data).affectedKeys().hasOnly(['kind']);
+    }
+    function validLegacyControlMigration(blockId) {
+      let prefix = 'legacy-control-' + request.auth.uid + '-';
+      return blockId.size() > prefix.size()
+        && blockId[0:prefix.size()] == prefix
+        && validLegacyControlSource(blockId[prefix.size():blockId.size()]);
+    }
     match /scheduleBlocks/{blockId} {
       allow read, delete: if ownsDoc();
       allow create: if (createsOwn(blockFields(), ['uid', 'kind', 'date', 'startMin', 'endMin', 'activityId', 'createdAt'])
           && validBlock(request.resource.data) && createdNow())
-        // 예전 controlBlocks를 옮겨 오는 복사본: 원본 그대로에 kind만 붙는다(원본 형식이 정해져 있지 않아 문서 ID로만 제한).
+        // 예전 controlBlocks를 옮겨 오는 복사본: 본인 소유 원본을 같은 배치에서 지우며 kind='control'만 붙여 옮긴다.
         || (signedIn() && request.resource.data.uid == request.auth.uid
           && request.resource.data.kind == 'control'
-          && blockId.matches('^legacy-control-' + request.auth.uid + '-[A-Za-z0-9_-]{1,128}$'));
+          && validLegacyControlMigration(blockId));
       // 타이머·빈 시간 기록은 같은 문서 ID로 다시 저장(재시도)할 수 있다: 이때는 createdAt만 바뀐다.
       allow update: if (updatesOwn(['createdAt']) && createdNow())
         || (updatesOwn(['activityName', 'activityColor', 'learningIncluded'])
           && (!changed('activityName') || isText(request.resource.data.activityName, 0, 200))
           && (!changed('activityColor') || isColor(request.resource.data.activityColor))
-          && (!changed('learningIncluded') || request.resource.data.learningIncluded is bool));
+          && (!changed('learningIncluded')
+            || (resource.data.get('kind', 'study') == 'study' && request.resource.data.learningIncluded is bool)));
     }
     // 예전 구조. 앱은 읽어서 옮기거나 지우기만 한다.
     match /controlBlocks/{blockId} {
@@ -255,7 +269,7 @@ service cloud.firestore {
     }
     match /habitOrders/{userId} {
       function validHabitIds(ids) {
-        return ids is list && ids.toSet().size() == ids.size()
+        return ids is list && ids.size() <= 200 && ids.toSet().size() == ids.size()
           // 문서 ID는 슬래시 없이 비어 있지 않은 문자열이어야 한다.
           && !('' in ids) && (ids.size() == 0 || ids.join('/').split('/') == ids);
       }
@@ -269,7 +283,7 @@ service cloud.firestore {
         return request.resource.data.keys().hasOnly(['uid', 'title', 'date', 'note', 'color', 'taskId', 'createdAt', 'updatedAt'])
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
-          && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && isDate(request.resource.data.date)
           && request.resource.data.note is string && request.resource.data.note.size() <= 5000
           && request.resource.data.color in ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b']
           && (request.resource.data.taskId == null || (request.resource.data.taskId is string && request.resource.data.taskId.size() > 0 && request.resource.data.taskId.size() <= 128))
@@ -287,7 +301,10 @@ service cloud.firestore {
       allow create, update: if signedIn() && userId == request.auth.uid
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.keys().hasOnly(['uid', 'items', 'updatedAt'])
-        && request.resource.data.items is list;
+        && request.resource.data.keys().hasAll(['uid', 'items', 'updatedAt'])
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && request.resource.data.updatedAt == request.time;
     }
     // Settings are append-only so earlier days retain their original range.
     match /plannerSettings/{settingId} {
@@ -298,24 +315,29 @@ service cloud.firestore {
         && request.resource.data.endHour is int && request.resource.data.endHour >= 0 && request.resource.data.endHour < 24
         && (!('plannerOppositeDisplay' in request.resource.data) || request.resource.data.plannerOppositeDisplay in ['all', 'faded', 'blind', 'hidden', 'transparent'])
         && (!('controlOppositeDisplay' in request.resource.data) || request.resource.data.controlOppositeDisplay in ['all', 'faded', 'blind', 'hidden', 'transparent'])
-        && request.resource.data.effectiveDate is string
+        && isDate(request.resource.data.effectiveDate)
+        && (!('changedAt' in request.resource.data) || request.resource.data.changedAt is int)
         && request.resource.data.createdAt == request.time;
     }
     // Learning goals are versioned; previous daily criteria remain unchanged.
     match /learningGoals/{goalId} {
+      function validIncludedActivityIds(ids) {
+        return ids is list && ids.size() <= 100 && ids.toSet().size() == ids.size()
+          && (ids.size() == 0
+            || (ids.join(',').split(',') == ids
+              && ids.join(',').matches('^[A-Za-z0-9_-]{1,128}(,[A-Za-z0-9_-]{1,128})*$')));
+      }
       allow read: if signedIn() && resource.data.uid == request.auth.uid;
       allow create: if signedIn() && request.resource.data.uid == request.auth.uid
         && request.resource.data.keys().hasOnly(['uid', 'minutes', 'effectiveDate', 'changedAt', 'createdAt', 'includedActivityIds', 'activityTargets'])
         && request.resource.data.minutes is int
         && request.resource.data.minutes >= 5 && request.resource.data.minutes <= 1440
-        && request.resource.data.effectiveDate is string
-        && request.resource.data.effectiveDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && isDate(request.resource.data.effectiveDate)
         && request.resource.data.changedAt is int
         && (
           (!('includedActivityIds' in request.resource.data) && !('activityTargets' in request.resource.data))
           || (
-            request.resource.data.includedActivityIds is list
-            && request.resource.data.includedActivityIds.size() <= 100
+            validIncludedActivityIds(request.resource.data.includedActivityIds)
             && request.resource.data.activityTargets is map
             && request.resource.data.activityTargets.size() <= 100
             && request.resource.data.activityTargets.keys().hasOnly(request.resource.data.includedActivityIds)
@@ -386,7 +408,6 @@ service cloud.firestore {
           && (!('activityId' in data) || (data.activityId is string && data.activityId.matches('^[A-Za-z0-9_-]{1,128}$')))
           && (!('activityColor' in data) || (data.activityColor is string && data.activityColor.matches('^#[0-9a-fA-F]{6}$')));
       }
-      function validDate(date) { return date is string && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
       allow read: if owner();
       allow create: if owner() && request.resource.data.keys().hasOnly(['uid','revision','updatedAt'])
         && request.resource.data.uid == userId && request.resource.data.revision is int
@@ -404,7 +425,7 @@ service cloud.firestore {
           && request.resource.data.weekdays is list && request.resource.data.weekdays.size() > 0 && request.resource.data.weekdays.size() <= 7
           && request.resource.data.weekdays.hasOnly([0,1,2,3,4,5,6])
           && request.resource.data.weekdays.toSet().size() == request.resource.data.weekdays.size()
-          && validDate(request.resource.data.effectiveDate) && request.resource.data.deleted is bool
+          && isDate(request.resource.data.effectiveDate) && request.resource.data.deleted is bool
           && (!('removed' in request.resource.data) || (request.resource.data.removed is bool && (!request.resource.data.removed || request.resource.data.deleted)))
           && request.resource.data.createdAt == request.time
           && getAfter(/databases/$(database)/documents/dayPlans/$(userId)).data.revision == request.resource.data.revision
@@ -414,7 +435,7 @@ service cloud.firestore {
       match /entries/{entryId} {
         function validEntry() {
           return request.resource.data.keys().hasOnly(['uid','date','routineId','title','startMinute','endMinute','skipped','createdAt','updatedAt','activityId','activityColor'])
-            && request.resource.data.uid == userId && validTime(request.resource.data) && validDate(request.resource.data.date)
+            && request.resource.data.uid == userId && validTime(request.resource.data) && isDate(request.resource.data.date)
             && request.resource.data.skipped is bool
             && ((request.resource.data.routineId == null && !request.resource.data.skipped)
               || (request.resource.data.routineId is string && request.resource.data.routineId.matches('^[A-Za-z0-9_-]{1,128}$')
@@ -436,20 +457,17 @@ service cloud.firestore {
     function myDiscordId() {
       return get(/databases/$(database)/documents/links/$(request.auth.uid)).data.discordId;
     }
-    function validDay(d) {
-      return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
-    }
     // 날짜 D의 하루 = 한국 시간 D일 05:00 ~ D+1일 05:00 = UTC로 (D 00:00 - 4시간) ~ (D 00:00 + 20시간)
     function dayStart(d) {
       return timestamp.date(int(d.split('-')[0]), int(d.split('-')[1]), int(d.split('-')[2]));
     }
     function todayDay(d) {
-      return validDay(d) && request.time >= dayStart(d) - duration.value(4, 'h')
+      return isDate(d) && request.time >= dayStart(d) - duration.value(4, 'h')
         && request.time < dayStart(d) + duration.value(20, 'h');
     }
     // 오늘 또는 어제 (깜빡한 어제 인증 허용)
     function recentDay(d) {
-      return validDay(d) && request.time >= dayStart(d) - duration.value(4, 'h')
+      return isDate(d) && request.time >= dayStart(d) - duration.value(4, 'h')
         && request.time < dayStart(d) + duration.value(44, 'h');
     }
     function planKeys() {
@@ -459,9 +477,9 @@ service cloud.firestore {
       return d.ownerId is string && d.ownerId.matches('^[0-9]{5,25}$')
         && d.content is string && d.content.size() >= 1 && d.content.size() <= 80
         && d.photo is bool
-        && validDay(d.startDate)
+        && isDate(d.startDate)
         && d.status in ['active', 'completed', 'deleted']
-        && (!('completedAt' in d) || (d.category == 'OneTime' && d.status == 'completed' && validDay(d.completedAt)))
+        && (!('completedAt' in d) || (d.category == 'OneTime' && d.status == 'completed' && isDate(d.completedAt)))
         && (d.status != 'completed' || ('completedAt' in d))
         && d.createdAt is timestamp && d.updatedAt is timestamp
         && (
@@ -477,7 +495,7 @@ service cloud.firestore {
           || (d.category == 'Interval' && d.keys().hasOnly(planKeys().concat(['interval']))
               && d.interval is int && d.interval >= 1 && d.interval <= 365)
           || (d.category == 'OneTime' && d.keys().hasOnly(planKeys().concat(['deadline']))
-              && validDay(d.deadline))
+              && isDate(d.deadline))
           || (d.category == 'Limit' && d.keys().hasOnly(planKeys().concat(['period', 'limit']))
               && d.period in ['day', 'week', 'month']
               && d.limit is int && d.limit >= 0 && d.limit <= 50
