@@ -29,12 +29,18 @@ export const updateGoalColor = (goalId, color) =>
 export const updateGoalTitle = (goalId, title) =>
   updateDoc(doc(db, "goals", goalId), { title });
 
+const BATCH_LIMIT = 400;
+
 export const deleteGoal = async (uid, goalId) => {
-  const batch = writeBatch(db);
   const subSnap = await getDocs(query(collection(db, "subGoals"), where("uid", "==", uid), where("goalId", "==", goalId)));
-  subSnap.forEach((d) => batch.delete(d.ref));
-  batch.delete(doc(db, "goals", goalId));
-  return batch.commit();
+  const refs = [];
+  subSnap.forEach((d) => refs.push(d.ref));
+  refs.push(doc(db, "goals", goalId));
+  for (let offset = 0; offset < refs.length; offset += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    refs.slice(offset, offset + BATCH_LIMIT).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
 };
 
 export const subscribeSubGoals = (uid, cb, onError) =>

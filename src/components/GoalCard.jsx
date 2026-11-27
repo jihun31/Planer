@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { GOAL_COLORS } from "../features/goals/goalService";
 import { periodLabel } from "../features/goals/periodLabel";
 
@@ -14,17 +14,26 @@ function SubGoalForm({ onAdd, onCancel }) {
   const [weekOfMonth, setWeekOfMonth] = useState(1);
   const [title, setTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || submitting) return;
     setSubmitting(true);
-    await onAdd({
-      title: title.trim(), type,
-      year: Number(year), month: Number(month),
-      weekOfMonth: type === "week" ? Number(weekOfMonth) : null,
-    });
-    setTitle(""); setSubmitting(false); onCancel();
+    setError("");
+    try {
+      await onAdd({
+        title: title.trim(), type,
+        year: Number(year), month: Number(month),
+        weekOfMonth: type === "week" ? Number(weekOfMonth) : null,
+      });
+      setTitle("");
+      onCancel();
+    } catch {
+      setError("세부 목표를 추가하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -59,6 +68,7 @@ function SubGoalForm({ onAdd, onCancel }) {
         </button>
         <button className="btn-subgoal-cancel" type="button" onClick={onCancel}>취소</button>
       </div>
+      {error && <p role="alert" className="habit-error">{error}</p>}
     </form>
   );
 }
@@ -88,13 +98,29 @@ function GoalCard({ goal, subGoals, onDeleteGoal, onAddSubGoal, onDeleteSubGoal,
   const [showPicker, setShowPicker] = useState(false);
   const [editTitle, setEditTitle]   = useState(false);
   const [titleDraft, setTitleDraft] = useState(goal.title);
+  const [titleError, setTitleError] = useState("");
+  const committingTitleRef = useRef(false);
   const color = goal.color || GOAL_COLORS[0];
 
   const commitTitle = async () => {
+    if (committingTitleRef.current) return;
     const trimmed = titleDraft.trim();
-    if (trimmed && trimmed !== goal.title) await onUpdateTitle(goal.id, trimmed);
-    else setTitleDraft(goal.title);
-    setEditTitle(false);
+    if (!trimmed || trimmed === goal.title) {
+      setTitleDraft(goal.title);
+      setTitleError("");
+      setEditTitle(false);
+      return;
+    }
+    committingTitleRef.current = true;
+    setTitleError("");
+    try {
+      await onUpdateTitle(goal.id, trimmed);
+      setEditTitle(false);
+    } catch {
+      setTitleError("목표 이름을 수정하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.");
+    } finally {
+      committingTitleRef.current = false;
+    }
   };
 
   return (
@@ -114,14 +140,14 @@ function GoalCard({ goal, subGoals, onDeleteGoal, onAddSubGoal, onDeleteSubGoal,
             onBlur={commitTitle}
             onKeyDown={(e) => {
               if (e.key === 'Enter')  { e.preventDefault(); commitTitle(); }
-              if (e.key === 'Escape') { setTitleDraft(goal.title); setEditTitle(false); }
+              if (e.key === 'Escape') { setTitleDraft(goal.title); setTitleError(""); setEditTitle(false); }
             }}
           />
         ) : (
           <h3
             className="goal-card-title"
             style={{ color, cursor: 'text' }}
-            onDoubleClick={() => { setTitleDraft(goal.title); setEditTitle(true); }}
+            onDoubleClick={() => { setTitleDraft(goal.title); setTitleError(""); setEditTitle(true); }}
             title="더블클릭으로 수정"
           >{goal.title}</h3>
         )}
@@ -134,6 +160,7 @@ function GoalCard({ goal, subGoals, onDeleteGoal, onAddSubGoal, onDeleteSubGoal,
         />
         <button className="goal-card-delete" onClick={() => onDeleteGoal(goal.id)} title="장기 목표 삭제">삭제</button>
       </div>
+      {titleError && <p role="alert" className="habit-error">{titleError}</p>}
 
       {showPicker && (
         <div className="goal-color-picker">

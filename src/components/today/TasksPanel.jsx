@@ -24,15 +24,22 @@ function TaskPopup({ tasks, onClose, onAdd, onDelete }) {
   const [title,   setTitle]   = useState("");
   const [dueDate, setDueDate] = useState("");
   const [busy,    setBusy]    = useState(false);
+  const [error,   setError]   = useState("");
   const undated = tasks.filter(t => !t.dueDate);
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || busy) return;
     setBusy(true);
-    await onAdd({ title: title.trim(), dueDate: dueDate || null });
-    setTitle(""); setDueDate("");
-    setBusy(false);
+    setError("");
+    try {
+      await onAdd({ title: title.trim(), dueDate: dueDate || null });
+      setTitle(""); setDueDate("");
+    } catch {
+      setError("할 일을 추가하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -52,6 +59,7 @@ function TaskPopup({ tasks, onClose, onAdd, onDelete }) {
               + 추가
             </button>
           </form>
+          {error && <p role="alert" className="habit-error">{error}</p>}
           {undated.length === 0 ? (
             <p className="today-block-empty" style={{ padding: '20px 0' }}>날짜 미지정 할 일이 없습니다</p>
           ) : (

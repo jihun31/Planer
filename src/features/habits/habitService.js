@@ -50,11 +50,17 @@ export const setAutomaticity = (habitId, week, score) => {
   return updateDoc(doc(db, "habits", habitId), new FieldPath("automaticity", week), score);
 };
 
+const BATCH_LIMIT = 400;
+
 // 예전 구조(habitLogs 컬렉션)에 남은 기록이 있으면 함께 지운다.
 export const deleteHabit = async (uid, habitId) => {
-  const batch = writeBatch(db);
   const snap = await getDocs(query(collection(db, "habitLogs"), where("uid", "==", uid), where("habitId", "==", habitId)));
-  snap.forEach((d) => batch.delete(d.ref));
-  batch.delete(doc(db, "habits", habitId));
-  return batch.commit();
+  const refs = [];
+  snap.forEach((d) => refs.push(d.ref));
+  refs.push(doc(db, "habits", habitId));
+  for (let offset = 0; offset < refs.length; offset += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    refs.slice(offset, offset + BATCH_LIMIT).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
 };

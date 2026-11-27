@@ -50,7 +50,12 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState('');
   const dialog = useRef(null);
-  useEffect(() => { dialog.current.showModal(); }, []);
+  useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    if (!node.open) node.showModal();
+    return () => { if (node.open) node.close(); };
+  }, []);
   const save = async e => {
     e.preventDefault();
     if (saving || copy.editing || !ready || error) return;

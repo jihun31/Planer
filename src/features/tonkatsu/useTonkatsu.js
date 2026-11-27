@@ -25,7 +25,7 @@ export function useTonkatsu(discordId, enabled) {
     if (!key) return undefined;
     let active = true;
     const stop = subscribeTonkatsu(discordId,
-      (name, docs) => active && setState((s) => ({ key, data: { ...(s.key === key ? s.data : {}), [name]: docs }, error: s.key === key ? s.error : null })),
+      (name, docs) => active && setState((s) => ({ key, data: { ...(s.key === key ? s.data : {}), [name]: docs }, error: null })),
       (error) => active && setState((s) => ({ ...s, key, error })));
     return () => { active = false; stop(); };
   }, [key, discordId]);

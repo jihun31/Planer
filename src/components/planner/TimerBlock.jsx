@@ -44,6 +44,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   const [electronPopupOpen, setElectronPopupOpen] = useState(false);
   const handleStopRef = useRef(null);
   const stoppingRef   = useRef(false);
+  const savingRef     = useRef(false);
   const sessionRef = useRef(null);
   const pendingSave = useRef(null);
   const [saveError, setSaveError] = useState('');
@@ -178,7 +179,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   };
 
   // 앱 안의 떠 있는 타이머를 별도 '항상 위' 창으로 옮기거나 다시 닫는다.
-  const handlePopup = () => {
+  const handlePopup = async () => {
     if (!isElectron) return;
     if (electronPopupOpen) {
       window.electronAPI.closeTimerPopup();
@@ -186,8 +187,22 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       return;
     }
     const actName = isCustom ? customName : (curAct?.name ?? '');
-    window.electronAPI.openTimerPopup({ actName, color: timerColor, startTs, startLabel, position: popupPosition, compact: compactEnabled });
-    setElectronPopupOpen(true);
+    const activeStartTs = startTs;
+    setDesktopError('');
+    try {
+      const result = await window.electronAPI.openTimerPopup({ actName, color: timerColor, startTs: activeStartTs, startLabel, position: popupPosition, compact: compactEnabled });
+      if (!result?.ok) {
+        setDesktopError('별도 타이머 창을 열지 못했습니다. 앱을 다시 시작해 주세요.');
+        return;
+      }
+      if (stoppingRef.current || sessionRef.current?.startTs !== activeStartTs) {
+        window.electronAPI.closeTimerPopup();
+        return;
+      }
+      setElectronPopupOpen(true);
+    } catch {
+      setDesktopError('별도 타이머 창을 열지 못했습니다. 앱을 다시 시작해 주세요.');
+    }
   };
 
   const handleStop = async () => {
@@ -219,7 +234,8 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
   };
 
   const savePending = async () => {
-    if (!pendingSave.current || saving) return;
+    if (!pendingSave.current || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true); setSaveError('');
     try {
       await onSaveTimer(pendingSave.current);
@@ -229,17 +245,26 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       if (promptAfterSave.current) { setSwitchPrompt(promptAfterSave.current); promptAfterSave.current = null; onSwitchPrompt?.(); }
     } catch {
       setSaveError('기록을 저장하지 못했습니다. 연결을 확인하고 다시 저장해 주세요.');
-    } finally { setSaving(false); }
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   handleStopRef.current = handleStop;
+  const handleStartRef = useRef(handleStart);
+  handleStartRef.current = handleStart;
+  const restStartNowRef = useRef(rest.startNow);
+  restStartNowRef.current = rest.startNow;
+
   useEffect(() => {
     if (!startActivityRef) return;
-    startActivityRef.current = handleStart;
+    const invoke = (...args) => handleStartRef.current(...args);
+    startActivityRef.current = invoke;
     return () => {
-      if (startActivityRef.current === handleStart) startActivityRef.current = null;
+      if (startActivityRef.current === invoke) startActivityRef.current = null;
     };
-  });
+  }, [startActivityRef]);
 
   // 다음 활동 창에서 고른 활동을 이 타이머(기록 또는 통제)에서 시작한다. 활동 목록을 불러올 때까지 기다린다.
   useEffect(() => {
@@ -248,8 +273,8 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     const ownRest = builtinRest ? restTimer.findRest(activities) : null;
     if (builtinRest ? !(ownRest || defaultRest) : !activities.some(activity => activity.id === switchTarget.activityId)) return;
     switchApplied.current = switchTarget;
-    handleStart(ownRest ? ownRest.id : switchTarget.activityId);
-  });
+    handleStartRef.current(ownRest ? ownRest.id : switchTarget.activityId);
+  }, [switchTarget, activities, defaultRest, saving]);
 
   // 기록 타이머에서 넘어온 휴식 요청을 받아 바로 시작한다. 다른 타이머가 돌고 있으면 건너뛴다.
   useEffect(() => {
@@ -257,8 +282,8 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     flowRestApplied.current = flowRestTarget;
     if (running || starting || saving || pendingSave.current || rest.busy
       || (activeTimerOwner && activeTimerOwner !== timerOwner.current)) return;
-    rest.startNow(flowRestTarget);
-  });
+    restStartNowRef.current(flowRestTarget);
+  }, [control, flowRestTarget, running, starting, saving, rest.busy]);
 
   const startLabel = running && startTs !== null ? clockLabel(startTs) : null;
   restTimer.useReturnTimer(restTarget, activities, activityId => {

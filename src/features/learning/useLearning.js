@@ -40,7 +40,10 @@ export function useLearning(uid, { full = false } = {}) {
   const activities = activitiesReady ? loadedActivities : NO_ACTIVITIES;
   useEffect(() => {
     if (!uid) return;
-    const refresh = () => setNow(new Date());
+    const refresh = () => {
+      const next = new Date();
+      setNow(prev => plannerDate(prev) === plannerDate(next) ? prev : next);
+    };
     const timer = setInterval(refresh,30000);
     window.addEventListener('focus',refresh);
     refresh();

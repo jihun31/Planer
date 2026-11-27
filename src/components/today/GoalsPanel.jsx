@@ -31,15 +31,22 @@ function GoalAddInline({ onAdd, count }) {
   const [title, setTitle]   = useState("");
   const [color, setColor]   = useState(GOAL_COLORS[count % GOAL_COLORS.length]);
   const [busy,  setBusy]    = useState(false);
+  const [error, setError]   = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || busy) return;
     setBusy(true);
-    await onAdd(title.trim(), color);
-    setTitle("");
-    setColor(GOAL_COLORS[(count + 1) % GOAL_COLORS.length]);
-    setBusy(false);
+    setError("");
+    try {
+      await onAdd(title.trim(), color);
+      setTitle("");
+      setColor(GOAL_COLORS[(count + 1) % GOAL_COLORS.length]);
+    } catch {
+      setError("목표를 추가하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -62,6 +69,7 @@ function GoalAddInline({ onAdd, count }) {
           {busy ? "..." : "+ 추가"}
         </button>
       </div>
+      {error && <p role="alert" className="habit-error">{error}</p>}
     </form>
   );
 }

@@ -13,6 +13,7 @@ import { restTimer } from './components/planner/restTimer';
 import LearningSummary from './components/learning/LearningSummary';
 import TaskReminder from './components/planner/TaskReminder';
 import UpdateBanner from './components/UpdateBanner';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useLearning } from './features/learning/useLearning';
 import { useDiscordLink, useServerInfo } from './features/discord/useDiscord';
 import { useTonkatsu } from './features/tonkatsu/useTonkatsu';
@@ -107,6 +108,14 @@ function App() {
   }, [currentTabId, currentView]);
   const signedIn = Boolean(user);
   useEffect(() => signedIn ? preloadLazyViews() : undefined, [signedIn]);
+  // 계정이 바뀌면 이전 계정에서 열어 둔 탭·모달·선택 상태를 초기화한다.
+  useEffect(() => {
+    setOpenedViews({});
+    setLastViewByTab({});
+    setHelpOpen(false);
+    setSettingsUser(null);
+    setActiveView(HOME_VIEW);
+  }, [user?.uid]);
   const [restTarget, setRestTarget] = useState(null);
   useEffect(() => { setRestTarget(null); }, [user?.uid]);
   const controlVisible = tabVisibility.control;
@@ -235,7 +244,7 @@ function App() {
     habits: () => <HabitsTab key={user.uid} uid={user.uid} habitsData={habitsData} />,
     notes: () => <NotesTab key={user.uid} uid={user.uid} />,
     calendar: () => <CalendarTab key={user.uid} uid={user.uid} active={currentView === 'calendar'} />,
-    checkin: () => <CheckInTab tonkatsu={tonkatsu} discordId={discordId} />,
+    checkin: () => <CheckInTab key={user.uid} tonkatsu={tonkatsu} discordId={discordId} />,
   };
 
   return (
@@ -258,11 +267,14 @@ function App() {
       </header>
       <UpdateBanner />
 
-      <Suspense fallback={null}>
-        {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
-          ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}
-        {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
-      </Suspense>
+      <ErrorBoundary scope="창" resetKey={`${user.uid}-${settingsUser}-${helpOpen}`}
+        onReset={() => { setSettingsUser(null); setHelpOpen(false); }}>
+        <Suspense fallback={null}>
+          {settingsUser === user.uid && <ScheduleSettings key={user.uid} uid={user.uid} history={scheduleHistory}
+            ready={settingsReady} error={settingsError} onClose={() => setSettingsUser(null)} discord={discord} serverInfo={serverInfo} />}
+          {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+        </Suspense>
+      </ErrorBoundary>
       <nav className="tab-nav">
         {tabs.map((tab) => (
           <button
@@ -289,7 +301,9 @@ function App() {
         {currentTabId === 'time' && <TaskReminder key={user.uid} tasks={tasksData.tasks} onToggle={tasksData.toggleTask}
           habits={habitsData.habits} onSetHabitLog={habitsData.setLog} />}
         {availableViews(tabContext).map(view => <div key={view.id} hidden={currentView !== view.id}>
-          {(view.eager || openedViews[view.id]) && <Suspense fallback={viewLoading}>{panels[view.id]()}</Suspense>}
+          {(view.eager || openedViews[view.id]) && <ErrorBoundary scope={view.label || '화면'} resetKey={`${user.uid}-${view.id}`}>
+            <Suspense fallback={viewLoading}>{panels[view.id]()}</Suspense>
+          </ErrorBoundary>}
         </div>)}
       </main>
     </div>

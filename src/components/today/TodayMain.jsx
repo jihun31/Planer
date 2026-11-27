@@ -1,12 +1,10 @@
 import { useState, useMemo } from "react";
 import { todayStr } from "../../features/habits/habitService";
 import { isCalendarDate } from "../../features/calendar/calendarDates.mjs";
-import { isSkipped, planChecked, planHabits, planToggleValue } from "../../features/habits/habitCore.mjs";
+import { addDays, isSkipped, planChecked, planHabits, planToggleValue } from "../../features/habits/habitCore.mjs";
 
 function shiftDate(dateStr, delta) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + delta);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return addDays(dateStr, delta);
 }
 
 const TIME_SLOTS = ['오전', '오후', '저녁'];
@@ -44,15 +42,19 @@ function SlotLane({ slot, items, habits = [], date, onAdd, onToggle, onDelete, o
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
-  const close = () => { setAdding(false); setTitle(""); };
+  const [error, setError] = useState("");
+  const close = () => { setAdding(false); setTitle(""); setError(""); };
   const handleAdd = async (e) => {
     e.preventDefault();
     const value = title.trim();
     if (!value || busy) return;
     setBusy(true);
+    setError("");
     try {
       await onAdd({ title: value, dueDate: date, timeSlot: slot });
       setTitle("");
+    } catch {
+      setError("할 일을 추가하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.");
     } finally {
       setBusy(false);
     }
@@ -78,6 +80,7 @@ function SlotLane({ slot, items, habits = [], date, onAdd, onToggle, onDelete, o
       ) : (
         <button type="button" className="today-lane-add-btn" aria-label={`${slot} 할 일 추가`} onClick={() => setAdding(true)}>+ 추가</button>
       )}
+      {error && <p role="alert" className="habit-error">{error}</p>}
     </section>
   );
 }
