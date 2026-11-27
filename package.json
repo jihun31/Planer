@@ -38,6 +38,7 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@firebase/rules-unit-testing": "^5.0.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

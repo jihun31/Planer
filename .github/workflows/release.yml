@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 # 한 번에 하나씩. 빌드 중에 병합이 여러 번 되면 가장 마지막 것만 이어서 빌드 (진행 중인 빌드는 끊지 않음)
 concurrency:
@@ -32,6 +32,9 @@ jobs:
   release:
     needs: checks
     runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       # 버전이 커밋 수로 정해지므로 전체 기록이 필요하다
       - name: Check out source

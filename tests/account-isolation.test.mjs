@@ -91,6 +91,7 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   ];
   const titleRequests = [];
   let noteImagesAllowed = null;
+  let permissionRequestHandler = null, permissionCheckHandler = null;
   class FakeWindow {
     constructor({ width, height }) {
       this.events = new Map(); this.dead = false; this.sent = [];
@@ -109,9 +110,11 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
     setSize(w, h) { this.size = [w, h]; }
     setResizable() {}
     isDestroyed() { return this.dead; }
+    isMinimized() { return !!this.minimized; }
+    isVisible() { return true; }
     close() { this.events.get('close')?.(); this.dead = true; this.events.get('closed')?.(); }
     destroy() { this.dead = true; this.events.get('closed')?.(); }
-    focus() {} restore() {} show() {} maximize() {} isMinimized() { return false; } isVisible() { return true; } minimize() { this.minimized = true; } setPosition(x,y) { this.position = [x,y]; }
+    focus() {} restore() { this.minimized = false; } show() {} maximize() {} minimize() { this.minimized = true; } setPosition(x,y) { this.position = [x,y]; }
     getNormalBounds() { return this.bounds || { x: 0, y: 0, width: 1280, height: 800 }; }
   }
   const notifications = [];
@@ -136,6 +139,12 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
         ipcMain: { on: (key, cb) => handlers.set(key, cb), handle: (key, cb) => invokes.set(key, cb) },
         powerMonitor: { on() {} },
         Notification: FakeNotification,
+        session: {
+          defaultSession: {
+            setPermissionRequestHandler: fn => { permissionRequestHandler = fn; },
+            setPermissionCheckHandler: fn => { permissionCheckHandler = fn; },
+          },
+        },
         screen: {
           getPrimaryDisplay: () => displays[0],
           getAllDisplays: () => displays,
@@ -169,6 +178,15 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   assert.equal(new URL(titleRequests[0].url).origin,'https://www.youtube.com');
   assert.equal(titleRequests[0].options.redirect,'error');
   assert.equal((await invokes.get('auth:google')(eventFor(main))).code, 'desktop/config-missing');
+  assert.equal((await invokes.get('update:get-state')(eventFor(main))).status, 'idle');
+  assert.equal(await invokes.get('update:get-state')(maliciousFrame), null);
+  let requested = null;
+  permissionRequestHandler(null, 'geolocation', granted => { requested = granted; });
+  assert.equal(requested, false);
+  permissionRequestHandler(null, 'clipboard-sanitized-write', granted => { requested = granted; });
+  assert.equal(requested, true);
+  assert.equal(permissionCheckHandler(null, 'media'), false);
+  assert.equal(permissionCheckHandler(null, 'clipboard-sanitized-write'), true);
   const data = { actName: 'Study', color: '#6366f1', startTs: 100, startLabel: '08:00' };
   assert.equal(instanceLockRequests, 1);
   assert.equal(handlers.has('timer:open'), false, 'timer:start is the only way to open the timer popup');

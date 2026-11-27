@@ -3,8 +3,50 @@ const https = require('node:https');
 const dns = require('node:dns');
 const { isIP } = require('node:net');
 
+function parseIPv6(address) {
+  const lower = address.toLowerCase();
+  const halves = lower.split('::');
+  if (halves.length > 2) return null;
+  const parsePart = part => {
+    if (!part) return [];
+    const tokens = part.split(':');
+    const nums = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      if (token.includes('.')) {
+        if (i !== tokens.length - 1) return null;
+        const octets = token.split('.').map(Number);
+        if (octets.length !== 4 || octets.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+        nums.push((octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]);
+      } else {
+        if (!/^[0-9a-f]{1,4}$/.test(token)) return null;
+        nums.push(parseInt(token, 16));
+      }
+    }
+    return nums;
+  };
+  const left = parsePart(halves[0]);
+  const right = halves.length === 2 ? parsePart(halves[1]) : [];
+  if (!left || !right) return null;
+  const missing = 8 - (left.length + right.length);
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  return [...left, ...Array(missing).fill(0), ...right];
+}
+
 function publicAddress(address) {
-  if (isIP(address) === 6) return /^[23]/i.test(address) && !/^2001:db8:/i.test(address);
+  if (isIP(address) === 6) {
+    const groups = parseIPv6(address);
+    if (!groups) return false;
+    const [g0, g1, g2] = groups;
+    // Global unicast 2000::/3 only; reject 6to4 (2002::/16), Teredo (2001::/32),
+    // documentation (2001:db8::/32, 3fff::/20), benchmarking (2001:2::/48), ORCHID (2001:10::/28, 2001:20::/28).
+    if ((g0 & 0xe000) !== 0x2000) return false;
+    if (g0 === 0x2002) return false;
+    if (g0 === 0x2001 && (g1 === 0x0000 || g1 === 0x0db8 || (g1 === 0x0002 && g2 === 0x0000)
+      || (g1 & 0xfff0) === 0x0010 || (g1 & 0xfff0) === 0x0020)) return false;
+    if (g0 === 0x3fff && (g1 & 0xf000) === 0x0000) return false;
+    return true;
+  }
   if (isIP(address) !== 4) return false;
   const [a,b] = address.split('.').map(Number);
   return a !== 0 && a !== 10 && a !== 127 && a < 224
@@ -109,10 +151,17 @@ async function loadLinkPreview(value,request = requestPage) {
   let url = websiteUrl(value);
   for (let redirects = 0; redirects <= 4; redirects++) {
     const page = await request(url);
-    if (page.location) {url = websiteUrl(page.location,url);continue;}
+    if (page.location) {
+      const next = websiteUrl(page.location,url);
+      if (url.protocol === 'https:' && next.protocol === 'http:') {
+        throw new Error('Insecure redirect downgrade');
+      }
+      url = next;
+      continue;
+    }
     return extractMetadata(page.html,url.href);
   }
   throw new Error('Too many redirects');
 }
 
-module.exports = {loadLinkPreview,extractMetadata};
+module.exports = {loadLinkPreview,extractMetadata,publicAddress};

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, screen, Notification, powerMonitor } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, screen, Notification, powerMonitor, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -12,6 +12,7 @@ let timerStopPending = false;
 let timerMode = 'elapsed';
 let timerState = null;
 let clearRestReminder = () => {};
+let stopAutoUpdate = () => {};
 
 // Planner는 한 번만 실행한다. 두 번째 실행은 이미 떠 있는 창을 앞으로 가져오고 끝난다.
 // 둘이 함께 돌면 휴식 알림과 타이머 팝업이 두 개씩 생긴다.
@@ -46,6 +47,8 @@ function fromWindow(event, win, expectedUrl) {
 }
 const fromMain = event => fromWindow(event, mainWindow, mainUrl);
 const fromTimer = event => fromWindow(event, timerWindow, timerUrl);
+
+if (hasInstanceLock) {
 require('./note-image-store.cjs').registerNoteImages(ipcMain, fromMain, () => path.join(app.getPath('userData'), 'note-images'));
 
 let uiTextStore;
@@ -116,6 +119,8 @@ function createMainWindow() {
     mainWindow = null;
     timerStopPending = false;
     clearRestReminder();
+    checkInNotification?.close();
+    checkInNotification = null;
     if (timerWindow && !timerWindow.isDestroyed()) timerWindow.close();
   });
 }
@@ -179,8 +184,7 @@ function createTimerWindow(data) {
   win.loadURL(timerUrl);
   win.on('close', () => {
     if (timerStopPending && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.restore();
-      mainWindow.focus();
+      revealMain();
       mainWindow.webContents.send('timer:stopped');
     }
     timerStopPending = false;
@@ -202,8 +206,7 @@ ipcMain.handle('auth:google', async event => {
   try {
     const credential = await session.result;
     if (!fromMain(event)) return { ok: false, code: 'desktop/cancelled' };
-    mainWindow.restore();
-    mainWindow.focus();
+    revealMain();
     return { ok: true, ...credential };
   } catch (error) {
     return { ok: false, code: error.code || 'desktop/login-failed' };
@@ -288,22 +291,38 @@ ipcMain.on('checkin:show-alert', (event, data) => {
 });
 app.on('second-instance', revealMain);
 app.whenReady().then(() => {
-  if (!hasInstanceLock) return;
+  const ALLOWED_PERMISSIONS = new Set(['clipboard-sanitized-write']);
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(ALLOWED_PERMISSIONS.has(permission));
+  });
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => ALLOWED_PERMISSIONS.has(permission));
   const { registerRestReminder } = require('./rest-reminder.cjs');
   if (process.platform === 'win32') app.setAppUserModelId('com.planer.app');
   clearRestReminder = registerRestReminder({
     ipcMain, powerMonitor, Notification, fromMain, revealMain,
     onElapsed: key => sendRestCommand('expire', key),
   });
-  createMainWindow();
-  // 설치본에서만 자동 업데이트 (개발 중에는 끔)
+  // 설치본에서만 자동 업데이트 (개발 중에는 끔). 개발 모드나 시작 실패 시에도 기본 상태를 반환한다.
+  let autoUpdateRegistered = false;
   if (!isDev) {
     try {
       const { autoUpdater } = require('electron-updater');
-      require('./auto-update.cjs').setupAutoUpdate({ autoUpdater, ipcMain, isAllowed: fromMain, getWindow: () => mainWindow });
+      stopAutoUpdate = require('./auto-update.cjs').setupAutoUpdate({ autoUpdater, ipcMain, isAllowed: fromMain, getWindow: () => mainWindow }).stop;
+      autoUpdateRegistered = true;
     } catch (error) { console.warn('[auto-update] 시작 실패', error?.message || error); }
   }
+  if (!autoUpdateRegistered) {
+    ipcMain.handle('update:get-state', event => (fromMain(event) ? { status: 'idle' } : null));
+  }
+  createMainWindow();
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { loginSession?.cancel(); });
-app.on('activate', () => { if (hasInstanceLock && !mainWindow) createMainWindow(); });
+app.on('before-quit', () => {
+  loginSession?.cancel();
+  stopAutoUpdate();
+  clearRestReminder();
+  checkInNotification?.close();
+  checkInNotification = null;
+});
+app.on('activate', () => { if (!mainWindow) createMainWindow(); });
+}

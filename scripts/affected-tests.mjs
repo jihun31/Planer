@@ -20,16 +20,21 @@ const toPosix = file => file.split(path.sep).join('/');
 const rel = file => toPosix(path.relative(root, file));
 
 const SOURCE_EXTS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.json', '.html', '.css', '.rules'];
-const ROOT_PREFIXES = ['src/', 'electron/', 'tests/', 'public/'];
+const ROOT_PREFIXES = ['src/', 'electron/', 'tests/', 'public/', 'scripts/'];
 // 의존 그래프로 잡히지 않는 경로: 테스트 대신 실행할 명령
 const EXTRA_RULES = [
   { match: file => file.startsWith('bot/'), command: 'npm run test:bot', reason: 'Discord 봇' },
 ];
 // 바뀌면 영향 범위를 좁힐 수 없는 파일
 const BROAD_FILES = new Set(['package.json', 'package-lock.json', 'vite.config.mjs', 'index.html', '.oxlintrc.json']);
+const REAL_ROOT = fs.realpathSync.native(root);
 
 function isFile(file) {
-  try { return fs.statSync(file).isFile(); } catch { return false; }
+  try {
+    if (!fs.statSync(file).isFile()) return false;
+    // Windows 대소문자 무시로 인해 테스트용 리터럴('src/app.jsx')이 실제 파일('src/App.jsx')에 잘못 매칭되는 것을 막는다.
+    return path.relative(REAL_ROOT, fs.realpathSync.native(file)) === path.relative(root, path.resolve(file));
+  } catch { return false; }
 }
 function isDir(file) {
   try { return fs.statSync(file).isDirectory(); } catch { return false; }
@@ -67,8 +72,9 @@ export function referencesOf(file) {
   const text = fs.readFileSync(file, 'utf8');
   const fromDir = path.dirname(file);
   const strings = [];
-  for (const match of text.matchAll(/(['"`])([^'"`\n]{1,200}?)\1/g)) {
-    const spec = match[2].split(/[?#]/)[0];
+  for (const match of text.matchAll(/"((?:\\.|[^"\\\n]){1,200})"|'((?:\\.|[^'\\\n]){1,200})'|`((?:\\.|[^`\\\n]){1,200})`/g)) {
+    const raw = match[1] ?? match[2] ?? match[3];
+    const spec = raw.split(/[?#]/)[0];
     if (!spec || spec.includes('${') || /^[a-z]+:/i.test(spec)) continue;
     strings.push(spec);
   }
@@ -105,16 +111,24 @@ export function referencesOf(file) {
 const SKIP_DIRS = ['node_modules', 'dist', 'release', '.tmp', '.git'].map(name => path.join(root, name) + path.sep);
 // 루트 index.html은 앱 전체로 이어지는 진입점이라 따라가지 않는다 (바뀌면 BROAD_FILES로 따로 알림)
 const APP_ENTRY = path.join(root, 'index.html');
+// 앱 진입점은 전체 트리로 번지므로 직접 참조만 기록하고 하위 의존성은 따라가지 않는다.
+const STOP_EXPAND = new Set([
+  path.join(root, 'src', 'main.jsx'),
+  path.join(root, 'src', 'App.jsx'),
+  path.join(root, 'electron', 'main.js'),
+]);
 const skipped = file => file === APP_ENTRY || file.includes(`${path.sep}node_modules${path.sep}`) || SKIP_DIRS.some(dir => file.startsWith(dir));
 
 export function dependencyClosure(entry) {
   const seen = new Set([entry]);
   const queue = [entry];
   while (queue.length) {
-    for (const next of referencesOf(queue.pop())) {
+    const current = queue.pop();
+    if (current !== entry && STOP_EXPAND.has(current)) continue;
+    for (const next of referencesOf(current)) {
       if (seen.has(next) || skipped(next)) continue;
       seen.add(next);
-      queue.push(next);
+      if (!STOP_EXPAND.has(next)) queue.push(next);
     }
   }
   return seen;
@@ -180,7 +194,7 @@ export function selectTests(changed) {
       if (rule.match(file)) { extra.set(rule.command, rule.reason); covered = true; }
     }
     if (BROAD_FILES.has(file)) broad.push(file);
-    else if (!covered && /^(src|electron|public)\//.test(file)) uncovered.push(file);
+    else if (!covered && /^(src|electron|public|scripts)\//.test(file)) uncovered.push(file);
   }
   return { selected: [...selected], extra, uncovered, broad };
 }

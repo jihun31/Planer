@@ -25,9 +25,15 @@ function running(image) {
   return output.split('\n').some(line => line.toLowerCase().startsWith(`"${image.toLowerCase()}`));
 }
 
+export const SETUP_IMAGE_PATTERN = /^"plann?er-setup[^"]*\.exe"/i;
+
+export function hasRunningSetup(tasklistCsv) {
+  return tasklistCsv.split('\n').some(line => SETUP_IMAGE_PATTERN.test(line.trimStart()));
+}
+
 function setupRunning() {
   const output = execFileSync('tasklist', ['/NH', '/FO', 'CSV'], { encoding: 'utf8' });
-  return output.split('\n').some(line => /^"planer-setup[^"]*\.exe"/i.test(line));
+  return hasRunningSetup(output);
 }
 
 async function main() {
@@ -86,4 +92,6 @@ async function main() {
   }
 }
 
-main().catch(error => fail(error.message));
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(error => fail(error.message));
+}

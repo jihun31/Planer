@@ -4,6 +4,8 @@ name: Checks
 # release.yml도 이 워크플로를 먼저 불러서, 검사가 모두 통과해야 설치본을 만든다.
 on:
   push:
+    branches-ignore:
+      - main
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -11,10 +13,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   app:
-    name: Lint, unit and DOM tests
+    name: Lint, unit, DOM tests and build
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -36,9 +43,13 @@ jobs:
       - name: DOM tests
         run: npm run test:dom
 
+      - name: Build
+        run: npm run build
+
   firestore:
     name: Firestore rules and bot tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
