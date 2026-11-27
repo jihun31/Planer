@@ -28,11 +28,16 @@ def photo_icon(photo_required):
     return "📸 사진 필수" if photo_required else "📝 내용만"
 
 async def register_plan(interaction: discord.Interaction, category: str, fields: dict) -> bool:
-    """중복 이름을 검사하고 계획을 저장함. 중복이면 안내 메시지를 보내고 False를 돌려줌."""
+    """중복 이름을 검사하고 계획을 저장함. 공백만 있거나 중복이면 안내 메시지를 보내고 False를 돌려줌."""
+    content = (fields.get('content') or '').strip()
+    if not content:
+        await interaction.response.send_message("❌ 계획 내용은 공백만으로 등록할 수 없어요.", ephemeral=True)
+        return False
+    fields = {**fields, 'content': content}
     user_id = str(interaction.user.id)
-    existing_category, _ = Store.find_plan(shared.store.view(user_id), fields['content'])
+    existing_category, _ = Store.find_plan(shared.store.view(user_id), content)
     if existing_category:
-        await interaction.response.send_message(f"✋ **'{fields['content']}'** 계획은 이미 [{CATEGORY_KR[existing_category]}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
+        await interaction.response.send_message(f"✋ **'{content}'** 계획은 이미 [{CATEGORY_KR[existing_category]}] 카테고리에 등록되어 있어요! 이름은 다르게 지어주세요.", ephemeral=True)
         return False
     # 등록일은 오늘 (새벽 0~4시면 전날). 이전 기간은 정산하지 않음
     await shared.store.add_plan(user_id, category, fields, day_str(core.get_base_date()))
@@ -52,17 +57,24 @@ async def plan_autocomplete_delete(interaction: discord.Interaction, current: st
     return choices[:25]
 
 class Plans(commands.Cog):
-    plan_group = app_commands.Group(name="계획", description="나만의 계획을 세웁니다.")
+    plan_group = app_commands.Group(name="계획", description="나만의 계획을 세웁니다.", guild_only=True)
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._bg_tasks: set[asyncio.Task] = set()
+
+    def _spawn_bg_task(self, coro):
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+        return task
 
     async def cog_load(self):
         self.install_store_hooks(shared.store)
 
     def install_store_hooks(self, s):
         """앱에서 계획 조건을 바꾸면 디스코드에 알림"""
-        s.on_plan_edit = lambda old, new: asyncio.create_task(
+        s.on_plan_edit = lambda old, new: self._spawn_bg_task(
             self.announce_plan_edit(new.get("ownerId"), new.get("content"), core.describe_plan_changes(old, new), "앱"))
 
     async def announce_plan_edit(self, owner_id, content, changes, where):
@@ -207,10 +219,14 @@ class Plans(commands.Cog):
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
 
         changes = {}
-        if 내용 is not None and 내용.strip() != plan["content"]:
-            if Store.find_plan(store.view(interaction.user.id), 내용.strip())[1]:
-                return await reject(f"**'{내용}'** 이름의 계획이 이미 있어요.")
-            changes["content"] = 내용.strip()
+        if 내용 is not None:
+            stripped = 내용.strip()
+            if not stripped:
+                return await reject("계획 내용은 공백만으로 설정할 수 없어요.")
+            if stripped != plan["content"]:
+                if Store.find_plan(store.view(interaction.user.id), stripped)[1]:
+                    return await reject(f"**'{stripped}'** 이름의 계획이 이미 있어요.")
+                changes["content"] = stripped
         if 사진인증 is not None:
             if category == "Limit":
                 return await reject("제한 계획은 사진 인증을 쓰지 않아요.")
@@ -253,6 +269,7 @@ class Plans(commands.Cog):
 
     #계획표
     @app_commands.command(name="계획표", description="나의 계획과 달성 현황을 확인합니다.")
+    @app_commands.guild_only()
     async def check_my_plans(self, interaction: discord.Interaction):
         view = shared.store.view(interaction.user.id)
         display_date = core.get_base_date()

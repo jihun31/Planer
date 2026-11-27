@@ -207,6 +207,16 @@ class Store:
                 pass
         self._watches.clear()
 
+    def close(self):
+        """실시간 리스너를 중지하고 Firestore 클라이언트 리소스를 정리"""
+        self.stop()
+        for client in (self.sync, self.db):
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
     def _changed(self):
         self._version += 1
         self._views_cache = None
@@ -369,7 +379,7 @@ class Store:
     async def add_check_in(self, plan, date, owner_id):
         """
         인증 기록 추가. 제한 계획이 아니면 문서 ID를 {계획ID}_{날짜}로 고정해 하루 한 번만 남김.
-        목표 계획이면 같은 요청에서 달성 처리. 인증 문서 ID를 돌려줌
+        목표 계획이면 같은 요청에서 달성 처리. (인증 문서 ID, 새로 생성 여부)를 돌려줌.
         """
         is_limit = plan["category"] == "Limit"
         ref = (self.db.collection("checkIns").document() if is_limit
@@ -386,12 +396,12 @@ class Store:
         try:
             await batch.commit()
         except (gexc.AlreadyExists, gexc.Conflict):
-            # 그날 이미 인증됨 (앱이나 다른 명령에서) → 성공으로 취급
-            return ref.id
+            # 그날 이미 인증됨 (앱이나 다른 명령에서) → 중복임을 호출자에게 알림
+            return ref.id, False
         self._local_set("checkIns", ref.id, data)
         if goal_change:
             self._local_set("plans", plan["id"], goal_change, merge=True)
-        return ref.id
+        return ref.id, True
 
     async def set_check_in_message(self, check_in_id, message_url):
         """디스코드 인증 메시지 링크 (사진 검수용). 앱에서 누르면 메시지로 이동"""
@@ -476,6 +486,36 @@ class Store:
             return False
         self._local_set("members", owner_id, {"discordId": owner_id, "fines": firestore.Increment(amount)}, merge=True)
         return True
+
+    async def adjust_fine(self, owner_id, delta, reason, date, kind="admin"):
+        """
+        관리자 벌금 증감을 트랜잭션으로 원자적 처리 (차감 시 0원 아래로 내려가지 않음).
+        반환: (변경 전 벌금, 변경 후 벌금, 실제 변동액)
+        """
+        owner_id = str(owner_id)
+        member_ref = self.db.collection("members").document(owner_id)
+        event_ref = self.db.collection("fineEvents").document(f"{kind}_{uuid.uuid4().hex}")
+        transaction = self.db.transaction()
+
+        @firestore.async_transactional
+        async def run(tx):
+            snap = await member_ref.get(transaction=tx)
+            old_fine = ((snap.to_dict() or {}).get("fines", 0) or 0) if snap.exists else 0
+            if delta < 0 and old_fine <= 0:
+                return old_fine, old_fine, 0
+            amount = delta if delta > 0 else -min(-delta, old_fine)
+            new_fine = old_fine + amount
+            tx.create(event_ref, {
+                "discordId": owner_id, "amount": amount, "reason": reason, "date": date, "kind": kind,
+                "createdAt": firestore.SERVER_TIMESTAMP,
+            })
+            tx.set(member_ref, {"discordId": owner_id, "fines": new_fine}, merge=True)
+            return old_fine, new_fine, amount
+
+        old_fine, new_fine, amount = await run(transaction)
+        if amount != 0:
+            self._local_set("members", owner_id, {"discordId": owner_id, "fines": new_fine}, merge=True)
+        return old_fine, new_fine, amount
 
     # ---------- 면책 투표 ----------
 

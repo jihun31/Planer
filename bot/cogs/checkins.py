@@ -63,7 +63,13 @@ async def process_verification(interaction: discord.Interaction, 계획: str, �
         return
 
     # 2. 인증 기록 (Firestore). 목표 계획은 같은 요청에서 달성 처리
-    check_in_id = await store.add_check_in(plan, target_date_str, user_id)
+    check_in_id, created = await store.add_check_in(plan, target_date_str, user_id)
+    if not created:
+        await interaction.response.send_message(
+            f"ℹ️ **{target_date_str}** 날짜의 **'{plan['content']}'** 계획은 이미 인증되어 있어요!",
+            ephemeral=True,
+        )
+        return
     view = store.view(user_id)
 
     extra_fields = []
@@ -146,6 +152,7 @@ class CheckIns(commands.Cog):
     @app_commands.describe(계획="인증할 계획 선택", 내용="코멘트 (선택)", 사진="인증샷 (선택)", 날짜="오늘(기본) / 어제")
     @app_commands.choices(날짜=DATE_CHOICES)
     @app_commands.autocomplete(계획=plan_autocomplete)
+    @app_commands.guild_only()
     async def verify_study(self, interaction: discord.Interaction, 계획: str, 내용: LongText = None, 사진: discord.Attachment = None,
                            날짜: app_commands.Choice[str] = None):
         is_yesterday = bool(날짜 and 날짜.value == "yesterday")
@@ -155,6 +162,7 @@ class CheckIns(commands.Cog):
     @app_commands.describe(계획="취소할 계획 선택", 날짜="오늘(기본) / 어제")
     @app_commands.choices(날짜=DATE_CHOICES)
     @app_commands.autocomplete(계획=cancel_autocomplete)
+    @app_commands.guild_only()
     async def cancel_verification(self, interaction: discord.Interaction, 계획: str, 날짜: app_commands.Choice[str] = None):
         store = shared.store
         user_id = str(interaction.user.id)

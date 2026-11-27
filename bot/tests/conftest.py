@@ -54,13 +54,15 @@ async def store():
     shared.store = s
     shared.bot_state = {}
     yield s
-    s.stop()
+    s.close()
 
 @pytest.fixture
 def raw():
     """앱처럼 Firestore에 직접 쓰기 위한 동기 클라이언트"""
-    sync_client, _ = make_clients(project_id=PROJECT)
-    return sync_client
+    sync_client, async_client = make_clients(project_id=PROJECT)
+    yield sync_client
+    sync_client.close()
+    async_client.close()
 
 async def until(predicate, timeout=10):
     """리스너가 변경을 반영할 때까지 기다림"""
@@ -100,8 +102,12 @@ class FakeResponse:
     def __init__(self, it):
         self.it = it
         self._done = False
+        self.deferred = False
     def is_done(self):
         return self._done
+    async def defer(self, **_):
+        self.deferred = True
+        self._done = True
     async def send_message(self, content=None, embed=None, ephemeral=False, **_):
         self.it.sent.append((content, embed, ephemeral))
         self._done = True
@@ -129,13 +135,14 @@ class FakeInteraction:
         self.namespace = NS(**namespace)
         self.command = None
         self.sent = []
+        self.edited_original = []
         self.channel = FakeChannel()
         self.response = FakeResponse(self)
         self.followup = FakeFollowup(self)
     async def original_response(self):
         return self.message or FakeMessage(self.message_id)
-    async def edit_original_response(self, **_):
-        pass
+    async def edit_original_response(self, **kw):
+        self.edited_original.append(kw)
     def text(self):
         return (self.sent[0][0] or "") if self.sent else ""
     def fields(self):

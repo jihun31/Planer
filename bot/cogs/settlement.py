@@ -13,6 +13,7 @@ from discord.ext import commands, tasks
 
 import core
 import shared
+from cogs import offdays
 from core import CATEGORY_KR, PLAN_CATEGORIES, day_str
 from messages import build_embeds, send_embeds, send_long_message
 from shared import FINE_AMOUNT, SETTLEMENT_HOUR, LongText
@@ -64,51 +65,48 @@ async def run_daily_settlement(channel, now):
     for user_id, view in list(store.all_views().items()):
         try:
             fined, kind, details = core.settle_user(view, now)
+            if fined:
+                # 벌금 내역 ID를 날짜·사람으로 고정 → 정산이 두 번 돌아도 한 번만 매겨짐
+                await store.add_fine(user_id, FINE_AMOUNT, ", ".join(details)[:500], yesterday_str, "settlement",
+                                     event_id=f"settle_{yesterday_str}_{user_id}")
+                fine_msg_list.append(f"💸 <@{user_id}>님 **{FINE_AMOUNT}원** 벌금! ({', '.join(details)})")
+            elif kind == 'rest':
+                fine_msg_list.append(f"🛌 <@{user_id}>님 **휴식권 사용!** (푹 쉬셨나요? 🍯)")
+            elif kind == 'exempt':
+                fine_msg_list.append(f"🛡️ <@{user_id}>님 면책 통과! ({', '.join(details)})")
         except Exception:
-            # 한 사람 데이터가 이상해도 나머지 사람 정산은 계속 진행
+            # 한 사람 데이터가 이상하거나 일시 오류가 나도 나머지 사람 정산은 계속 진행
             print(f"🚨 정산 중 오류 (유저 {user_id}), 이 유저는 건너뜁니다:")
             traceback.print_exc()
             continue
 
-        if fined:
-            # 벌금 내역 ID를 날짜·사람으로 고정 → 정산이 두 번 돌아도 한 번만 매겨짐
-            await store.add_fine(user_id, FINE_AMOUNT, ", ".join(details)[:500], yesterday_str, "settlement",
-                                 event_id=f"settle_{yesterday_str}_{user_id}")
-            fine_msg_list.append(f"💸 <@{user_id}>님 **{FINE_AMOUNT}원** 벌금! ({', '.join(details)})")
-        elif kind == 'rest':
-            fine_msg_list.append(f"🛌 <@{user_id}>님 **휴식권 사용!** (푹 쉬셨나요? 🍯)")
-        elif kind == 'exempt':
-            fine_msg_list.append(f"🛡️ <@{user_id}>님 면책 통과! ({', '.join(details)})")
+    if fine_msg_list:
+        rank_lines = []
+        for uid, view in sorted(store.all_views().items(), key=lambda kv: kv[1].get('fines', 0), reverse=True):
+            fine = view.get('fines', 0)
+            if fine > 0:
+                rank = len(rank_lines) + 1
+                icon = ["🥇", "🥈", "🥉"][rank-1] if rank <= 3 else f"{rank}."
+                rank_lines.append(f"{icon} <@{uid}>: **{fine:,}원**")
+
+        title_txt = f"💸 {yesterday_str} 정산"
+        if is_monday: title_txt += " (주간결산 포함)"
+        if is_first_day: title_txt += " (월간결산 포함)"
+
+        fields = [("🧾 정산 결과", "\n".join(fine_msg_list), False)]
+        if rank_lines: fields.append(("🏆 명예의 전당", "\n".join(rank_lines), False))
+
+        embeds = build_embeds(
+            title=title_txt,
+            color=discord.Color.red(),
+            description="**돈** 내기 싫으면 **까**먹지 말고 **스**스로 해라",
+            fields=fields,
+        )
+        await send_embeds(channel, embeds)
 
     shared.bot_state["last_settlement_date"] = today_str
     await shared.save_state()
     print(f"💸 {yesterday_str} 정산 완료 ({len(fine_msg_list)}건)")
-
-    if not fine_msg_list:
-        return
-
-    rank_lines = []
-    for uid, view in sorted(store.all_views().items(), key=lambda kv: kv[1].get('fines', 0), reverse=True):
-        fine = view.get('fines', 0)
-        if fine > 0:
-            rank = len(rank_lines) + 1
-            icon = ["🥇", "🥈", "🥉"][rank-1] if rank <= 3 else f"{rank}."
-            rank_lines.append(f"{icon} <@{uid}>: **{fine:,}원**")
-
-    title_txt = f"💸 {yesterday_str} 정산"
-    if is_monday: title_txt += " (주간결산 포함)"
-    if is_first_day: title_txt += " (월간결산 포함)"
-
-    fields = [("🧾 정산 결과", "\n".join(fine_msg_list), False)]
-    if rank_lines: fields.append(("🏆 명예의 전당", "\n".join(rank_lines), False))
-
-    embeds = build_embeds(
-        title=title_txt,
-        color=discord.Color.red(),
-        description="**돈** 내기 싫으면 **까**먹지 말고 **스**스로 해라",
-        fields=fields,
-    )
-    await send_embeds(channel, embeds)
 
 async def send_hourly_alerts(channel, now):
     """각자 설정한 알림 시간(기본 2시)에 아직 인증 안 한 계획을 알려줌"""
@@ -143,6 +141,7 @@ async def run_cleanup():
         print(f"🧹 쓰지 않은 연동 코드 {removed}개 정리")
     expired = await shared.store.expire_votes()
     if expired:
+        offdays.stop_vote_views(expired)
         print(f"🧹 대상 날짜가 지난 면책 투표 {len(expired)}개 정리")
 
 class Settlement(commands.Cog):
@@ -172,14 +171,13 @@ class Settlement(commands.Cog):
         channel = self.bot.get_channel(shared.ALERT_CHANNEL)
         if not channel:
             print("⚠️ 경고: ALERT_CHANNEL을 찾을 수 없어 정산/알림을 건너뜁니다. .env의 ID를 확인해주세요.")
-            return
-
-        for name, step in (("벌금 정산", run_daily_settlement), ("인증 알림 전송", send_hourly_alerts)):
-            try:
-                await step(channel, now)
-            except Exception:
-                print(f"🚨 {name} 중 오류:")
-                traceback.print_exc()
+        else:
+            for name, step in (("벌금 정산", run_daily_settlement), ("인증 알림 전송", send_hourly_alerts)):
+                try:
+                    await step(channel, now)
+                except Exception:
+                    print(f"🚨 {name} 중 오류:")
+                    traceback.print_exc()
 
         try:
             await run_daily_backup(now)
@@ -209,20 +207,18 @@ class Settlement(commands.Cog):
         app_commands.Choice(name=f"+ {FINE_AMOUNT:,}원 (벌금 추가)", value=1),
         app_commands.Choice(name=f"- {FINE_AMOUNT:,}원 (벌금 차감, 예: 납부)", value=-1),
     ])
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def adjust_fine(self, interaction: discord.Interaction, 유저: discord.Member, 동작: app_commands.Choice[int], 사유: LongText = "관리자 수정"):
         store = shared.store
         await store.ensure_member(유저.id, 유저.display_name)
-        old_fine = store.view(유저.id).get('fines', 0)
 
-        if 동작.value < 0 and old_fine <= 0:
+        # 트랜잭션으로 동시 차감 시에도 0원 아래로 내려가지 않게 보호
+        delta = FINE_AMOUNT if 동작.value > 0 else -FINE_AMOUNT
+        old_fine, new_fine, amount = await store.adjust_fine(유저.id, delta, 사유, day_str(core.get_base_date()), "admin")
+        if amount == 0:
             await interaction.response.send_message(f"❌ **{유저.display_name}**님은 남은 벌금이 없어요.", ephemeral=True)
             return
-
-        # 0원 아래로는 내려가지 않음
-        amount = FINE_AMOUNT if 동작.value > 0 else -min(FINE_AMOUNT, old_fine)
-        await store.add_fine(유저.id, amount, 사유, day_str(core.get_base_date()), "admin")
-        new_fine = old_fine + amount
 
         embed = discord.Embed(title="🔧 벌금 조정 완료", color=discord.Color.gold())
         embed.add_field(name="대상", value=유저.mention, inline=True)

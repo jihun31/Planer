@@ -25,6 +25,7 @@ class Account(commands.Cog):
     #알림 시간 설정
     @app_commands.command(name="알림시간", description="인증 검사 알림 시간 설정")
     @app_commands.describe(시간="0~23시")
+    @app_commands.guild_only()
     async def set_alert_time(self, interaction: discord.Interaction, 시간: app_commands.Range[int, 0, 23]):
         await shared.store.set_alert_hour(interaction.user.id, 시간)
 

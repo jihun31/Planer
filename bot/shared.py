@@ -19,6 +19,8 @@ BASE_DIR = Path(__file__).resolve().parent
 
 load_dotenv(BASE_DIR / ".env")
 TOKEN = os.getenv('TOKEN')
+if not TOKEN:
+    raise RuntimeError(".env 파일에 TOKEN 값이 없습니다. .env.example을 참고해 추가해주세요.")
 
 #채널 아이디 (.env 파일에서 불러옴)
 def get_id_env(name):

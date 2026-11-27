@@ -1,4 +1,5 @@
 """휴식·면책: /휴식, /면책(투표 화면), /현황, 재시작 때 투표 버튼 복구"""
+import asyncio
 from datetime import datetime, timedelta
 
 import discord
@@ -10,6 +11,18 @@ import shared
 from core import day_str
 from messages import build_embeds, respond_embeds
 from shared import LongText
+
+# 활성 영속 View 추적 (만료 정리 시 stop() 호출해 _view_store 누수 방지)
+ACTIVE_VIEWS: dict[str, "ImmunityView"] = {}
+
+
+def stop_vote_views(message_ids):
+    """만료·정리된 투표의 영속 View를 중지해 메모리 누수를 막음"""
+    for msg_id in message_ids:
+        view = ACTIVE_VIEWS.pop(str(msg_id), None)
+        if view is not None:
+            view.stop()
+
 
 class ImmunityView(ui.View):
     """
@@ -29,8 +42,15 @@ class ImmunityView(ui.View):
         self.total_members = total_members
         self.required_votes = required_votes
         self.eligible_voters = {int(u) for u in eligible_voters} if eligible_voters is not None else None
+        self._lock = asyncio.Lock()
+        self._finished = False
 
+        ACTIVE_VIEWS[self.message_id] = self
         self.update_button_label()
+
+    def stop(self):
+        ACTIVE_VIEWS.pop(self.message_id, None)
+        super().stop()
 
     def max_possible_yes(self):
         # 남은 사람이 전부 찬성해도 받을 수 있는 최대 찬성 수
@@ -78,67 +98,93 @@ class ImmunityView(ui.View):
 
     @ui.button(label="인정합니다 (0/2)", style=discord.ButtonStyle.success, emoji="👌", custom_id="vote_agree")
     async def agree_button(self, interaction: discord.Interaction, button: ui.Button):
-        user_id = interaction.user.id
-        error = self.vote_error(user_id, is_agree=True)
-        if error:
-            await interaction.response.send_message(error, ephemeral=True)
-            return
+        await interaction.response.defer()
+        async with self._lock:
+            if self._finished or self.message_id not in shared.store.data["votes"]:
+                self._finished = True
+                self.stop()
+                await interaction.followup.send("이미 종료된 투표예요.", ephemeral=True)
+                return
 
-        self.agreed_users.add(user_id)
-        await self.save_status()
-        self.update_button_label()
+            user_id = interaction.user.id
+            error = self.vote_error(user_id, is_agree=True)
+            if error:
+                await interaction.followup.send(error, ephemeral=True)
+                return
 
-        await interaction.channel.send(f"🙆‍♂️ <@{user_id}>님이 **찬성**했습니다!")
+            self.agreed_users.add(user_id)
+            await self.save_status()
+            self.update_button_label()
 
-        if len(self.agreed_users) < self.required_votes:
-            await interaction.response.edit_message(view=self)
-            return
+            await interaction.channel.send(f"🙆‍♂️ <@{user_id}>님이 **찬성**했습니다!")
 
-        # 통과: 면책 날짜 등록
-        await shared.store.add_exemptions(self.target_id, self.target_dates)
-        await self.finish_vote()
+            if len(self.agreed_users) < self.required_votes:
+                await interaction.edit_original_response(view=self)
+                return
 
-        if len(self.target_dates) > 1:
-            period_str = f"{self.target_dates[0]} ~ {self.target_dates[-1]} ({len(self.target_dates)}일간)"
-        else:
-            period_str = self.target_dates[0]
+            # 통과: 면책 날짜 등록
+            self._finished = True
+            await shared.store.add_exemptions(self.target_id, self.target_dates)
+            await self.finish_vote()
+            self.stop()
 
-        embed = interaction.message.embeds[0]
-        embed.color = discord.Color.blue()
-        embed.set_footer(text="")
-        embed.add_field(name="최종 결과", value=f"✅ **{len(self.agreed_users)}표** 찬성으로 면책되었습니다!", inline=False)
+            if len(self.target_dates) > 1:
+                period_str = f"{self.target_dates[0]} ~ {self.target_dates[-1]} ({len(self.target_dates)}일간)"
+            else:
+                period_str = self.target_dates[0]
 
-        await interaction.response.edit_message(embed=embed, view=self)
-        await interaction.followup.send(f"🛡️ <@{self.target_id}>님의 **{period_str}** 벌금이 면제되었습니다!")
+            embeds = interaction.message.embeds if interaction.message else []
+            if embeds:
+                embed = embeds[0]
+                embed.color = discord.Color.blue()
+                embed.set_footer(text="")
+                embed.add_field(name="최종 결과", value=f"✅ **{len(self.agreed_users)}표** 찬성으로 면책되었습니다!", inline=False)
+                await interaction.edit_original_response(embed=embed, view=self)
+            else:
+                await interaction.edit_original_response(view=self)
+            await interaction.followup.send(f"🛡️ <@{self.target_id}>님의 **{period_str}** 벌금이 면제되었습니다!")
 
     @ui.button(label="반대합니다", style=discord.ButtonStyle.secondary, emoji="🙅", custom_id="vote_deny")
     async def deny_button(self, interaction: discord.Interaction, button: ui.Button):
-        user_id = interaction.user.id
-        error = self.vote_error(user_id, is_agree=False)
-        if error:
-            await interaction.response.send_message(error, ephemeral=True)
-            return
+        await interaction.response.defer()
+        async with self._lock:
+            if self._finished or self.message_id not in shared.store.data["votes"]:
+                self._finished = True
+                self.stop()
+                await interaction.followup.send("이미 종료된 투표예요.", ephemeral=True)
+                return
 
-        self.denied_users.add(user_id)
-        await self.save_status()
-        self.update_button_label()
+            user_id = interaction.user.id
+            error = self.vote_error(user_id, is_agree=False)
+            if error:
+                await interaction.followup.send(error, ephemeral=True)
+                return
 
-        await interaction.channel.send(f"🙅 <@{user_id}>님이 **반대**했습니다!")
+            self.denied_users.add(user_id)
+            await self.save_status()
+            self.update_button_label()
 
-        if self.max_possible_yes() >= self.required_votes:
-            await interaction.response.edit_message(view=self)
-            return
+            await interaction.channel.send(f"🙅 <@{user_id}>님이 **반대**했습니다!")
 
-        # 거절: 남은 사람이 다 찬성해도 과반수가 안 됨
-        await self.finish_vote()
+            if self.max_possible_yes() >= self.required_votes:
+                await interaction.edit_original_response(view=self)
+                return
 
-        embed = interaction.message.embeds[0]
-        embed.color = discord.Color.red()
-        embed.set_footer(text="")
-        embed.add_field(name="결과", value="❌ 반대가 너무 많아 **부결(거절)**되었습니다.", inline=False)
+            # 거절: 남은 사람이 다 찬성해도 과반수가 안 됨
+            self._finished = True
+            await self.finish_vote()
+            self.stop()
 
-        await interaction.response.edit_message(embed=embed, view=self)
-        await interaction.followup.send(f"🚫 <@{self.target_id}>님의 면책 요청이 **거절**되었습니다.")
+            embeds = interaction.message.embeds if interaction.message else []
+            if embeds:
+                embed = embeds[0]
+                embed.color = discord.Color.red()
+                embed.set_footer(text="")
+                embed.add_field(name="결과", value="❌ 반대가 너무 많아 **부결(거절)**되었습니다.", inline=False)
+                await interaction.edit_original_response(embed=embed, view=self)
+            else:
+                await interaction.edit_original_response(view=self)
+            await interaction.followup.send(f"🚫 <@{self.target_id}>님의 면책 요청이 **거절**되었습니다.")
 
 def vote_view_from_doc(msg_id, data):
     """Firestore votes 문서로 투표 버튼 다시 만들기"""
@@ -179,10 +225,7 @@ async def start_immunity_vote(interaction: discord.Interaction, dates: list, tit
     await interaction.response.send_message(content="@everyone", embed=embed)
     message = await interaction.original_response()
 
-    view = ImmunityView(message.id, requester_id, dates, [], [], len(voters) + 1, required_votes, voters)
-    await interaction.edit_original_response(view=view)
-
-    # 재부팅 때 버튼을 복구할 수 있도록 저장 (앱에서도 진행 중인 투표를 볼 수 있음)
+    # 재부팅 때 버튼을 복구할 수 있도록 먼저 저장한 뒤 버튼을 노출 (초기 클릭 유실·덮어쓰기 방지)
     await shared.store.set_vote(message.id, {
         "target_id": requester_id,
         "target_dates": dates,
@@ -193,6 +236,9 @@ async def start_immunity_vote(interaction: discord.Interaction, dates: list, tit
         "required_votes": required_votes,
         "eligible_voters": voters,
     })
+
+    view = ImmunityView(message.id, requester_id, dates, [], [], len(voters) + 1, required_votes, voters)
+    await interaction.edit_original_response(view=view)
 
 class OffDays(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -251,6 +297,7 @@ class OffDays(commands.Cog):
         app_commands.Choice(name="사용하기", value="use"),
         app_commands.Choice(name="취소하기 (오늘 쓴 휴식권 되돌리기)", value="cancel"),
     ])
+    @app_commands.guild_only()
     async def take_rest(self, interaction: discord.Interaction, 동작: app_commands.Choice[str] = None):
         store = shared.store
         user_id = str(interaction.user.id)

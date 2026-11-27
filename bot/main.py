@@ -70,13 +70,22 @@ class TonkatsuBot(commands.Bot):
     async def on_ready(self):
         # on_ready는 연결이 끊겼다 다시 붙을 때도 실행됨 → 명령어 동기화는 처음 한 번만 (디스코드 요청 제한 방지)
         if not self.commands_synced:
-            self.commands_synced = True
             try:
                 synced = await self.tree.sync()
+                self.commands_synced = True
                 print(f"🔁 슬래시 명령어 {len(synced)}개 동기화 완료")
             except discord.HTTPException as e:
                 print(f"⚠️ 슬래시 명령어 동기화 실패: {e}")
         print(f'로그인 성공! {self.user} 봇이 준비되었습니다.')
+
+    async def close(self):
+        if shared.store is not None:
+            try:
+                shared.store.stop()
+                shared.store.close()
+            except Exception:
+                traceback.print_exc()
+        await super().close()
 
 bot = TonkatsuBot()
 

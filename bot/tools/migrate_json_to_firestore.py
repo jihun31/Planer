@@ -59,6 +59,9 @@ def convert(plans_json, votes_json, state_json):
                     if isinstance(goal, dict) and goal.get("content")]
         for category, plan, from_completed_list in entries:
             content = str(plan["content"]).strip()
+            if not content:
+                warnings.append(f"내용이 비어 있는 계획 건너뜀: {owner} ({category})")
+                continue
             if len(content) > 80:
                 warnings.append(f"이름이 80자를 넘어 잘림: {owner} {content[:20]}…")
                 content = content[:80]
