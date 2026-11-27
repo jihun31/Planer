@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
 
 const strip = source => source.replace(/import[\s\S]*?from\s*["'][^"']+["'];/g, '').replace(/export (const|function) /g, '$1 ');
 test('all cascading deletion queries include authenticated owner', async () => {
@@ -147,6 +148,7 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
       if (name === './google-auth.cjs') return {};
       if (name === './window-state.cjs') return { loadWindowState: () => ({ bounds: { width: 1280, height: 800 }, maximized: false }), trackWindowState() {} };
       if (name === './rest-reminder.cjs') return restReminder;
+      if (name === './checkin-toast.cjs') return createRequire(import.meta.url)('../electron/checkin-toast.cjs');
       if (name === './note-image-store.cjs') return { registerNoteImages: (_ipcMain, allowed) => { noteImagesAllowed = allowed; } };
       throw Error('Unexpected require ' + name);
     },
@@ -198,9 +200,13 @@ test('Electron IPC rejects other windows and child frames; stop is delivered onc
   handlers.get('checkin:show-alert')(eventFor(main), { title: '돈까스 인증 1개가 남았어요', body: '[일일] 물 마시기' });
   assert.equal(notifications.length, 1);
   assert.ok(notifications[0].shown);
-  assert.deepEqual({ ...notifications[0].options }, { title: '돈까스 인증 1개가 남았어요', body: '[일일] 물 마시기' });
+  const { toastXml, ...shownText } = notifications[0].options;
+  assert.deepEqual(shownText, { title: '돈까스 인증 1개가 남았어요', body: '[일일] 물 마시기' });
+  assert.match(toastXml, /scenario="reminder"/); // Windows에서는 닫을 때까지 화면에 남는다
   notifications[0].events.get('click')();
   assert.equal(main.sent.filter(x => x.name === 'checkin:open').length, 1);
+  notifications[0].events.get('action')({ actionIndex: 0 }); // '인증하러 가기' 버튼
+  assert.equal(main.sent.filter(x => x.name === 'checkin:open').length, 2);
   handlers.get('timer:stop-from-popup')(eventFor(main));
   assert.ok(!timer.dead);
   const timerEvent = eventFor(timer);
