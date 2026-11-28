@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { MINUTES_ARR, fmtHour } from '../planner/plannerDisplay.mjs';
 import { planTime } from '../../features/plans/planModel.mjs';
 import { planHours } from '../../features/plans/planTimetable.mjs';
@@ -8,12 +8,19 @@ import { calendarLabelPlacements } from '../../features/planner/calendarLabels.m
 // 08:00-based storage. Only the timetable's visual layout is shared here.
 export default function DayPlanGrid({plans,selection,onSelect,onEdit,onRemove,disabled,range}) {
   const [hovered,setHovered]=useState(null);
-  const cellPlans=new Map();
-  for(const plan of plans)for(let minute=plan.startMinute;minute<plan.endMinute;minute++){
-    if(!cellPlans.has(minute))cellPlans.set(minute,[]);
-    cellPlans.get(minute).push(plan);
-  }
-  const hours=planHours(range,plans,selection);
+  const cellPlans=useMemo(()=>{
+    const map=new Map();
+    for(const plan of plans)for(let minute=plan.startMinute;minute<plan.endMinute;minute++){
+      if(!map.has(minute))map.set(minute,[]);
+      map.get(minute).push(plan);
+    }
+    return map;
+  },[plans]);
+  const hours=useMemo(()=>planHours(range,plans,selection),[range,plans,selection]);
+  const labelPlacements=useMemo(()=>calendarLabelPlacements(hours.map(hour=>hour*60),minute=>{
+    const plan=cellPlans.get(minute)?.at(-1);
+    return plan&&plan.endMinute-plan.startMinute>=5?plan:null;
+  }),[hours,cellPlans]);
   function choose(minute,plan){
     if(disabled)return;
     if(selection?.pending){
@@ -33,14 +40,11 @@ export default function DayPlanGrid({plans,selection,onSelect,onEdit,onRemove,di
   const previewStart=selection?.pending&&hovered!==null?Math.min(selection.startMinute,hovered):selection?.startMinute;
   const previewEnd=selection?.pending&&hovered!==null?Math.max(selection.startMinute,hovered)+1:selection?.endMinute;
   return <div className="daily-schedule day-plan-timetable" aria-label="계획 시간표">
-    <div className="ds-scroll"><div className="ds-table" onMouseLeave={()=>setHovered(null)}>
+    <div className="ds-scroll"><div className="ds-table" onMouseLeave={()=>{if(hovered!==null)setHovered(null);}}>
       <div className="ds-th ds-th-time">시간</div>
       {MINUTES_ARR.map(minute=><div key={minute} className={`ds-th${minute%15===0?' ds-th-quarter':[14,29,44].includes(minute)?' ds-th-qend':' ds-th-minor'}`}>
         {minute%15===0?`:${String(minute).padStart(2,'0')}`:''}</div>)}
-      {calendarLabelPlacements(hours.map(hour=>hour*60),minute=>{
-        const plan=cellPlans.get(minute)?.at(-1);
-        return plan&&plan.endMinute-plan.startMinute>=5?plan:null;
-      }).map(({group,style,key})=><span key={'label-'+key} className="ds-cell-name" style={{...style,color:group.color}}>{group.title}</span>)}
+      {labelPlacements.map(({group,style,key})=><span key={'label-'+key} className="ds-cell-name" style={{...style,color:group.color}}>{group.title}</span>)}
       {hours.map(hour=><div key={hour} style={{display:'contents'}}>
         <div className="ds-td-time">{fmtHour(hour)}</div>
         {MINUTES_ARR.map(offset=>{
@@ -55,7 +59,7 @@ export default function DayPlanGrid({plans,selection,onSelect,onEdit,onRemove,di
             <button type="button" className="day-plan-cell" data-plan-minute={minute} aria-label={label} title={label}
               aria-pressed={!!selected} tabIndex={minute===(selection?.startMinute??hours[0]*60)?0:-1}
               disabled={disabled} onKeyDown={event=>navigate(event,minute)}
-              onClick={()=>choose(minute,plan)} onMouseEnter={()=>setHovered(minute)} />
+              onClick={()=>choose(minute,plan)} onMouseEnter={selection?.pending?()=>setHovered(minute):undefined} />
             {plan&&minute===plan.startMinute&&<button type="button" className="ds-del" aria-label={`${plan.title} ${plan.routineId?'이번 날짜 제외':'계획 삭제'}`}
               disabled={disabled} onClick={()=>onRemove(plan)}>✕</button>}
           </div>;

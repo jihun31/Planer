@@ -1,8 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ALL_NOTES, MAX_FOLDER_DEPTH, folderDescendantIds, folderMove, folderTree, foldersWithMove, visibleNotes } from '../../features/notes/noteLibrary.mjs';
 import { notePlainText } from '../../features/notes/noteRichText.mjs';
 import { NotesHelp } from './NotesHelp.jsx';
+import { NoteEditorActiveProvider } from './NoteTextEditor.jsx';
+
+const MAX_MOUNTED_NOTES = 5;
+
+function lruOpenedNotes(previous, activeId, nextId, limit = MAX_MOUNTED_NOTES) {
+  const order = [];
+  for (const id of previous) {
+    if (id && id !== activeId && id !== nextId && !order.includes(id)) order.push(id);
+  }
+  if (activeId && activeId !== nextId) order.push(activeId);
+  if (nextId) order.push(nextId);
+  return order.length > limit ? order.slice(order.length - limit) : order;
+}
 
 const collapsedKey = uid => `planer:note-folders-collapsed:${uid ?? ''}`;
 function readCollapsed(uid) {
@@ -86,8 +99,8 @@ export function NotesWorkspace({ library, renderEditor }) {
       window.removeEventListener('scroll',dismiss,true);
     };
   },[menu]);
-  const editors = [...new Set([...opened,selected?.id].filter(Boolean))];
-  const remember = id => setOpened(previous => [...new Set([...previous,selected?.id,id].filter(Boolean))]);
+  const editors = useMemo(() => lruOpenedNotes(opened, null, selected?.id), [opened, selected?.id]);
+  const remember = id => setOpened(previous => lruOpenedNotes(previous, selected?.id, id));
   function selectNote(id) { remember(id); setSelectedId(id); }
   function selectFolder(id) { remember(); setFolder(id); setSelectedId(null); setSearch(''); setMenu(null); }
   async function run(task,showBusy = true) {
@@ -188,8 +201,10 @@ export function NotesWorkspace({ library, renderEditor }) {
           disabled={library.loadingMore || !!error} onClick={library.loadMore}>{library.loadingMore ? '불러오는 중…' : '더 보기'}</button>}
       </aside>
       <div className="notes-editor-pane">
-        {editors.map(id => { const note = notes.find(item => item.id === id); return note &&
-          <div key={id} hidden={selected?.id !== id}>{renderEditor(note,run)}</div>; })}
+        {editors.map(id => { const note = notes.find(item => item.id === id); const isActive = selected?.id === id; return note &&
+          <NoteEditorActiveProvider key={id} active={isActive}>
+            <div hidden={!isActive}>{renderEditor(note,run,isActive)}</div>
+          </NoteEditorActiveProvider>; })}
         {!selected && <div className="notes-editor-empty"><span aria-hidden="true">📝</span><p>메모를 선택하거나 새 메모를 만들어 보세요.</p>
           <button type="button" disabled={busy || loading || !!error} onClick={addNote}>새 메모 만들기</button></div>}
       </div>

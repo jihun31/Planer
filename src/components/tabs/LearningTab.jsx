@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { dateShift, duration, editorGoalConfiguration, goalEffectiveDate, goalForDate, learningStats, newActivityIds, validGoal, weekStart } from '../../features/learning/learningStats.mjs';
 import { isStudyBlock } from '../../features/planner/blockKind.mjs';
 import { archivedActivityReferences } from '../../features/learning/archivedActivity.mjs';
@@ -57,19 +57,19 @@ export default function LearningTab({ learning, active = false }) {
   const maxMinutes = Math.max(60, ...dates.map(d => s.days[d]?.minutes || 0));
   const nextWeek = dateShift(weekStart(s.today),7);
   const pending = goalForDate(history,nextWeek);
-  const selection = editorGoalConfiguration(history,lastSavedGoal);
-  const customBlocks = blocks.filter(block => isStudyBlock(block) && !block.activityId
+  const selection = useMemo(() => editorGoalConfiguration(history,lastSavedGoal), [history,lastSavedGoal]);
+  const customBlocks = useMemo(() => blocks.filter(block => isStudyBlock(block) && !block.activityId
     && typeof block.id === 'string' && typeof block.date === 'string')
-    .sort((a,b) => b.date.localeCompare(a.date) || (b.startMin ?? 0)-(a.startMin ?? 0));
-  const draftTargets = Object.fromEntries(includedIds.flatMap(id => {
-    const value = String(targets[id] ?? '').trim();
-    return value && validGoal(Number(value)) ? [[id,Number(value)]] : [];
-  }));
-  const preview = editing && !selection && validGoal(Number(minutes))
-    ? learningStats(blocks,[...history,{
-      minutes:Number(minutes), effectiveDate:goalEffectiveDate(history,s.today),
-      includedActivityIds:includedIds, activityTargets:draftTargets, changedAt:Date.now(),
-    }]) : null;
+    .sort((a,b) => b.date.localeCompare(a.date) || (b.startMin ?? 0)-(a.startMin ?? 0)), [blocks]);
+  const numericMinutes = Number(minutes);
+  const validDraftMinutes = validGoal(numericMinutes);
+  const preview = useMemo(() => {
+    if (!editing || selection || !validDraftMinutes) return null;
+    return learningStats(blocks,[...history,{
+      minutes:numericMinutes, effectiveDate:goalEffectiveDate(history,s.today),
+      includedActivityIds:includedIds, activityTargets:{}, changedAt:Number.MAX_SAFE_INTEGER,
+    }]);
+  }, [editing,selection,validDraftMinutes,blocks,history,numericMinutes,s.today,includedIds]);
   const heatStart = dateShift(weekStart(s.today),-42);
   const nextWeeklyBadge = s.badges.find(b => b.type === 'week' && b.target > s.weekMinutes);
   function toggleEditor() {

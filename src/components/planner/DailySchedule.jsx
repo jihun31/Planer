@@ -83,6 +83,18 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
   }, [dayBlocks]);
   const minMap = useMemo(() => ({ ...oppositeMinMap, ...ownMinMap }), [oppositeMinMap, ownMinMap]);
   const runCells = useMemo(() => scheduleRunCells(minMap, actMap, oppositeActMap), [minMap, actMap, oppositeActMap]);
+  const ownBlockStarts = useMemo(() => {
+    const starts = new Map();
+    for (const blk of dayBlocks) starts.set(blk, getBlockMins(blk).startMin);
+    return starts;
+  }, [dayBlocks]);
+  const hourRowIndex = useMemo(() => new Map(hours.map((hour, index) => [hour, index + 2])), [hours]);
+  const labelPlacements = useMemo(() => (typeof calendarLabelPlacements === 'function'
+    ? calendarLabelPlacements(hours.map(hour => (hour - 8) * 60), minute => {
+      const group = runCells.get(minute);
+      return group && group.info.color && group.endMin - group.startMin >= 5
+        && (!group.opposite || !['blind', 'hidden'].includes(oppositeMode)) ? group : null;
+    }) : []), [hours, runCells, oppositeMode]);
   const blockedMinMap = control ? minMap : ownMinMap;
 
   useEffect(() => {
@@ -222,7 +234,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
       </div>
 
       <div className="ds-scroll">
-        <div className="ds-table" onMouseLeave={() => setHovered(null)}>
+        <div className="ds-table" onMouseLeave={() => { if (hovered !== null) setHovered(null); }}>
           <div className="ds-th ds-th-time">시간</div>
           {MINUTES_ARR.map(m => {
             const isLabel = m % 15 === 0;
@@ -234,11 +246,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
             );
           })}
 
-          {calendarLabelPlacements(hours.map(hour => (hour - 8) * 60), minute => {
-            const group = runCells.get(minute);
-            return group && group.info.color && group.endMin - group.startMin >= 5
-              && (!group.opposite || !['blind', 'hidden'].includes(oppositeMode)) ? group : null;
-          }).map(({ group, style, key }) => (
+          {labelPlacements.map(({ group, style, key }) => (
             <span key={`label-${key}`} className={`ds-cell-name${group.opposite && oppositeMode === 'faded' ? ' ds-cell-name-faded' : ''}`}
               style={{ ...style, color: group.info.color }}>{group.info.name}</span>
           ))}
@@ -255,8 +263,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
                   ? run.info : null;
                 const color  = info?.color;
                 const name   = info?.name;
-                const { startMin: blkStart } = blk ? getBlockMins(blk) : {};
-                const isFirst  = blk && min === blkStart;
+                const isFirst  = blk && !blk._opposite && min === ownBlockStarts.get(blk);
 
                 const visuallyHidden = blk?._opposite && oppositeMode === 'hidden';
                 const actualVisible=blk&&!visuallyHidden;
@@ -284,10 +291,10 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
                     data-schedule-minute={min}
                     style={color ? { background: color + (blk?._opposite && oppositeMode === 'faded' ? '12' : '30') } : undefined}
                     onClick={() => handleCellClick(min)}
-                    onMouseEnter={event => { setHovered(min); showTip(event, min); }}
+                    onMouseEnter={event => { if (pending !== null) setHovered(min); showTip(event, min); }}
                     onMouseLeave={() => setTip(null)}
                   >
-                    {isFirst && !blk._opposite && (
+                    {isFirst && (
                       <button
                         className="ds-del"
                         type="button"
@@ -302,7 +309,7 @@ function DailySchedule({ date, range, blocks, oppositeBlocks, oppositeActivities
             </div>
           ))}
           {hintRuns.map(hint=>{
-            const hour=Math.floor((hint.startMin+480)/60),row=hours.indexOf(hour)+2,column=(hint.startMin+480)%60+2;
+            const hour=Math.floor((hint.startMin+480)/60),row=hourRowIndex.get(hour) ?? 1,column=(hint.startMin+480)%60+2;
             return <span key={`${hint.startMin}-${hint.endMin}`} className="ds-plan-block" data-plan-start={hint.startMin} data-plan-end={hint.endMin}
               style={{gridRow:`${row} / ${row+1}`,gridColumn:`${column} / ${column+hint.endMin-hint.startMin}`,'--plan-color':hint.color,'--plan-outline-color':planOutlineColor(hint.color),...hint.outline}}
               title={`계획: ${hint.title}`}>

@@ -211,6 +211,9 @@ export function resizeNoteImage(event, editor, commit) {
   image.classList.add('is-resizing');
   image.addEventListener('click', blockClick, true);
 
+  let cleaned = false;
+  let clickTimer = null;
+
   function blockClick(click) {
     click.preventDefault();
     click.stopPropagation();
@@ -222,16 +225,27 @@ export function resizeNoteImage(event, editor, commit) {
     else cleanup();
   }
 
-  function cleanup() {
+  function cleanup(immediate = false) {
+    if (cleaned) return;
+    cleaned = true;
     doc.removeEventListener('pointermove', move, true);
     doc.removeEventListener('pointerup', finish, true);
     doc.removeEventListener('pointercancel', finish, true);
-    win.removeEventListener('blur', cleanup);
-    if (handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
+    win.removeEventListener('blur', onBlur);
+    if (handle.hasPointerCapture?.(pointer)) handle.releasePointerCapture(pointer);
     image.classList.remove('is-resizing');
     if (originalStyle) image.style.setProperty('--note-image-width', originalStyle);
     else image.style.removeProperty('--note-image-width');
-    setTimeout(() => image.removeEventListener('click', blockClick, true), 0);
+    if (clickTimer !== null) {
+      clearTimeout(clickTimer);
+      clickTimer = null;
+    }
+    if (immediate) image.removeEventListener('click', blockClick, true);
+    else clickTimer = setTimeout(() => { clickTimer = null; image.removeEventListener('click', blockClick, true); }, 0);
+  }
+
+  function onBlur() {
+    cleanup();
   }
 
   function finish(next) {
@@ -246,7 +260,8 @@ export function resizeNoteImage(event, editor, commit) {
   doc.addEventListener('pointermove', move, true);
   doc.addEventListener('pointerup', finish, true);
   doc.addEventListener('pointercancel', finish, true);
-  win.addEventListener('blur', cleanup);
+  win.addEventListener('blur', onBlur);
+  return () => cleanup(true);
 }
 
 const viewerIcons = {

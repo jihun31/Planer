@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MAX_NOTE_LENGTH } from '../../features/notes/notepadStore.mjs';
 import { escapeHtml, linkHtml, loadYouTubeInfo, youtubeVideo } from '../../features/notes/youtubeLinks.mjs';
@@ -88,7 +88,16 @@ function autoNumberedUndo(root,range) {
   return {before:readNoteEditor(clone),beforeCaret:point};
 }
 
-export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
+const NoteEditorActiveContext = createContext(true);
+const MAX_UNDO_HISTORY = 100;
+
+export function NoteEditorActiveProvider({active,children}) {
+  return <NoteEditorActiveContext.Provider value={active}>{children}</NoteEditorActiveContext.Provider>;
+}
+
+export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref,active}) {
+  const contextActive = useContext(NoteEditorActiveContext);
+  const isActive = active ?? contextActive;
   const editor = useRef(null);
   const saved = useRef(null);
   const sequence = useRef(0);
@@ -99,6 +108,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
   const popup = useRef(null);
   const textDrag = useRef(null);
   const toggleHistory = useRef({undo:[],redo:[]});
+  const imageResizeCleanup = useRef(null);
   const lineSelection = useRef(null);
   const caretLineCut = useRef(null);
   const imageWasSelected = useRef(false);
@@ -158,6 +168,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       : {query:match[1],anchor:position,index:previous?.query === match[1] ? previous.index : 0});
   },[loading,readOnly]);
   useEffect(() => {
+    if (!isActive) return;
     const outside = event => {
       if (!editor.current?.contains(event.target) && !popup.current?.contains(event.target)) {setAnchor(null);setSlash(null);setMenu(null);}
     };
@@ -178,8 +189,19 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       window.removeEventListener('blur',hideDropIndicator);
       window.removeEventListener('scroll',hideHandle,true);
       textDrag.current = null;
+      imageResizeCleanup.current?.();
+      imageResizeCleanup.current = null;
     };
-  },[inspectSelection]);
+  },[inspectSelection,isActive]);
+
+  function pushUndo(entry) {
+    const history = toggleHistory.current;
+    history.undo.push(entry);
+    if (history.undo.length > MAX_UNDO_HISTORY) {
+      history.undo.splice(0, history.undo.length - MAX_UNDO_HISTORY);
+    }
+    history.redo = [];
+  }
 
   function commit() {
     const next = readNoteEditor(editor.current);
@@ -251,8 +273,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
         repairNoteChecklists(editor.current);
         setSlash(null);setMenu(null);
         if (commit() && saved.current !== before) {
-          toggleHistory.current.undo.push({before,after:saved.current,beforeCaret,afterCaret:caretPoint(editor.current,selection.getRangeAt(0))});
-          toggleHistory.current.redo = [];
+          pushUndo({before,after:saved.current,beforeCaret,afterCaret:caretPoint(editor.current,selection.getRangeAt(0))});
         }
         inspectSelection();return;
       }
@@ -260,7 +281,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
     if (type === 'checklist') {
       const before=readNoteEditor(editor.current);
       if (applyNoteChecklist(editor.current,selection) && commit()) {
-        toggleHistory.current.undo.push({before,after:saved.current});toggleHistory.current.redo=[];
+        pushUndo({before,after:saved.current});
       }
       setSlash(null);setMenu(null);inspectSelection();return;
     }
@@ -283,8 +304,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
     }
     setSlash(null);setMenu(null);
     if(commit()&&autoUndo){
-      toggleHistory.current.undo.push({...autoUndo,after:saved.current,afterCaret:caretPoint(editor.current,selection.getRangeAt(0))});
-      toggleHistory.current.redo=[];
+      pushUndo({...autoUndo,after:saved.current,afterCaret:caretPoint(editor.current,selection.getRangeAt(0))});
     }
     inspectSelection();
   }
@@ -323,8 +343,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       restoreSelection();
       const point = {item:index,offset:Number.MAX_SAFE_INTEGER};
       restoreCaretPoint(root,point);
-      toggleHistory.current.undo.push({before,after:saved.current,beforeCaret,afterCaret:point});
-      toggleHistory.current.redo = [];
+      pushUndo({before,after:saved.current,beforeCaret,afterCaret:point});
       inspectSelection();
       return;
     }
@@ -459,8 +478,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
     change(root);
     repairNoteChecklists(root);
     if (commit() && saved.current !== before) {
-      toggleHistory.current.undo.push({before,after:saved.current,beforeCaret,afterCaret:caretPoint(root,selection.getRangeAt(0))});
-      toggleHistory.current.redo=[];
+      pushUndo({before,after:saved.current,beforeCaret,afterCaret:caretPoint(root,selection.getRangeAt(0))});
     }
     inspectSelection();
   }
@@ -485,7 +503,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
   const activeBlockType = ['h1','h2'].includes(blockType) ? 'h3' : blockType;
   const blockLabel = NOTE_BLOCKS.find(block => block.value === activeBlockType)?.label || '일반 텍스트';
   return <>
-    {listHandle && !loading && !readOnly && createPortal(<button type="button" className="notes-list-handle"
+    {isActive && listHandle && !loading && !readOnly && createPortal(<button type="button" className="notes-list-handle"
       aria-label="목록 항목 끌어서 옮기기" title="끌어서 옮기기" tabIndex={-1}
       style={{left:listHandle.left,top:listHandle.top,height:listHandle.height}}
       onMouseLeave={event => {if (!listDrag.current && !editor.current?.contains(event.relatedTarget)) hideListHandle();}}
@@ -513,8 +531,8 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
       onPointerCancel={event => endListDrag(event,true)}
       onLostPointerCapture={event => {if (listDrag.current) endListDrag(event,true);}}>
       <span aria-hidden="true">⋮⋮</span></button>,document.body)}
-    {dropIndicator && !loading && !readOnly && createPortal(<div className="notes-drop-indicator" aria-hidden="true" style={dropIndicator} />,document.body)}
-    {anchor && !loading && !readOnly && createPortal(<div ref={popup} className="notes-floating-toolbar"
+    {isActive && dropIndicator && !loading && !readOnly && createPortal(<div className="notes-drop-indicator" aria-hidden="true" style={dropIndicator} />,document.body)}
+    {isActive && anchor && !loading && !readOnly && createPortal(<div ref={popup} className="notes-floating-toolbar"
       style={popupPosition(anchor,menu === 'blocks' ? NOTE_BLOCKS.length * 40 + 54 : menu === 'colors' ? 190 : 42,330)}
       onMouseDown={event => event.preventDefault()} onKeyDown={event => {
         if (event.key === 'Tab') event.stopPropagation();
@@ -554,7 +572,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
           <span style={{color:color.value}}>A</span>{color.label}</button>)}
       </div>}
     </div>,document.body)}
-    {slash && options.length > 0 && !loading && !readOnly && createPortal(<div ref={popup} id={menuId} className="notes-slash-menu"
+    {isActive && slash && options.length > 0 && !loading && !readOnly && createPortal(<div ref={popup} id={menuId} className="notes-slash-menu"
       style={popupPosition(slash.anchor,Math.min(296,options.length * 40 + 10),280)}
       role="listbox" aria-label="블록 추가" onMouseDown={event => event.preventDefault()}>
       {options.length ? options.map((block,index) => <button type="button" key={block.value} id={`${menuId}-${index}`}
@@ -624,7 +642,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
         if (!caret) return;
         selectionRange.current=caret.cloneRange();
         if (commit()) {
-          toggleHistory.current.undo.push({before,after:saved.current});toggleHistory.current.redo=[];
+          pushUndo({before,after:saved.current});
         }
         inspectSelection();
       }}
@@ -645,10 +663,13 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
         }
       }}
       onPointerDown={event => {
-        if (!loading && !readOnly) resizeNoteImage(event,editor.current,(image,width) => applyEditorChange(restoreSelection(),() => {
-          image.dataset.noteImageWidth = String(width);
-          image.style.setProperty('--note-image-width',width + 'px');
-        }));
+        if (!loading && !readOnly) {
+          imageResizeCleanup.current?.();
+          imageResizeCleanup.current = resizeNoteImage(event,editor.current,(image,width) => applyEditorChange(restoreSelection(),() => {
+            image.dataset.noteImageWidth = String(width);
+            image.style.setProperty('--note-image-width',width + 'px');
+          })) || null;
+        }
       }}
       onClick={event => {
         if (event.target.closest?.('.notes-image-resize')) {event.preventDefault();return;}
@@ -668,7 +689,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
           const before=readNoteEditor(editor.current);
           toggleNoteChecklist(checkbox.closest('li'));
           settleNoteChecklistItem(checkbox.closest('li'));
-          if (commit()) {toggleHistory.current.undo.push({before,after:saved.current});toggleHistory.current.redo=[];}
+          if (commit()) pushUndo({before,after:saved.current});
           return;
         }
         const inlineLink = event.target.closest?.(noteInlineLinkSelector);
@@ -730,7 +751,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
           if (changeNoteListDepth(editor.current,window.getSelection(),event.shiftKey)) {
             event.preventDefault();event.stopPropagation();
             if (commit() && saved.current !== before) {
-              toggleHistory.current.undo.push({before,after:saved.current});toggleHistory.current.redo=[];
+              pushUndo({before,after:saved.current});
             }
             inspectSelection();return;
           }
@@ -777,6 +798,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
             const entry=from.at(-1);
             if (entry && saved.current===(redo?entry.before:entry.after)) {
               event.preventDefault();from.pop();to.push(entry);
+              if (to.length > MAX_UNDO_HISTORY) to.splice(0, to.length - MAX_UNDO_HISTORY);
               const value=redo?entry.after:entry.before;
               editor.current.innerHTML=noteHtml(value,true);saved.current=value;edit(value);
               selectionRange.current=null;setAnchor(null);setMenu(null);setSlash(null);
@@ -804,8 +826,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
           if (editNoteListKey(root,selection,event.key)||editNoteChecklistKey(root,selection,event.key)) {
             event.preventDefault();
             if (commit() && saved.current !== before) {
-              toggleHistory.current.undo.push({before,after:saved.current,beforeCaret,afterCaret:caretPoint(root,selection.getRangeAt(0))});
-              toggleHistory.current.redo=[];
+              pushUndo({before,after:saved.current,beforeCaret,afterCaret:caretPoint(root,selection.getRangeAt(0))});
             }
             inspectSelection();return;
           }
@@ -820,7 +841,7 @@ export function NoteTextEditor({text,edit,loading,readOnly,onFocusTitle,ref}) {
             const before=readNoteEditor(editor.current);
             if (insertNextNoteToggle(editor.current,title.closest('details'))) {
               commit();
-              toggleHistory.current.undo.push({before,after:saved.current});toggleHistory.current.redo=[];
+              pushUndo({before,after:saved.current});
               inspectSelection();
             }
             else setNotice('새 토글을 추가하지 못했습니다. 메모 저장 용량을 확인해 주세요.');
