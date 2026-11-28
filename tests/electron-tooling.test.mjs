@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import preview from '../electron/link-preview.cjs';
 import { selectTests } from '../scripts/affected-tests.mjs';
@@ -96,4 +97,58 @@ test('index.html CSP includes form-action none and package.json declares @electr
   assert.match(html, /form-action 'none'/);
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.ok(pkg.devDependencies?.['@electron/asar'], '@electron/asar must be in devDependencies');
+  assert.equal(pkg.devDependencies?.['@types/react'], undefined);
+  assert.equal(pkg.devDependencies?.['@types/react-dom'], undefined);
+});
+
+test('timer-popup uses dedicated minimal preload, strict CSP, and external script', () => {
+  const listeners = new Map();
+  const sent = [];
+  let api = null;
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'electron/timer-popup-preload.cjs'), 'utf8'), {
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_key, value) => { api = value; } },
+      ipcRenderer: {
+        on: (channel, cb) => listeners.set(channel, cb),
+        removeListener: (channel, cb) => { if (listeners.get(channel) === cb) listeners.delete(channel); },
+        send: (channel, ...args) => sent.push({ channel, args }),
+      },
+    }),
+  });
+  assert.deepEqual(Object.keys(api).sort(), ['onTimerData', 'sendRestPopupCommand', 'stopTimerFromPopup']);
+  let received = null;
+  const cleanup = api.onTimerData((data) => { received = data; });
+  listeners.get('timer:data')({ sender: 'privileged' }, { actName: 'Study' });
+  assert.deepEqual(received, { actName: 'Study' });
+  cleanup();
+  assert.equal(listeners.size, 0);
+  api.stopTimerFromPopup();
+  api.sendRestPopupCommand({ type: 'end', key: '1:2' });
+  assert.deepEqual(sent, [
+    { channel: 'timer:stop-from-popup', args: [] },
+    { channel: 'rest:popup-command', args: [{ type: 'end', key: '1:2' }] },
+  ]);
+
+  const popupHtml = fs.readFileSync(path.join(root, 'electron/timer-popup.html'), 'utf8');
+  assert.match(
+    popupHtml,
+    /<meta\s+http-equiv="Content-Security-Policy"\s+content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';"/,
+  );
+  assert.match(popupHtml, /<script\s+src="\.\/timer-popup\.js"><\/script>/);
+  assert.doesNotMatch(popupHtml, /<script(?:\s[^>]*)?>[\s\S]*?\S[\s\S]*?<\/script>/);
+
+  const popupJs = fs.readFileSync(path.join(root, 'electron/timer-popup.js'), 'utf8');
+  const usedApis = new Set([...popupJs.matchAll(/window\.electronAPI\.(\w+)/g)].map((m) => m[1]));
+  assert.deepEqual([...usedApis].sort(), ['onTimerData', 'sendRestPopupCommand', 'stopTimerFromPopup']);
+
+  const main = fs.readFileSync(path.join(root, 'electron/main.js'), 'utf8');
+  assert.match(main, /preload:\s*path\.join\(__dirname,\s*'timer-popup-preload\.cjs'\)/);
+});
+
+test('check-version.mjs applies AbortSignal.timeout(10000) to all GitHub fetch calls', () => {
+  const source = fs.readFileSync(path.join(root, 'scripts/check-version.mjs'), 'utf8');
+  const fetchCalls = source.match(/\bfetch\(/g) || [];
+  const timeoutMatches = source.match(/signal:\s*AbortSignal\.timeout\(10000\)/g) || [];
+  assert.ok(fetchCalls.length >= 2, 'expected at least 2 fetch calls in check-version.mjs');
+  assert.equal(timeoutMatches.length, fetchCalls.length, 'every fetch call must pass signal: AbortSignal.timeout(10000)');
 });

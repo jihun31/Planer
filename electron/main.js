@@ -171,7 +171,7 @@ function createTimerWindow(data) {
     alwaysOnTop: true, frame: false, backgroundColor: '#ffffff', skipTaskbar: true,
     webPreferences: {
       nodeIntegration: false, contextIsolation: true, sandbox: true,
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, 'timer-popup-preload.cjs'),
     },
   });
   timerWindow = win;

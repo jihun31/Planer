@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { writeBuildInfo } from '../scripts/write-build-info.mjs';
+import { EXCLUDED_PACKAGED_FILES, writeBuildInfo } from '../scripts/write-build-info.mjs';
 import { verifyBuildInfo } from '../scripts/check-version.mjs';
 
 const asar = createRequire(import.meta.url)('@electron/asar');
@@ -78,5 +78,23 @@ test('a build made from uncommitted source changes is reported', async () => {
   } finally {
     fs.rmSync(dir, {recursive: true, force: true});
     if (file) fs.rmSync(file, {force: true});
+  }
+});
+
+test('dev-only electron files are excluded from build-info and package.json build.files', () => {
+  const { dir, write } = makeApp();
+  try {
+    for (const excluded of EXCLUDED_PACKAGED_FILES) write(excluded, 'dev-only\n');
+    const info = writeBuildInfo(dir);
+    for (const excluded of EXCLUDED_PACKAGED_FILES) {
+      assert.equal(excluded in info.files, false, `${excluded} should be excluded`);
+    }
+    assert.ok('electron/main.js' in info.files);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const excluded of EXCLUDED_PACKAGED_FILES) {
+    assert.ok(pkg.build.files.includes(`!${excluded}`), `package.json build.files must exclude ${excluded}`);
   }
 });

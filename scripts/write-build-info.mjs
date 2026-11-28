@@ -15,6 +15,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const BUILD_INFO = 'dist/build-info.json';
 // electron-builder의 build.files와 같은 범위 (앱에 실제로 들어가는 코드)
 export const PACKAGED_DIRS = ['dist', 'electron'];
+export const EXCLUDED_PACKAGED_FILES = new Set([
+  ['electron', 'run-dev.cjs'].join('/'),
+  ['electron', 'google-oauth.example.json'].join('/'),
+]);
 // 릴리스 CI는 빌드 전에 package.json 버전만 바꾸므로, 이 둘의 변경은 "커밋 안 된 변경"으로 보지 않는다.
 const VERSION_FILES = new Set(['package.json', 'package-lock.json']);
 
@@ -33,7 +37,7 @@ export function collectHashes(appRoot) {
     const full = path.join(appRoot, dir);
     if (!fs.existsSync(full)) continue;
     for (const file of listFiles(full, appRoot).sort()) {
-      if (file === BUILD_INFO) continue;
+      if (file === BUILD_INFO || EXCLUDED_PACKAGED_FILES.has(file)) continue;
       files[file] = sha256(fs.readFileSync(path.join(appRoot, file)));
     }
   }

@@ -87,7 +87,7 @@ async function releaseCommit(tag) {
   const publish = (pkg.build?.publish || []).find(item => item.provider === 'github');
   try {
     const response = await fetch(`https://api.github.com/repos/${publish.owner}/${publish.repo}/releases/tags/${tag}`,
-      { headers: { accept: 'application/vnd.github+json' } });
+      { headers: { accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) return null;
     const commit = (await response.json()).target_commitish;
     return /^[0-9a-f]{40}$/.test(commit) ? commit : null;
@@ -107,7 +107,7 @@ export async function latestReleaseVersion() {
   const publish = (pkg.build?.publish || []).find(item => item.provider === 'github');
   if (!publish) throw new Error('package.json build.publish에 github 설정이 없습니다');
   const url = `https://github.com/${publish.owner}/${publish.repo}/releases/latest/download/latest.yml`;
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`최신 릴리스 정보를 받지 못했습니다 (${response.status}): ${url}`);
   return versionFromLatestYml(await response.text());
 }

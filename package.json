@@ -40,8 +40,6 @@
   "devDependencies": {
     "@electron/asar": "^3.4.1",
     "@firebase/rules-unit-testing": "^5.0.2",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "concurrently": "^10.0.5",
     "electron": "^44.2.0",
@@ -59,7 +57,9 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "!electron/run-dev.cjs",
+      "!electron/google-oauth.example.json"
     ],
     "win": {
       "target": "nsis",
