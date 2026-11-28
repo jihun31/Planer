@@ -1,51 +1,4 @@
-/* ===== 목표 탭 2컬럼 레이아웃 ===== */
-.goals-page {
-  display: grid;
-  grid-template-columns: 1fr 256px;
-  gap: 24px;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .goals-page { grid-template-columns: 1fr; }
-  .goals-sidebar { position: static !important; }
-}
-
-.goals-main {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
-/* ===== 오른쪽 사이드바 ===== */
-.goals-sidebar {
-  background: var(--surface);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-  padding: 18px;
-  position: sticky;
-  top: 116px; /* header(62) + tab-nav(54) */
-}
-
-.sidebar-title {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  margin-bottom: 14px;
-}
-
-.sidebar-empty {
-  font-size: 0.8rem;
-  color: var(--text-light);
-  text-align: center;
-  padding: 20px 0;
-  line-height: 1.7;
-}
-
+/* ===== 목표 목록 ===== */
 .sidebar-list {
   list-style: none;
   display: flex;
@@ -105,24 +58,6 @@
 .d-urgent  { background: #fed7aa; color: #c2410c; }
 .d-soon    { background: #fef9c3; color: #854d0e; }
 .d-future  { background: #dbeafe; color: #1d4ed8; }
-
-/* ===== 장기 목표 추가 폼 (상단 바) ===== */
-.add-goal-form {
-  display: flex;
-  gap: 10px;
-  background: var(--surface);
-  border-radius: var(--radius);
-  padding: 16px 20px;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-}
-
-/* ===== 장기 목표 카드 목록 ===== */
-.goal-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
 
 /* ===== 장기 목표 카드 ===== */
 .goal-card {

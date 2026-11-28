@@ -1,11 +1,13 @@
 # 메모·폴더 Firebase 규칙 적용
 
-Firebase 콘솔 → planer-f8cb7 → Firestore Database → 규칙에서 적용합니다.
+> **참고**: 실제 Firestore 보안 규칙의 원본은 저장소 루트의 [`firestore.rules`](./firestore.rules)입니다. 이 문서는 `match /notepads/{userId}` 블록을 수동으로 확인하거나 Firebase 콘솔에서 적용할 때 참고하는 안내입니다.
+
+Firebase 콘솔 → `planer-f8cb7` → Firestore Database → 규칙에서 적용하거나, CLI로 `firestore.rules` 전체를 배포합니다.
 
 - 이전 메모 규칙을 적용했다면 기존 `match /notepads/{userId}` 블록 전체를 아래 블록으로 교체하세요.
 - 처음 적용한다면 기존 `match /databases/{database}/documents { ... }` 안쪽에 아래 블록을 추가하세요.
 - 다른 기존 규칙은 유지하고, 적용 후 게시 버튼을 누르세요.
-- 폴더 드래그 순서를 저장하려면 아래의 `sortOrder`가 포함된 규칙으로 갱신해야 합니다.
+- 폴더 드래그 순서(`sortOrder`)와 하위 폴더 계층(`parentId`)을 저장하려면 아래 최신 `folders` 규칙이 필요합니다.
 - 메모 영구 삭제와 기존 휴지통 정리에는 아래의 삭제 권한 및 `deleted` 규칙이 필요합니다. 적용 후 메모 탭을 열면 기존 휴지통의 메모가 영구 삭제됩니다.
 
 ```text
@@ -49,10 +51,13 @@ Firebase 콘솔 → planer-f8cb7 → Firestore Database → 규칙에서 적용�
       }
       match /folders/{folderId} {
         function validFolder() {
-          return request.resource.data.keys().hasOnly(['uid', 'name', 'sortOrder', 'createdAt', 'updatedAt'])
+          return request.resource.data.keys().hasOnly(['uid', 'name', 'sortOrder', 'parentId', 'createdAt', 'updatedAt'])
             && request.resource.data.uid == request.auth.uid
             && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80
             && (!('sortOrder' in request.resource.data) || (request.resource.data.sortOrder is int && request.resource.data.sortOrder >= 0))
+            && (!('parentId' in request.resource.data) || request.resource.data.parentId == null
+              || (request.resource.data.parentId is string && request.resource.data.parentId.size() > 0
+                && request.resource.data.parentId.size() <= 128 && request.resource.data.parentId != folderId))
             && request.resource.data.createdAt is timestamp && request.resource.data.updatedAt == request.time;
         }
         allow read, delete: if signedIn() && userId == request.auth.uid;
@@ -62,6 +67,6 @@ Firebase 콘솔 → planer-f8cb7 → Firestore Database → 규칙에서 적용�
     }
 ```
 
-기존 signedIn() 함수를 사용합니다. 전체 규칙은 firestore.rules에도 반영되어 있습니다.
+위 블록은 `firestore.rules` 상단의 `signedIn()` 헬퍼 함수를 사용합니다. 전체 규칙 원본은 [`firestore.rules`](./firestore.rules)를 확인하세요.
 게시 후 메모 탭에서 다시 연결을 누르세요. 기존 메모는 기존 메모 항목으로 유지됩니다.
 폴더를 삭제해도 메모 본문은 보존하며, 삭제한 메모는 휴지통에서 복원할 수 있습니다.
