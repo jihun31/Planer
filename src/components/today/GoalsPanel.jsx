@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import GoalCard from "../GoalCard";
 import { GOAL_COLORS } from "../../features/goals/goalService";
 import { periodLabel } from "../../features/goals/periodLabel";
@@ -53,7 +53,7 @@ function GoalAddInline({ onAdd, count }) {
     <form className="goal-add-inline" onSubmit={handleSubmit}>
       <div className="goal-add-colors">
         {GOAL_COLORS.map((c) => (
-          <button key={c} type="button"
+          <button key={c} type="button" aria-label={`색상 ${c}`}
             className={`goal-color-dot ${c === color ? 'gcd-active' : ''}`}
             style={{ background: c, boxShadow: c === color ? `0 0 0 2px #fff, 0 0 0 3px ${c}` : 'none' }}
             onClick={() => setColor(c)}
@@ -108,7 +108,7 @@ function CompletedSectionMini({ goals, subGoals, onDelete, onToggle }) {
                       </span>
                       <span className="subgoal-period">{periodLabel(sub)}</span>
                       <span className="subgoal-title">{sub.title}</span>
-                      <button className="subgoal-delete" onClick={() => onDelete(sub.id)}>✕</button>
+                      <button type="button" className="subgoal-delete" aria-label={`${sub.title} 삭제`} onClick={() => onDelete(sub.id)}>✕</button>
                     </li>
                   ))}
                 </ul>
@@ -122,12 +122,20 @@ function CompletedSectionMini({ goals, subGoals, onDelete, onToggle }) {
 }
 
 function GoalPopup({ goals, subGoals, onClose, onAddGoal, onDeleteGoal, onUpdateColor, onUpdateTitle, onAddSubGoal, onDeleteSubGoal, onToggleSubGoal }) {
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !e.defaultPrevented) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()}>
+      <div className="modal-box" role="dialog" aria-modal="true" aria-label="목표 관리" onClick={e => e.stopPropagation()}>
         <div className="modal-hdr">
           <span className="modal-ttl">🎯 목표 관리</span>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button type="button" className="modal-close" aria-label="닫기" onClick={onClose}>✕</button>
         </div>
         <div className="modal-bdy">
           <GoalAddInline onAdd={onAddGoal} count={goals.length} />

@@ -72,28 +72,20 @@ export default function ScheduleSettings({ uid, history, ready, error, onClose, 
     {discord && <DiscordLinkSection uid={uid} discord={discord} serverInfo={serverInfo} />}
     <section className="schedule-settings-timer">
       <h3>{copy.field('timerHeading')}</h3>
-      <label>{copy.field('timerPopup')}<input type="checkbox" disabled={copy.editing} checked={timerPopupEnabled} onChange={e => {
-        try { setTimerPopupEnabled(e.target.checked); setTimerFailure(''); }
-        catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
-      }} /></label>
+      <label>{copy.field('timerPopup')}<input type="checkbox" disabled={copy.editing} checked={timerPopupEnabled}
+        onChange={e => saveTimerPreference(() => setTimerPopupEnabled(e.target.checked))} /></label>
       <label>{copy.field('timerCompact')}<input type="checkbox" disabled={copy.editing} checked={timerCompactEnabled}
         onChange={e => saveTimerPreference(() => setTimerCompactEnabled(e.target.checked))} /></label>
-      <label>{copy.field('timerPopupPosition')}<select value={timerPopupPosition} disabled={copy.editing} onChange={e => {
-        try {setTimerPopupPosition(e.target.value);setTimerFailure('');}
-        catch {setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.');}
-      }}>
+      <label>{copy.field('timerPopupPosition')}<select value={timerPopupPosition} disabled={copy.editing}
+        onChange={e => saveTimerPreference(() => setTimerPopupPosition(e.target.value))}>
         <option value="left">{copy.value('timerPopupLeft')}</option>
         <option value="right">{copy.value('timerPopupRight')}</option>
       </select></label>
-      <label>{labelWithHelp('studyGap','studyGapNote')}<input type="checkbox" disabled={copy.editing} checked={studyGapEnabled} onChange={e => {
-        try { setStudyGapEnabled(e.target.checked); setTimerFailure(''); }
-        catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
-      }} /></label>
+      <label>{labelWithHelp('studyGap','studyGapNote')}<input type="checkbox" disabled={copy.editing} checked={studyGapEnabled}
+        onChange={e => saveTimerPreference(() => setStudyGapEnabled(e.target.checked))} /></label>
       {help.shown('studyGapNote') && <p>{copy.field('studyGapNote')}</p>}
-      <label>{labelWithHelp('timerSwitch','timerSwitchNote')}<input type="checkbox" disabled={copy.editing} checked={timerSwitchEnabled} onChange={e => {
-        try { setTimerSwitchEnabled(e.target.checked); setTimerFailure(''); }
-        catch { setTimerFailure('타이머 설정을 저장하지 못했습니다. 이 기기의 저장 공간 접근을 확인해 주세요.'); }
-      }} /></label>
+      <label>{labelWithHelp('timerSwitch','timerSwitchNote')}<input type="checkbox" disabled={copy.editing} checked={timerSwitchEnabled}
+        onChange={e => saveTimerPreference(() => setTimerSwitchEnabled(e.target.checked))} /></label>
       {help.shown('timerSwitchNote') && <p>{copy.field('timerSwitchNote')}</p>}
       <label>{labelWithHelp('flowRest','flowRestNote')}<input type="checkbox" disabled={copy.editing} checked={flowRestEnabled}
         onChange={e => saveTimerPreference(() => setFlowRestEnabled(e.target.checked))} /></label>

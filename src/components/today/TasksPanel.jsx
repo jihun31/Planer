@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { todayStr } from "../../features/habits/habitService";
 import TodoItem from "./TodoItem";
 
@@ -27,6 +27,14 @@ function TaskPopup({ tasks, onClose, onAdd, onDelete }) {
   const [error,   setError]   = useState("");
   const undated = tasks.filter(t => !t.dueDate);
 
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !e.defaultPrevented) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!title.trim() || busy) return;
@@ -44,10 +52,10 @@ function TaskPopup({ tasks, onClose, onAdd, onDelete }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()}>
+      <div className="modal-box" role="dialog" aria-modal="true" aria-label="할 일 관리" onClick={e => e.stopPropagation()}>
         <div className="modal-hdr">
           <span className="modal-ttl">✅ 할 일 관리</span>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button type="button" className="modal-close" aria-label="닫기" onClick={onClose}>✕</button>
         </div>
         <div className="modal-bdy">
           <form className="task-popup-form" onSubmit={handleAdd}>

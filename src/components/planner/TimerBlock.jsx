@@ -95,7 +95,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
     if (running || saving || pendingSave.current || (sessionRef.current && !stoppingRef.current) || !selectedActId
       || (selectedIsCustom && (!customName.trim() || (control && !customGroup)))) return;
     if (activeTimerOwner && activeTimerOwner !== timerOwner.current) {
-      alert('다른 탭의 타이머를 먼저 정지해 주세요.');
+      setDesktopError('다른 탭의 타이머를 먼저 정지해 주세요.');
       return;
     }
     activeTimerOwner = timerOwner.current;
@@ -165,7 +165,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
       || (!selectedIsCustom && !isRest && !activities.some(activity => activity.id === selectedActId))
       || (selectedIsCustom && (!customName.trim() || (control && !customGroup)))) return;
     if (activeTimerOwner && activeTimerOwner !== timerOwner.current) {
-      alert('다른 탭의 타이머를 먼저 정지해 주세요.');return;
+      setDesktopError('다른 탭의 타이머를 먼저 정지해 주세요.');return;
     }
     setActId(selectedActId);
     if (!selectedIsCustom) setCustomLearning(false);
@@ -381,7 +381,7 @@ function TimerBlock({ uid, activities, allActivities, onSaveTimer, startActivity
             <span className="ft-dot" style={{ background: timerColor }} />
             <span className="ft-name">{isCustom ? customName : (curAct?.name ?? '')}</span>
             {compactEnabled && <span className="ft-time" style={{ color: timerColor }}>{fmtElapsed(elapsed)}</span>}
-            {isElectron && <button className="ft-pin" onClick={handlePopup} title="항상 위에 고정">📌</button>}
+            {isElectron && <button type="button" className="ft-pin" onClick={handlePopup} title="항상 위에 고정" aria-label="항상 위에 고정">📌</button>}
           </div>
           {!compactEnabled && <div className="ft-time" style={{ color: timerColor }}>{fmtElapsed(elapsed)}</div>}
           {!compactEnabled && startLabel && <div className="ft-start" style={{ color: timerColor }}>{startLabel} 시작</div>}

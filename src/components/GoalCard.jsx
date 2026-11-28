@@ -88,7 +88,7 @@ function SubGoalItem({ sub, color, onToggle, onDelete }) {
       </span>
       <span className="subgoal-period">{periodLabel(sub)}</span>
       <span className="subgoal-title">{sub.title}</span>
-      <button className="subgoal-delete" onClick={() => onDelete(sub.id)} title="삭제">✕</button>
+      <button type="button" className="subgoal-delete" onClick={() => onDelete(sub.id)} title="삭제" aria-label={`${sub.title} 삭제`}>✕</button>
     </li>
   );
 }
@@ -140,7 +140,7 @@ function GoalCard({ goal, subGoals, onDeleteGoal, onAddSubGoal, onDeleteSubGoal,
             onBlur={commitTitle}
             onKeyDown={(e) => {
               if (e.key === 'Enter')  { e.preventDefault(); commitTitle(); }
-              if (e.key === 'Escape') { setTitleDraft(goal.title); setTitleError(""); setEditTitle(false); }
+              if (e.key === 'Escape') { e.preventDefault(); setTitleDraft(goal.title); setTitleError(""); setEditTitle(false); }
             }}
           />
         ) : (
@@ -153,12 +153,14 @@ function GoalCard({ goal, subGoals, onDeleteGoal, onAddSubGoal, onDeleteSubGoal,
         )}
 
         <button
+          type="button"
           className="goal-color-toggle"
           style={{ background: color }}
           onClick={() => setShowPicker((v) => !v)}
           title="색상 변경"
+          aria-label={`${goal.title} 색상 변경`}
         />
-        <button className="goal-card-delete" onClick={() => onDeleteGoal(goal.id)} title="장기 목표 삭제">삭제</button>
+        <button type="button" className="goal-card-delete" onClick={() => onDeleteGoal(goal.id)} title="장기 목표 삭제">삭제</button>
       </div>
       {titleError && <p role="alert" className="habit-error">{titleError}</p>}
 
@@ -167,10 +169,12 @@ function GoalCard({ goal, subGoals, onDeleteGoal, onAddSubGoal, onDeleteSubGoal,
           {GOAL_COLORS.map((c) => (
             <button
               key={c}
+              type="button"
               className={`goal-color-dot ${c === color ? 'gcd-active' : ''}`}
               style={{ background: c, boxShadow: c === color ? `0 0 0 2px #fff, 0 0 0 4px ${c}` : 'none' }}
               onClick={() => { onUpdateColor(goal.id, c); setShowPicker(false); }}
               title={c}
+              aria-label={`색상 ${c}`}
             />
           ))}
         </div>

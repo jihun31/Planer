@@ -10,13 +10,15 @@ function subscribe(onChange) {
   };
 }
 
-// Window behavior belongs to this device and account, rather than calendar history.
-export function useTimerPopupPreference(uid) {
-  const key = uid ? `planer:timer-popup:${uid}` : null;
+function useBooleanPreference(key, fallback) {
   const enabled = useSyncExternalStore(subscribe, () => {
-    try { return !key || window.localStorage.getItem(key) !== 'false'; }
-    catch { return true; }
-  }, () => true);
+    try {
+      const value = key ? window.localStorage.getItem(key) : null;
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      return fallback;
+    } catch { return fallback; }
+  }, () => fallback);
   const setEnabled = value => {
     if (!key || typeof value !== 'boolean') throw new Error('Invalid timer preference');
     window.localStorage.setItem(key, String(value));
@@ -25,18 +27,13 @@ export function useTimerPopupPreference(uid) {
   return [enabled, setEnabled];
 }
 
+// Window behavior belongs to this device and account, rather than calendar history.
+export function useTimerPopupPreference(uid) {
+  return useBooleanPreference(uid ? `planer:timer-popup:${uid}` : null, true);
+}
+
 export function useStudyGapPreference(uid) {
-  const key = uid ? `planer:study-gap-control:${uid}` : null;
-  const enabled = useSyncExternalStore(subscribe, () => {
-    try { return !!key && window.localStorage.getItem(key) === 'true'; }
-    catch { return false; }
-  }, () => false);
-  const setEnabled = value => {
-    if (!key || typeof value !== 'boolean') throw new Error('Invalid timer preference');
-    window.localStorage.setItem(key,String(value));
-    window.dispatchEvent(new Event(changeEvent));
-  };
-  return [enabled,setEnabled];
+  return useBooleanPreference(uid ? `planer:study-gap-control:${uid}` : null, false);
 }
 
 export function useTimerPopupPosition(uid) {
@@ -55,33 +52,7 @@ export function useTimerPopupPosition(uid) {
 
 // 타이머를 정지하면 다음 활동(기록·통제 배지)을 고르는 창을 띄운다. 기본은 끔.
 export function useTimerSwitchPreference(uid) {
-  const key = uid ? `planer:timer-switch-prompt:${uid}` : null;
-  const enabled = useSyncExternalStore(subscribe, () => {
-    try { return !!key && window.localStorage.getItem(key) === 'true'; }
-    catch { return false; }
-  }, () => false);
-  const setEnabled = value => {
-    if (!key || typeof value !== 'boolean') throw new Error('Invalid timer preference');
-    window.localStorage.setItem(key, String(value));
-    window.dispatchEvent(new Event(changeEvent));
-  };
-  return [enabled, setEnabled];
-}
-
-// Flowtime식 집중·휴식 연결. fallback은 저장한 값이 없을 때의 기본값이다.
-function useBooleanPreference(key, fallback) {
-  const enabled = useSyncExternalStore(subscribe, () => {
-    try {
-      const value = key ? window.localStorage.getItem(key) : null;
-      return value === null ? fallback : value === 'true';
-    } catch { return fallback; }
-  }, () => fallback);
-  const setEnabled = value => {
-    if (!key || typeof value !== 'boolean') throw new Error('Invalid timer preference');
-    window.localStorage.setItem(key, String(value));
-    window.dispatchEvent(new Event(changeEvent));
-  };
-  return [enabled, setEnabled];
+  return useBooleanPreference(uid ? `planer:timer-switch-prompt:${uid}` : null, false);
 }
 
 // 타이머 팝업을 콤팩트한 크기로 표시한다. 기본은 켬.

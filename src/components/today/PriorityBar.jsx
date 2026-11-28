@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PriorityNotesBlock from "./PriorityNotesBlock";
 
 // 오늘 탭 맨 위의 한 줄: 2순위까지만 보여주고, 전체 편집은 팝업에서 한다.
@@ -7,6 +7,15 @@ export default function PriorityBar({ data }) {
   const [open, setOpen] = useState(false);
   const { notes, loading, error } = data;
   const shown = notes.slice(0, SHOWN);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !e.defaultPrevented) setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
   return (
     <>
       <div className="priority-bar" role="region" aria-label="우선순위">
@@ -25,7 +34,7 @@ export default function PriorityBar({ data }) {
       </div>
       {open && (
         <div className="modal-overlay" onClick={() => setOpen(false)}>
-          <div className="modal-box priority-modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-box priority-modal" role="dialog" aria-modal="true" aria-label="우선순위" onClick={e => e.stopPropagation()}>
             <div className="modal-hdr">
               <span className="modal-ttl">📝 우선순위</span>
               <button type="button" className="modal-close" aria-label="닫기" onClick={() => setOpen(false)}>✕</button>

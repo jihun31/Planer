@@ -47,7 +47,7 @@ export default function TodoItem({ todo, due, onDelete }) {
       <span className="task-title">{todo.title}</span>
       {due && <span className={`task-due ${due.cls}`}>{due.text}</span>}
       <button type="button" className="th-edit" title="수정" aria-label={`${todo.title} 수정`} onClick={start}>✎</button>
-      <button className="th-del" onClick={() => onDelete(todo.id)}>✕</button>
+      <button type="button" className="th-del" title="삭제" aria-label={`${todo.title} 삭제`} onClick={() => onDelete(todo.id)}>✕</button>
     </li>
   );
 }

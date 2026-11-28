@@ -51,7 +51,15 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
   };
 
   useEffect(() => {
-    if (!reordering) setLocalIds(activities.map(a => a.id));
+    if (!reordering) {
+      setLocalIds(activities.map(a => a.id));
+      return;
+    }
+    const currentIds = new Set(activities.map(a => a.id));
+    setLocalIds(ids => {
+      const filtered = ids.filter(id => currentIds.has(id));
+      return filtered.length === ids.length ? ids : filtered;
+    });
   }, [activities, reordering]);
 
   const displayActivities = reordering
@@ -59,7 +67,7 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
     : activities;
 
   const move = (idx, dir) => {
-    const next = [...localIds];
+    const next = displayActivities.map(a => a.id);
     const swap = idx + dir;
     if (swap < 0 || swap >= next.length) return;
     if (control && displayActivities[idx]?.group !== displayActivities[swap]?.group) return;
@@ -128,11 +136,11 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
                   onClick={() => handleGroupChange(a.id, a.group === 'foolish' ? 'controlled' : 'foolish')}>⇄</button>}
                 {reordering ? (
                   <>
-                    <button type="button" className="act-chip-move" onClick={() => move(idx, -1)}
+                    <button type="button" className="act-chip-move" aria-label={`${a.name} 앞으로 이동`} onClick={() => move(idx, -1)}
                       disabled={idx === 0 || (control && displayActivities[idx - 1]?.group !== a.group)}>‹</button>
-                    <button type="button" className="act-chip-move" onClick={() => move(idx, 1)}
+                    <button type="button" className="act-chip-move" aria-label={`${a.name} 뒤로 이동`} onClick={() => move(idx, 1)}
                       disabled={idx === displayActivities.length - 1 || (control && displayActivities[idx + 1]?.group !== a.group)}>›</button>
-                    <button type="button" className="act-chip-del act-chip-del-visible" title="활동 목록에서 삭제 (과거 기록은 유지)"
+                    <button type="button" className="act-chip-del act-chip-del-visible" title="활동 목록에서 삭제 (과거 기록은 유지)" aria-label={`${a.name} 삭제`}
                       disabled={deleteBusyId === a.id} onClick={() => handleDelete(a.id)}>✕</button>
                   </>
                 ) : null}
@@ -148,6 +156,7 @@ function ActivityManager({ activities, onAdd, onDelete, onUpdateOrder, onUpdateG
               className={`act-reorder-btn${reordering ? ' act-reorder-active' : ''}`}
               onClick={reordering ? handleDone : () => setReordering(true)} disabled={changingGroups || !!deleteBusyId || submitting || colorMode}
               title={reordering ? '순서 변경 완료' : '활동 순서 수정'}
+              aria-label={reordering ? '순서 변경 완료' : '활동 순서 수정'}
             >
               {reordering ? '완료' : '✎'}
             </button>

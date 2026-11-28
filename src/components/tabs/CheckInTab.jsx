@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LIMIT_PERIOD_KR, PLAN_CATEGORIES, WEEKDAY_NAMES, addDays, checkInTag, countInMonth, isDawn, progressLine } from '../../features/tonkatsu/tonkatsuCore.mjs';
 import { editableKeys, planEditError, planInputError } from '../../features/tonkatsu/tonkatsuWrites.mjs';
 import { addPlan, cancelCheckIn, cancelRest, checkIn, deletePlan, editPlan, setAlertHour, takeRest } from '../../features/tonkatsu/tonkatsuService';
@@ -17,7 +17,7 @@ function planDetail(plan) {
   return '';
 }
 
-function AddPlanForm({ discordId, today, onDone, run }) {
+function AddPlanForm({ discordId, today, onDone, run, busy }) {
   const [form, setForm] = useState({ kind: 'Daily', content: '', count: 3, limit: 2, limitOn: false, days: [], interval: 3, deadline: addDays(today, 7), photo: false });
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const periodKind = ['Daily', 'Weekly', 'Monthly'].includes(form.kind);
@@ -29,7 +29,7 @@ function AddPlanForm({ discordId, today, onDone, run }) {
 
   const submit = (e) => {
     e.preventDefault();
-    if (error) return;
+    if (error || busy) return;
     run('add', () => addPlan(discordId, input, today), '계획을 등록했어요.').then((ok) => ok && onDone());
   };
 
@@ -54,13 +54,13 @@ function AddPlanForm({ discordId, today, onDone, run }) {
     </div>
     <div className="tk-add-row">
       {form.content && error && <span className="tk-note">{error}</span>}
-      <button type="submit" className="btn btn-login" disabled={!!error}>등록</button>
+      <button type="submit" className="btn btn-login" disabled={!!error || busy}>등록</button>
       <button type="button" className="btn-signout" onClick={onDone}>닫기</button>
     </div>
   </form>;
 }
 
-function EditPlanForm({ plan, run, onDone }) {
+function EditPlanForm({ plan, run, onDone, busy }) {
   const keys = editableKeys(plan.category);
   const [form, setForm] = useState(() => Object.fromEntries(keys.map((k) => [k, plan[k] ?? (k === 'days' ? [] : '')])));
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
@@ -76,7 +76,7 @@ function EditPlanForm({ plan, run, onDone }) {
 
   const submit = (e) => {
     e.preventDefault();
-    if (!changed || error) return;
+    if (!changed || error || busy) return;
     run(plan.id, () => editPlan(plan, changes), '계획을 수정했어요.').then((ok) => ok && onDone());
   };
 
@@ -96,7 +96,7 @@ function EditPlanForm({ plan, run, onDone }) {
     <div className="tk-add-row">
       {error && <span className="tk-note">{error}</span>}
       {!error && conditionChanged && <span className="tk-muted">조건을 바꾸면 디스코드 알림 채널에 알려요.</span>}
-      <button type="submit" className="btn btn-login" disabled={!changed || !!error}>저장</button>
+      <button type="submit" className="btn btn-login" disabled={!changed || !!error || busy}>저장</button>
       <button type="button" className="btn-signout" onClick={onDone}>취소</button>
     </div>
   </form>;
@@ -105,6 +105,7 @@ function EditPlanForm({ plan, run, onDone }) {
 export default function CheckInTab({ tonkatsu: t, discordId }) {
   const [dateValue, setDateValue] = useState('today');
   const [busy, setBusy] = useState('');
+  const runningRef = useRef(false);
   const [message, setMessage] = useState(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -113,12 +114,14 @@ export default function CheckInTab({ tonkatsu: t, discordId }) {
 
   // 실행 중 표시와 결과 안내. 오프라인이면 연결될 때 전송되므로 안내만 바꿈
   const run = async (key, action, okText) => {
+    if (runningRef.current) return false;
+    runningRef.current = true;
     setBusy(key); setMessage(null);
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     if (offline) setMessage({ ok: true, text: '오프라인이에요. 인터넷에 연결되면 자동으로 보내요.' });
     try { await action(); if (!offline) setMessage({ ok: true, text: okText }); return true; }
     catch { setMessage({ ok: false, text: '저장하지 못했어요. 이미 처리됐거나 허용되지 않는 요청일 수 있어요. 잠시 후 다시 시도해 주세요.' }); return false; }
-    finally { setBusy(''); }
+    finally { runningRef.current = false; setBusy(''); }
   };
 
   const myRecords = (planId) => t.checkIns.filter((c) => c.planId === planId && c.date === date && c.ownerId === discordId)
@@ -144,12 +147,12 @@ export default function CheckInTab({ tonkatsu: t, discordId }) {
         {tag !== null && plan.photo && <span className="tk-note">📸 디스코드에서 사진과 함께 인증</span>}
         {records.length > 0 && <button type="button" className="btn-signout" disabled={!!busy}
           onClick={() => run(plan.id, () => cancelCheckIn(plan, records.at(-1).id), '인증을 한 번 취소했어요.')}>취소</button>}
-        <button type="button" className="tk-icon" title="계획 수정" disabled={!!busy}
+        <button type="button" className="tk-icon" title="계획 수정" aria-label={`${plan.content} 계획 수정`} disabled={!!busy}
           onClick={() => setEditing(editing === plan.id ? null : plan.id)}>✏️</button>
-        <button type="button" className="tk-icon" title="계획 삭제" disabled={!!busy}
+        <button type="button" className="tk-icon" title="계획 삭제" aria-label={`${plan.content} 계획 삭제`} disabled={!!busy}
           onClick={() => window.confirm(`'${plan.content}' 계획을 삭제할까요? 지금까지의 기록은 남아요.`) && run(plan.id, () => deletePlan(plan.id), '계획을 삭제했어요.')}>🗑</button>
       </span>
-      {editing === plan.id && <EditPlanForm plan={plan} run={run} onDone={() => setEditing(null)} />}
+      {editing === plan.id && <EditPlanForm plan={plan} run={run} busy={!!busy} onDone={() => setEditing(null)} />}
     </li>;
   };
 
@@ -167,7 +170,7 @@ export default function CheckInTab({ tonkatsu: t, discordId }) {
       <button type="button" className="btn btn-login" onClick={() => setAdding((v) => !v)}>+ 계획 등록</button>
     </div>
     {message && <p role={message.ok ? 'status' : 'alert'} className={message.ok ? 'tk-ok' : 'tk-error'}>{message.text}</p>}
-    {adding && <AddPlanForm discordId={discordId} today={today} run={run} onDone={() => setAdding(false)} />}
+    {adding && <AddPlanForm discordId={discordId} today={today} run={run} busy={!!busy} onDone={() => setAdding(false)} />}
 
     {!sections.length && <p>등록된 계획이 없어요. <strong>+ 계획 등록</strong>이나 디스코드 <code>/계획 등록</code>으로 추가해 보세요.</p>}
     {sections.map(([category, plans]) => <section key={category} className="tk-section">
